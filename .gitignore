@@ -1,0 +1,17 @@
+*~
+__pycache__
+.tox
+.pre-commit-config.yaml
+.DS_Store
+
+/bin
+/lib
+/include
+/pyvenv.cfg
+/.idea/
+/.mcp.json
+/.venv/
+.pytest_cache/
+.coverage
+*.egg-info/
+.serena/

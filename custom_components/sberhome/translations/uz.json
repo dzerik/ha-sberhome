@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sber ID orqali avtorizatsiya"
+      },
+      "reauth_confirm": {
+        "title": "Qayta avtorizatsiya",
+        "description": "SberHome avtorizatsiya tokeni muddati tugadi. Sber ID orqali qayta kirish kerak."
+      }
+    },
+    "abort": {
+      "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
+      "already_configured": "Qurilma allaqachon sozlangan",
+      "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi"
+    },
+    "error": {
+      "cannot_connect": "Ulanib bo'lmadi",
+      "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
+      "unknown": "Noma'lum xatolik"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SberHome sozlamalari",
+        "data": {
+          "scan_interval": "So'rov oralig'i (soniya)"
+        },
+        "data_description": {
+          "scan_interval": "Qurilmalar holatini yangilash uchun API so'rov chastotasi (10 dan 300 soniyagacha)"
+        }
+      }
+    }
+  }
+}

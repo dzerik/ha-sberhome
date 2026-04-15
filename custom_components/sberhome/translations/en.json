@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Authorize via Sber ID"
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate",
+        "description": "The SberHome authorization token has expired. Please sign in again via Sber ID."
+      }
+    },
+    "abort": {
+      "invalid_auth": "Invalid authentication",
+      "already_configured": "Device is already configured",
+      "reauth_successful": "Reauthentication successful"
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SberHome Settings",
+        "data": {
+          "scan_interval": "Scan interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the API for device state updates (10 to 300 seconds)"
+        }
+      }
+    }
+  }
+}

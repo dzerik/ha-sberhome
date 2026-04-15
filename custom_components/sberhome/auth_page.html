@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SberHome — Авторизация</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+                 Ubuntu, Cantarell, sans-serif;
+    background: #f5f5f5;
+    color: #212121;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    max-width: 460px;
+    width: 100%;
+    padding: 32px 28px;
+  }
+  h1 { font-size: 20px; margin-bottom: 24px; text-align: center; }
+  .steps { list-style: none; counter-reset: step; margin-bottom: 24px; }
+  .steps li {
+    counter-increment: step;
+    padding: 8px 0 8px 36px;
+    position: relative;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 8px;
+    width: 24px; height: 24px;
+    background: #21a038; color: #fff;
+    border-radius: 50%; text-align: center;
+    line-height: 24px; font-size: 13px; font-weight: 600;
+  }
+  .btn {
+    display: block; width: 100%; padding: 14px;
+    border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 600;
+    cursor: pointer; text-align: center;
+    text-decoration: none; transition: background .15s;
+  }
+  .btn-sber { background: #21a038; color: #fff; margin-bottom: 20px; }
+  .btn-sber:hover { background: #1b8a2f; }
+  .btn-submit { background: #03a9f4; color: #fff; }
+  .btn-submit:hover { background: #0288d1; }
+  .btn-submit:disabled { background: #b0bec5; cursor: not-allowed; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; color: #757575; margin-bottom: 6px; }
+  .field input {
+    width: 100%; padding: 12px;
+    border: 1.5px solid #e0e0e0; border-radius: 10px;
+    font-size: 14px; outline: none; transition: border-color .15s;
+  }
+  .field input:focus { border-color: #03a9f4; }
+  .msg { text-align: center; padding: 16px; font-size: 14px; display: none; }
+  .msg.ok { color: #21a038; }
+  .msg.err { color: #d32f2f; }
+  .hint {
+    margin-top: 16px; padding: 12px;
+    background: #fff8e1; border-radius: 8px;
+    font-size: 12px; color: #795548; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>SberHome — Авторизация</h1>
+
+  <ol class="steps">
+    <li>Нажмите кнопку ниже — откроется страница входа через Сбер ID</li>
+    <li>Войдите в свой аккаунт Сбера</li>
+    <li>После входа браузер покажет ошибку — это нормально.
+        Скопируйте <b>URL из адресной строки</b> (он начинается с <code>companionapp://</code>)</li>
+    <li>Вернитесь сюда и вставьте URL в поле ниже</li>
+  </ol>
+
+  <a id="authBtn" class="btn btn-sber" href="$auth_url" target="_blank" rel="noopener">
+    Войти через Сбер ID
+  </a>
+
+  <div id="formArea">
+    <div class="field">
+      <label for="urlInput">Вставьте скопированный URL</label>
+      <input id="urlInput" type="text" placeholder="companionapp://host?code=...&amp;state=..." autocomplete="off">
+    </div>
+    <button id="submitBtn" class="btn btn-submit" disabled>Подтвердить</button>
+  </div>
+
+  <div id="msgOk" class="msg ok">Авторизация прошла успешно! Это окно можно закрыть.</div>
+  <div id="msgErr" class="msg err"></div>
+
+  <div class="hint">
+    Если URL не виден в адресной строке, откройте консоль разработчика (F12)
+    и найдите ссылку <code>companionapp://...</code> в ошибке.
+  </div>
+</div>
+
+<script>
+(function() {
+  var flowId = "$flow_id";
+  var urlInput = document.getElementById("urlInput");
+  var submitBtn = document.getElementById("submitBtn");
+  var formArea = document.getElementById("formArea");
+  var msgOk = document.getElementById("msgOk");
+  var msgErr = document.getElementById("msgErr");
+
+  urlInput.addEventListener("input", function() {
+    submitBtn.disabled = !urlInput.value.startsWith("companionapp://");
+    msgErr.style.display = "none";
+  });
+
+  submitBtn.addEventListener("click", function() {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Подождите...";
+    msgErr.style.display = "none";
+
+    fetch("/auth/sberhome/callback", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({flow_id: flowId, url: urlInput.value.trim()})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        formArea.style.display = "none";
+        document.getElementById("authBtn").style.display = "none";
+        msgOk.style.display = "block";
+        setTimeout(function() { window.close(); }, 2000);
+      } else {
+        msgErr.textContent = data.error || "Ошибка авторизации";
+        msgErr.style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Подтвердить";
+      }
+    })
+    .catch(function() {
+      msgErr.textContent = "Не удалось отправить запрос";
+      msgErr.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Подтвердить";
+    });
+  });
+})();
+</script>
+</body>
+</html>

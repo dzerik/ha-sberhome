@@ -1,0 +1,6 @@
+{
+  "name": "SberHome",
+  "homeassistant": "2024.8",
+  "render_readme": true,
+  "country": ["RU", "KZ", "BY", "UZ"]
+}
