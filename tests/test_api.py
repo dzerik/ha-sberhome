@@ -141,8 +141,8 @@ class TestSberAPI:
     def test_create_authorization_url(self):
         api = SberAPI()
         url = api.create_authorization_url()
-        # Новый стек использует id.sber.ru
-        assert "id.sber.ru" in url
+        # OAuth host: online.sberbank.ru (id.sber.ru отвергает наш CLIENT_ID).
+        assert "online.sberbank.ru" in url
         assert "code_challenge=" in url
         assert "code_challenge_method=S256" in url
         assert "redirect_uri=" in url

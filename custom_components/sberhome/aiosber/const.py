@@ -11,11 +11,13 @@ from typing import Final
 # =============================================================================
 # Endpoints
 # =============================================================================
-# OAuth (id.sber.ru) — актуальные endpoints из реверса APK.
-# Старые online.sberbank.ru/CSAFront — DEPRECATED, не использовать.
-AUTH_BASE_URL: Final = "https://id.sber.ru"
+# OAuth — рабочие endpoints из ha-sberdevices (sister project).
+# `id.sber.ru` отдаёт «Этот сервис не настроен для работы со Сбер ID» для
+# нашего CLIENT_ID (Salute). Sber разделил identity providers — companion
+# OAuth остался на старом online.sberbank.ru.
+AUTH_BASE_URL: Final = "https://online.sberbank.ru"
 AUTHORIZE_ENDPOINT: Final = f"{AUTH_BASE_URL}/CSAFront/oidc/authorize.do"
-TOKEN_ENDPOINT: Final = f"{AUTH_BASE_URL}/CSAFront/api/service/oidc/v3/token"
+TOKEN_ENDPOINT: Final = "https://online.sberbank.ru:4431/CSAFront/api/service/oidc/v3/token"
 
 # Companion token exchange (Sber ID access → smarthome companion token).
 # По реверсу APK `smarthome/token` берётся относительно base URL,

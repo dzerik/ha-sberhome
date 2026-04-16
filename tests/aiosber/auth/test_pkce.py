@@ -56,7 +56,7 @@ def test_pkce_params_immutable():
 def test_authorize_url_has_required_params():
     p = PkceParams.generate()
     url = build_authorize_url(p)
-    assert url.startswith("https://id.sber.ru/CSAFront/oidc/authorize.do?")
+    assert url.startswith("https://online.sberbank.ru/CSAFront/oidc/authorize.do?")
     for key in (
         "response_type=code",
         "client_id=b1f0f0c6",
