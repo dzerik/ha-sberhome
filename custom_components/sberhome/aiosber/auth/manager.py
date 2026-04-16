@@ -130,6 +130,16 @@ class AuthManager:
     def has_sberid_refresh(self) -> bool:
         return self._sberid is not None and bool(self._sberid.refresh_token)
 
+    @property
+    def sberid_expires_at(self) -> float | None:
+        """Unix timestamp истечения SberID-токена; None если токен не загружен."""
+        return self._sberid.expires_at if self._sberid is not None else None
+
+    @property
+    def companion_expires_at(self) -> float | None:
+        """Unix timestamp истечения companion-токена; None если ещё не получен."""
+        return self._companion.expires_at if self._companion is not None else None
+
     # ----- Internal -----
     async def _ensure_loaded(self) -> None:
         if self._loaded:

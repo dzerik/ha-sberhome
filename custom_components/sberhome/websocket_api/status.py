@@ -27,13 +27,12 @@ def ws_get_status(
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
 
-    sber = coord.sber_api
-    sberid_expires = (
-        sber._sberid.expires_at if sber._sberid is not None else None
-    )
-    companion_expires = (
-        sber._companion.expires_at if sber._companion is not None else None
-    )
+    # Tokens живут в HomeAPI.AuthManager (после перехода на aiosber 2.6.0).
+    # SberID хранится также в SberAPI (для config_entry.data persistence),
+    # но canonical источник истины для runtime — AuthManager.
+    auth = coord.home_api._auth
+    sberid_expires = auth.sberid_expires_at
+    companion_expires = auth.companion_expires_at
 
     connection.send_result(
         msg["id"],

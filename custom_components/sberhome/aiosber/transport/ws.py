@@ -126,7 +126,16 @@ class WebSocketClient:
         backoff_initial: float = 1.0,
         backoff_max: float = 60.0,
         backoff_multiplier: float = 2.0,
+        max_consecutive_failures: int | None = 5,
     ) -> None:
+        """
+        Args:
+            max_consecutive_failures: после N подряд неудачных connect-попыток
+                run() завершается (degraded mode). Полезно когда WS-endpoint
+                отдаёт стабильный 4xx (неверный path) — лучше отказаться от WS
+                и работать на polling, чем спамить логи. None = бесконечно.
+                Сбрасывается при любом успешном recv-loop.
+        """
         self._auth = auth
         self._callback = callback
         self._factory = factory
@@ -134,6 +143,7 @@ class WebSocketClient:
         self._backoff_initial = backoff_initial
         self._backoff_max = backoff_max
         self._backoff_multiplier = backoff_multiplier
+        self._max_consecutive_failures = max_consecutive_failures
 
         self._stop_event = asyncio.Event()
         self._connection: WebSocketProtocol | None = None
@@ -152,26 +162,50 @@ class WebSocketClient:
         """Запустить infinite reconnect loop. Завершается только по `stop()`.
 
         Используется как long-running task: `task = asyncio.create_task(client.run())`.
+        После `max_consecutive_failures` подряд connect-fails — graceful exit
+        в degraded mode (log WARN, return).
         """
         backoff = self._backoff_initial
+        consecutive_failures = 0
         while not self._stop_event.is_set():
             try:
                 await self._connect_and_receive()
-                # Чистое завершение recv (сервер закрыл соединение) — reconnect без backoff
+                # Успешный recv-loop — сбросим счётчик, новый connect без backoff
+                consecutive_failures = 0
                 backoff = self._backoff_initial
             except AuthError:
                 # Critical: refresh не помог. Останавливаемся, callback должен решить дальше.
                 _LOGGER.error("WebSocket auth failed, stopping")
                 raise
             except SberError as err:
-                _LOGGER.warning("WebSocket error: %s; reconnect in %.1fs", err, backoff)
+                consecutive_failures += 1
+                _LOGGER.warning(
+                    "WebSocket error (failure %d/%s): %s; reconnect in %.1fs",
+                    consecutive_failures,
+                    self._max_consecutive_failures or "∞",
+                    err,
+                    backoff,
+                )
             except asyncio.CancelledError:
                 _LOGGER.debug("WebSocket cancelled")
                 raise
             except Exception:
+                consecutive_failures += 1
                 _LOGGER.exception("Unexpected WebSocket error; reconnect in %.1fs", backoff)
 
             self._connected_event.clear()
+
+            if (
+                self._max_consecutive_failures is not None
+                and consecutive_failures >= self._max_consecutive_failures
+            ):
+                _LOGGER.warning(
+                    "WebSocket disabled after %d consecutive failures — "
+                    "degrading to polling-only mode. Restart integration to retry.",
+                    consecutive_failures,
+                )
+                return
+
             if self._stop_event.is_set():
                 break
             try:

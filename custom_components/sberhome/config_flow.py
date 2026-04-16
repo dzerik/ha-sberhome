@@ -83,9 +83,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_updates={"token": self._client.token},
                 )
             LOGGER.info("Authorization successful, creating config entry")
+            # Opt-in: новый entry стартует с пустым списком включённых устройств,
+            # пользователь выбирает их через панель SberHome. Без этого
+            # интеграция бы импортировала ВСЕ устройства аккаунта в HA сразу
+            # после авторизации, что обычно нежелательно.
             return self.async_create_entry(
                 title="SberHome",
                 data={"token": self._client.token},
+                options={"enabled_device_ids": []},
             )
         LOGGER.warning("Authorization failed: no token received")
         return self.async_abort(reason="invalid_auth")
