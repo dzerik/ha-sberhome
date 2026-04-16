@@ -339,7 +339,6 @@ async def test_run_ws_logs_unexpected_exception(coordinator, mock_home_api):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="WS auto-start disabled after auth rollback")
 async def test_update_data_starts_ws_when_task_is_none(coordinator, mock_home_api):
     """При первом успешном polling (без активного _ws_task) — стартует WS task."""
     coordinator._ws_task = None

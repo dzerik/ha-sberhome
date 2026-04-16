@@ -1,33 +1,56 @@
-"""API clients for SberDevices smart home."""
+"""HA-shim над aiosber.
+
+Тонкие обёртки `SberAPI` и `HomeAPI` сохраняют легаси-интерфейс для
+config_flow.py и платформ (entity._async_send_bundle), внутри полностью
+делегируют работу типизированному стеку `aiosber/`:
+
+- `SberAPI` хранит SberID-токены и делает PKCE-флоу (config_flow).
+- `HomeAPI` владеет AuthManager + HttpTransport, кеширует raw devices в
+  `_cached_devices` для совместимости с WS-патчем (coordinator) и
+  diagnostics, выполняет команды через `transport.put`, мапит aiosber
+  исключения в SberSmartHome иерархию.
+
+Никакой business-логики здесь нет — она в aiosber.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import ssl
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
-from authlib.common.security import generate_token
-from authlib.integrations.httpx_client import AsyncOAuth2Client
-from httpx import AsyncClient, ConnectError, ReadTimeout, Timeout
+import httpx
 
-from .const import (
-    AUTH_ENDPOINT,
-    CLIENT_ID,
-    COMPANION_URL,
-    GATEWAY_BASE_URL,
-    LOGGER,
-    REDIRECT_URI,
-    ROOT_CA_PEM,
-    TOKEN_ENDPOINT,
-    USER_AGENT,
+from .aiosber.auth import (
+    AuthManager,
+    InMemoryTokenStore,
+    PkceParams,
+    SberIdTokens,
+    build_authorize_url,
+    exchange_code_for_tokens,
+    extract_code_from_redirect,
 )
+from .aiosber.const import DEFAULT_PARTNER_NAME, ROOT_CA_PEM
+from .aiosber.dto.device import DeviceDto
+from .aiosber.exceptions import (
+    ApiError,
+    AuthError,
+    InvalidGrant,
+    NetworkError,
+    PkceError,
+    RateLimitError,
+)
+from .aiosber.transport import HttpTransport
+from .const import LOGGER
 from .exceptions import SberApiError, SberAuthError, SberConnectionError
 from .utils import extract_devices
 
-REQUEST_TIMEOUT = Timeout(10.0, connect=5.0)
+REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 COMMAND_RETRY_DELAY = 1.0
+
+# In-band gateway error codes
+_CODE_TOKEN_EXPIRED = 16
 
 
 _ssl_context: ssl.SSLContext | None = None
@@ -48,131 +71,114 @@ async def async_init_ssl(hass) -> None:
     await hass.async_add_executor_job(_get_ssl_context)
 
 
-def _parse_jwt_exp(token: str) -> float | None:
-    """Extract expiration time from a JWT token without verification."""
-    try:
-        import base64
+def _normalize_legacy_token(token: dict) -> dict:
+    """Сконвертить authlib-стиль `expires_at` в aiosber-стиль `obtained_at`.
 
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-        payload = parts[1]
-        # Add padding
-        payload += "=" * (4 - len(payload) % 4)
-        data = json.loads(base64.urlsafe_b64decode(payload))
-        return data.get("exp")
-    except Exception:
-        return None
+    Legacy entries (≤ 2.5.x) хранят токен в формате authlib OAuth2Token, где
+    `expires_at` — абсолютное время истечения. SberIdTokens хочет `obtained_at`
+    (момент получения). Переводим: obtained_at = expires_at - expires_in.
+    """
+    if "obtained_at" in token or "expires_at" not in token:
+        return token
+    expires_in = int(token.get("expires_in", 3600))
+    return {**token, "obtained_at": token["expires_at"] - expires_in}
 
 
 class SberAPI:
-    """OAuth2 client for Sber ID authorization."""
+    """OAuth2 PKCE-shim для config_flow.
+
+    Хранит SberID-токены. Companion-токены живут в HomeAPI (через AuthManager),
+    чтобы не дублировать состояние.
+    """
 
     def __init__(self, token: dict | None = None) -> None:
-        self._verify_token = generate_token(64)
-        self._oauth_client = AsyncOAuth2Client(
-            client_id=CLIENT_ID,
-            authorization_endpoint=TOKEN_ENDPOINT,
-            token_endpoint=TOKEN_ENDPOINT,
-            redirect_uri=REDIRECT_URI,
-            code_challenge_method="S256",
-            scope="openid",
-            grant_type="authorization_code",
-            token=token,
-            verify=_get_ssl_context(),
-            timeout=REQUEST_TIMEOUT,
+        self._sberid: SberIdTokens | None = (
+            SberIdTokens.from_dict(_normalize_legacy_token(token)) if token else None
+        )
+        self._pkce: PkceParams | None = None
+        self._http = httpx.AsyncClient(
+            verify=_get_ssl_context(), timeout=REQUEST_TIMEOUT
         )
 
     @property
     def token(self) -> dict | None:
-        return self._oauth_client.token
+        """Текущий SberID-токен в JSON-сериализуемой форме (для config_entry.data)."""
+        return self._sberid.to_dict() if self._sberid else None
+
+    @property
+    def sberid_tokens(self) -> SberIdTokens | None:
+        """Прямой доступ к SberIdTokens — для передачи в HomeAPI/AuthManager."""
+        return self._sberid
 
     def create_authorization_url(self) -> str:
-        return self._oauth_client.create_authorization_url(
-            AUTH_ENDPOINT,
-            nonce=generate_token(),
-            code_verifier=self._verify_token,
-            partner_name="Салют! Умный дом",
-        )[0]
+        """Сгенерировать PKCE и вернуть URL Sber ID для редиректа."""
+        self._pkce = PkceParams.generate()
+        return build_authorize_url(self._pkce, partner_name=DEFAULT_PARTNER_NAME)
 
     async def authorize_by_url(self, url: str) -> bool:
-        try:
-            token = await self._oauth_client.fetch_token(
-                TOKEN_ENDPOINT,
-                authorization_response=url,
-                code_verifier=self._verify_token,
+        """Извлечь code из callback URL, обменять на SberID токены.
+
+        Returns True при успехе, False при любой auth/network/pkce ошибке.
+        """
+        if self._pkce is None:
+            LOGGER.debug(
+                "authorize_by_url called without prior create_authorization_url"
             )
-            return token is not None
-        except Exception:
+            return False
+        try:
+            code = extract_code_from_redirect(url, expected_state=self._pkce.state)
+            tokens = await exchange_code_for_tokens(
+                self._http, code, code_verifier=self._pkce.verifier
+            )
+        except (PkceError, AuthError, InvalidGrant, NetworkError, ApiError):
             LOGGER.debug("OAuth token exchange failed", exc_info=True)
             return False
-
-    async def fetch_home_token(self) -> str:
-        """Fetch IoT gateway token from companion service."""
-        try:
-            response = await self._oauth_client.get(
-                COMPANION_URL,
-                headers={"User-Agent": USER_AGENT},
-            )
-            LOGGER.debug(
-                "Companion response: status=%s, length=%s",
-                response.status_code,
-                len(response.content),
-            )
-            if response.status_code != 200:
-                raise SberAuthError(
-                    f"Companion returned HTTP {response.status_code}: "
-                    f"{response.text[:200]}"
-                )
-            try:
-                data = response.json()
-            except (ValueError, TypeError) as err:
-                raise SberAuthError(
-                    f"Companion returned invalid JSON "
-                    f"(status {response.status_code}): {response.text[:200]}"
-                ) from err
-            if "token" not in data:
-                raise SberAuthError(
-                    f"No token in companion response: {data}"
-                )
-            return data["token"]
-        except SberAuthError:
-            raise
-        except (ConnectError, ReadTimeout) as err:
-            raise SberConnectionError(
-                f"Failed to reach companion service: {err}"
-            ) from err
-        except Exception as err:
-            LOGGER.debug("Failed to fetch home token", exc_info=True)
-            raise SberAuthError(f"Failed to fetch home token: {err}") from err
+        self._sberid = tokens
+        return True
 
     async def aclose(self) -> None:
-        await self._oauth_client.aclose()
+        await self._http.aclose()
 
 
 class HomeAPI:
-    """Client for SberDevices IoT gateway API."""
+    """HA-shim над aiosber HttpTransport + AuthManager.
+
+    Сохраняет атрибут `_cached_devices: dict[str, dict]` в raw виде — это нужно
+    для:
+    - точечного WS-патча (`coordinator._on_ws_device_state` мутирует raw dict);
+    - diagnostics, который сериализует raw dict в JSON;
+    - sbermap, который lazy-конвертит в DeviceDto через `get_cached_devices_dto`.
+    """
 
     def __init__(self, sber: SberAPI) -> None:
         self._sber = sber
-        self._client = AsyncClient(
-            base_url=GATEWAY_BASE_URL,
-            verify=_get_ssl_context(),
-            timeout=REQUEST_TIMEOUT,
+        self._http = httpx.AsyncClient(
+            verify=_get_ssl_context(), timeout=REQUEST_TIMEOUT
         )
-        self._gateway_token: str | None = None
-        self._gateway_token_exp: float = 0
+        self._store = InMemoryTokenStore()
+        self._auth = AuthManager(
+            http=self._http,
+            store=self._store,
+            sberid_tokens=sber.sberid_tokens,
+        )
+        self._transport = HttpTransport(http=self._http, auth=self._auth)
         self._cached_devices: dict = {}
 
-    def get_cached_devices_dto(self) -> dict:
-        """Lazy-конвертит raw → DeviceDto для sbermap (PR #2 совместимость).
+    async def get_auth_manager(self) -> AuthManager:
+        """Доступ к AuthManager для WS handshake (`coordinator._run_ws`).
+
+        Async по контракту с coordinator (он awaits): даёт возможность
+        в будущем lazy-инициализировать AuthManager без breaking-change.
+        """
+        return self._auth
+
+    def get_cached_devices_dto(self) -> dict[str, DeviceDto]:
+        """Lazy-конверт raw → DeviceDto для sbermap.
 
         Resilient: skip + log devices которые не парсятся, чтобы один
         нестандартный device не валил polling всем остальным.
         """
-        from .aiosber.dto.device import DeviceDto
-
-        out: dict = {}
+        out: dict[str, DeviceDto] = {}
         for device_id, raw in self._cached_devices.items():
             try:
                 dto = DeviceDto.from_dict(raw)
@@ -187,76 +193,9 @@ class HomeAPI:
                 out[device_id] = dto
         return out
 
-    async def update_token(self) -> None:
-        """Refresh gateway token if expired or about to expire."""
-        now = time.time()
-        if self._gateway_token and now < self._gateway_token_exp - 60:
-            return
-        token = await self._sber.fetch_home_token()
-        self._client.headers.update({"X-AUTH-jwt": token})
-        self._gateway_token = token
-        exp = _parse_jwt_exp(token)
-        self._gateway_token_exp = exp if exp else now + 3600
-        LOGGER.debug(
-            "Gateway token refreshed, expires in %ds",
-            int(self._gateway_token_exp - now),
-        )
-
-    async def request(
-        self, method: str, url: str, retry: bool = True, **kwargs
-    ) -> dict:
-        """Make an authenticated request to the gateway API."""
-        await self.update_token()
-
-        try:
-            res = await self._client.request(method, url, **kwargs)
-        except (ConnectError, ReadTimeout) as err:
-            raise SberConnectionError(
-                f"Connection error: {err}"
-            ) from err
-
-        if res.status_code == 429:
-            retry_after = int(res.headers.get("Retry-After", "60"))
-            LOGGER.warning("API rate limited, retry after %ds", retry_after)
-            raise SberApiError(
-                code=429,
-                status_code=429,
-                message=f"Rate limited, retry after {retry_after}s",
-                retry_after=retry_after,
-            )
-
-        if res.status_code != 200:
-            try:
-                obj = res.json()
-                code = obj.get("code", -1)
-                message = obj.get("message", "Unknown error")
-            except (ValueError, KeyError):
-                raise SberApiError(
-                    code=-1,
-                    status_code=res.status_code,
-                    message=res.text,
-                )
-            # code 16 = expired token
-            if code == 16:
-                LOGGER.debug("Gateway token expired, forcing refresh")
-                self._gateway_token_exp = 0
-                if retry:
-                    return await self.request(
-                        method, url, retry=False, **kwargs
-                    )
-                raise SberAuthError("Token expired and retry failed")
-            raise SberApiError(
-                code=code, status_code=res.status_code, message=message
-            )
-
-        return res.json()
-
-    async def get_device_tree(self) -> dict:
-        return (await self.request("GET", "/device_groups/tree"))["result"]
-
     async def update_devices_cache(self) -> None:
-        device_data = await self.get_device_tree()
-        self._cached_devices = extract_devices(device_data)
+        device_data = await self._request("GET", "/device_groups/tree")
+        self._cached_devices = extract_devices(device_data["result"])
 
     def get_cached_devices(self) -> dict:
         return self._cached_devices
@@ -267,7 +206,7 @@ class HomeAPI:
     async def set_device_state(
         self, device_id: str, state: list[dict]
     ) -> None:
-        """Set device state via the gateway API with retry on network errors."""
+        """Set device state via the gateway API with one network-retry."""
         try:
             await self._set_device_state_inner(device_id, state)
         except SberConnectionError:
@@ -282,20 +221,17 @@ class HomeAPI:
     async def _set_device_state_inner(
         self, device_id: str, state: list[dict]
     ) -> None:
-        """Send device state update to the gateway API."""
-        await self.request(
+        """Send device state update + merge into local cache."""
+        await self._request(
             "PUT",
             f"/devices/{device_id}/state",
             json={
                 "device_id": device_id,
                 "desired_state": state,
-                "timestamp": datetime.now(timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z"),
+                "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             },
         )
 
-        # Merge into local cache
         if device_id in self._cached_devices:
             for state_val in state:
                 for attribute in self._cached_devices[device_id][
@@ -305,5 +241,62 @@ class HomeAPI:
                         attribute.update(state_val)
                         break
 
+    async def _request(
+        self, method: str, path: str, *, json: Any = None
+    ) -> dict:
+        """Низкоуровневый запрос: маппинг aiosber → SberSmartHome исключений.
+
+        Дополнительно ловит in-band `code 16` (token expired): force_refresh +
+        retry один раз. Это compat-strategy для случаев, когда gateway отдаёт
+        200 OK с code-16 вместо честного 401.
+        """
+        payload = await self._request_once(method, path, json=json)
+
+        if isinstance(payload, dict) and payload.get("code") == _CODE_TOKEN_EXPIRED:
+            LOGGER.debug("Gateway code 16 (token expired) — force refresh + retry")
+            try:
+                await self._auth.force_refresh()
+            except (AuthError, InvalidGrant) as err:
+                raise SberAuthError(str(err)) from err
+            payload = await self._request_once(method, path, json=json)
+            if (
+                isinstance(payload, dict)
+                and payload.get("code") == _CODE_TOKEN_EXPIRED
+            ):
+                raise SberAuthError("Token expired and retry failed")
+
+        return payload
+
+    async def _request_once(
+        self, method: str, path: str, *, json: Any = None
+    ) -> dict:
+        try:
+            resp = await self._transport.request(method, path, json=json)
+        except (AuthError, InvalidGrant) as err:
+            raise SberAuthError(str(err)) from err
+        except RateLimitError as err:
+            retry_after = int(err.retry_after) if err.retry_after else 60
+            LOGGER.warning("API rate limited, retry after %ds", retry_after)
+            raise SberApiError(
+                code=429,
+                status_code=429,
+                message=str(err),
+                retry_after=retry_after,
+            ) from err
+        except NetworkError as err:
+            raise SberConnectionError(f"Connection error: {err}") from err
+        except ApiError as err:
+            code = err.code if isinstance(err.code, int) else -1
+            raise SberApiError(
+                code=code, status_code=err.status_code, message=err.message or str(err)
+            ) from err
+
+        try:
+            return resp.json()
+        except (ValueError, TypeError) as err:
+            raise SberApiError(
+                code=-1, status_code=resp.status_code, message=resp.text[:200]
+            ) from err
+
     async def aclose(self) -> None:
-        await self._client.aclose()
+        await self._transport.aclose()
