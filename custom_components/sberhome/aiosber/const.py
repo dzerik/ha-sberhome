@@ -27,7 +27,10 @@ COMPANION_TOKEN_PATH: Final = "/v13/smarthome/token"
 
 # Gateway REST + WebSocket
 GATEWAY_BASE_URL: Final = "https://gateway.iot.sberdevices.ru/gateway/v1"
-WEBSOCKET_BASE_URL: Final = "wss://ws.iot.sberdevices.ru"
+# WebSocket: точный path `/v1` найден живым probe (см. research_docs/03-websocket.md).
+# Все другие пути отдают HTTP 404. С `/v1` handshake возвращает HTTP 101, после
+# чего сервер ждёт auth-frame (формат пока не известен — нужен MITM Sber Salute).
+WEBSOCKET_BASE_URL: Final = "wss://ws.iot.sberdevices.ru/v1"
 
 # =============================================================================
 # Client IDs
