@@ -1,27 +1,20 @@
 """Обмен SberID access_token на companion (smarthome) token.
 
-Endpoint: GET `<companion_base>/smarthome/token` с Bearer SberID + x-trace-id.
+Endpoint: GET `<companion_base>/v13/smarthome/token` с Bearer SberID + User-Agent.
 Этот companion-токен — то, чем подписываются ВСЕ запросы к gateway.
 
-Реверс APK подтверждает использование `smarthome/token` относительно base URL,
-но точный host (staros vs gateway) — окончательно не выяснен. По умолчанию
-используем `gateway.iot.sberdevices.ru/smarthome/token`; при необходимости
-можно переопределить параметром `endpoint`.
+Реальный production endpoint (подтверждено sister-integration ha-sberdevices):
+`https://companion.devices.sberbank.ru/v13/smarthome/token`. User-Agent
+обязателен — без него бекенд возвращает HTTP 400.
 """
 
 from __future__ import annotations
 
-import uuid
-
 import httpx
 
-from ..const import COMPANION_BASE_URL, COMPANION_TOKEN_PATH
+from ..const import COMPANION_BASE_URL, COMPANION_TOKEN_PATH, DEFAULT_USER_AGENT
 from ..exceptions import ApiError, AuthError, NetworkError
 from .tokens import CompanionTokens
-
-
-def _new_trace_id() -> str:
-    return str(uuid.uuid4())
 
 
 async def exchange_for_companion_token(
@@ -29,22 +22,22 @@ async def exchange_for_companion_token(
     sberid_access_token: str,
     *,
     endpoint: str = COMPANION_BASE_URL + COMPANION_TOKEN_PATH,
-    trace_id: str | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
 ) -> CompanionTokens:
     """Step 3: SberID access → companion token (для gateway/v1/*).
 
     Args:
         http: shared httpx.AsyncClient.
         sberid_access_token: access_token из `exchange_code_for_tokens()`.
-        endpoint: полный URL `/smarthome/token`. Override для тестов / других стендов.
-        trace_id: значение x-trace-id (для distributed tracing). По умолчанию — новый UUID.
+        endpoint: полный URL `/v13/smarthome/token`. Override для тестов.
+        user_agent: User-Agent — обязателен, бекенд требует Salute UA.
 
     Returns:
         CompanionTokens с access_token (для Bearer), опц. refresh_token, expires_in.
     """
     headers = {
         "Authorization": f"Bearer {sberid_access_token}",
-        "x-trace-id": trace_id or _new_trace_id(),
+        "User-Agent": user_agent,
         "Accept": "application/json",
     }
     try:

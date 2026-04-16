@@ -158,8 +158,10 @@ class HttpTransport:
 
     async def _build_headers(self, *, extra: dict[str, str] | None = None) -> dict[str, str]:
         token = await self._auth.access_token()
+        # Gateway требует X-AUTH-jwt (без префикса Bearer). Это отличие от
+        # стандартного OAuth2 — Sber использует custom-header для companion-токена.
         headers = {
-            "Authorization": f"Bearer {token}",
+            "X-AUTH-jwt": token,
             "User-Agent": self._user_agent,
             "Accept": "application/json",
             "x-trace-id": str(uuid.uuid4()),

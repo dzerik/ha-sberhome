@@ -195,15 +195,41 @@ class WebSocketClient:
 
     # ----- Internal -----
     async def _connect_and_receive(self) -> None:
-        """Один цикл: получить токен → handshake → recv loop."""
-        token = await self._auth.access_token()
-        headers = {"Authorization": f"Bearer {token}"}
-        try:
-            conn = await self._factory(self._url, headers)
-        except Exception as err:
-            # Маппим всё остальное в NetworkError — auth-проблемы выявит retry
-            raise NetworkError(f"WS connect failed: {err}") from err
+        """Один цикл: получить токен → handshake → recv loop.
 
+        Sber WS поддерживает оба формата auth-header: стандартный
+        `Authorization: Bearer <token>` (как описано в APK-реверсе) ИЛИ
+        gateway-style `X-AUTH-jwt: <token>` (как в REST-транспорте).
+
+        Стратегия: пробуем Bearer, при handshake-ошибке — fallback на X-AUTH-jwt.
+        Логируем DEBUG, какой путь сработал, для будущей оптимизации.
+        """
+        token = await self._auth.access_token()
+        primary_headers = {"Authorization": f"Bearer {token}"}
+        fallback_headers = {"X-AUTH-jwt": token}
+        conn: WebSocketProtocol | None = None
+        primary_err: Exception | None = None
+        try:
+            conn = await self._factory(self._url, primary_headers)
+            _LOGGER.debug("WS handshake OK with Authorization: Bearer")
+        except Exception as err:
+            primary_err = err
+            _LOGGER.debug(
+                "WS handshake with Authorization: Bearer failed: %s; trying X-AUTH-jwt",
+                err,
+            )
+            try:
+                conn = await self._factory(self._url, fallback_headers)
+                _LOGGER.debug("WS handshake OK with X-AUTH-jwt fallback")
+            except Exception as fallback_err:
+                # Оба варианта упали — это либо network, либо реально невалидный токен.
+                # Различить нельзя без парсинга exception, поэтому маппим в NetworkError —
+                # 401 на REST-уровне поднимется AuthError'ом и инициирует reauth.
+                raise NetworkError(
+                    f"WS connect failed: bearer={primary_err}; jwt={fallback_err}"
+                ) from fallback_err
+
+        assert conn is not None  # for mypy
         self._connection = conn
         self._connected_event.set()
         _LOGGER.debug("WebSocket connected to %s", self._url)

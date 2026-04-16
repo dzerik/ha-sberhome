@@ -29,7 +29,9 @@ async def test_companion_success():
     assert tokens.access_token == "COMP"
     assert tokens.expires_in == 86400
     assert captured["headers"]["authorization"] == "Bearer sberid-AT"
-    assert "x-trace-id" in captured["headers"]
+    # Обязателен Salute User-Agent (бекенд Sber иначе возвращает 400)
+    assert "user-agent" in captured["headers"]
+    assert "Salute" in captured["headers"]["user-agent"]
 
 
 async def test_companion_401_raises_auth_error():
@@ -81,14 +83,14 @@ async def test_companion_legacy_format_token_field():
     assert tokens.expires_in == 86400  # default 24h
 
 
-async def test_companion_custom_trace_id():
+async def test_companion_custom_user_agent():
     captured: dict = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        captured["trace"] = req.headers.get("x-trace-id")
+        captured["ua"] = req.headers.get("user-agent")
         return httpx.Response(200, json={"access_token": "x"})
 
     async with _client(handler) as http:
-        await exchange_for_companion_token(http, "AT", trace_id="my-trace-id")
+        await exchange_for_companion_token(http, "AT", user_agent="MyCustomUA/1.0")
 
-    assert captured["trace"] == "my-trace-id"
+    assert captured["ua"] == "MyCustomUA/1.0"

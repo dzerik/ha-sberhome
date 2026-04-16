@@ -40,8 +40,12 @@ ALT_CLIENT_ID: Final = "197b98ad-8de4-4a11-a23c-dd5f29caaaea"
 # Redirect URI для OAuth (custom scheme приложения)
 DEFAULT_REDIRECT_URI: Final = "companionapp://host"
 
-# OAuth scopes
-DEFAULT_SCOPES: Final = ("openid", "profile", "offline_access")
+# OAuth scopes — реальный wire требует ровно `openid`. Дополнительные scope
+# (profile/offline_access) приводят к "invalid_scope" на online.sberbank.ru.
+DEFAULT_SCOPES: Final = ("openid",)
+
+# partner_name — show в UI Sber ID браузера. Подтверждено в ha-sberdevices.
+DEFAULT_PARTNER_NAME: Final = "Салют! Умный дом"
 
 # =============================================================================
 # HTTP defaults

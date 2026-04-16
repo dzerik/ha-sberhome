@@ -35,7 +35,8 @@ def _build(handler) -> tuple[HttpTransport, list[httpx.Request], InMemoryTokenSt
 
 
 # ---- Headers ----
-async def test_request_signs_with_bearer_token():
+async def test_request_signs_with_x_auth_jwt_header():
+    """Gateway требует X-AUTH-jwt (без Bearer prefix), не стандартный Authorization."""
     def h(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"ok": True})
 
@@ -43,7 +44,9 @@ async def test_request_signs_with_bearer_token():
     async with transport:
         await transport.get("/devices/")
 
-    assert hits[0].headers["authorization"] == "Bearer TOK"
+    assert hits[0].headers["x-auth-jwt"] == "TOK"
+    # Authorization не должен ставиться — gateway его игнорирует
+    assert "authorization" not in hits[0].headers
 
 
 async def test_request_includes_user_agent_and_trace_id():
@@ -137,7 +140,7 @@ async def test_401_triggers_refresh_and_retry():
             state["first_call"] = False
             return httpx.Response(401, json={"error": "expired"})
         # После retry — токен должен быть новый
-        assert req.headers["authorization"] == "Bearer NEW_TOK"
+        assert req.headers["x-auth-jwt"] == "NEW_TOK"
         return httpx.Response(200, json={"ok": True})
 
     def router(req: httpx.Request) -> httpx.Response:

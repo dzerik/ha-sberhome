@@ -299,16 +299,17 @@ async def test_discover():
 
 
 # ----- Headers signed by HttpTransport -----
-async def test_request_carries_authorization():
+async def test_request_carries_x_auth_jwt():
+    """Gateway требует X-AUTH-jwt (не стандартный Authorization: Bearer)."""
     captured: dict = {}
 
     def h(req: httpx.Request) -> httpx.Response:
-        captured["auth"] = req.headers.get("authorization")
+        captured["jwt"] = req.headers.get("x-auth-jwt")
         return httpx.Response(200, json={"result": {"devices": [], "children": []}})
 
     api, _ = _build(h)
     await api.list()
-    assert captured["auth"] == "Bearer TOK"
+    assert captured["jwt"] == "TOK"
 
 
 # ----- SberClient integration -----

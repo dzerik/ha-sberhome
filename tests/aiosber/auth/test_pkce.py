@@ -81,6 +81,33 @@ def test_authorize_url_custom_client_id():
     assert "client_id=my-client-id" in url
 
 
+def test_authorize_url_omits_partner_name_by_default():
+    p = PkceParams.generate()
+    url = build_authorize_url(p)
+    assert "partner_name=" not in url
+
+
+def test_authorize_url_includes_partner_name_when_provided():
+    """partner_name отображается в Sber ID UI как имя приложения."""
+    p = PkceParams.generate()
+    url = build_authorize_url(p, partner_name="Салют! Умный дом")
+    # URL-encoded (Cyrillic + spaces + ! → percent-encoded)
+    assert "partner_name=" in url
+    # Безопасная проверка: декодируем param, сверяем с исходным
+    from urllib.parse import parse_qs, urlparse
+    qs = parse_qs(urlparse(url).query)
+    assert qs["partner_name"] == ["Салют! Умный дом"]
+
+
+def test_authorize_url_uses_single_openid_scope_by_default():
+    """Реальный Sber wire требует ровно `openid` (без profile/offline_access)."""
+    p = PkceParams.generate()
+    url = build_authorize_url(p)
+    from urllib.parse import parse_qs, urlparse
+    qs = parse_qs(urlparse(url).query)
+    assert qs["scope"] == ["openid"]
+
+
 # ---- extract_code_from_redirect ----
 def test_extract_code_from_query():
     code = extract_code_from_redirect("companionapp://host?code=ABC123&state=xyz")

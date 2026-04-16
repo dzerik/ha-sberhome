@@ -71,14 +71,20 @@ def build_authorize_url(
     redirect_uri: str = DEFAULT_REDIRECT_URI,
     scopes: tuple[str, ...] = DEFAULT_SCOPES,
     endpoint: str = AUTHORIZE_ENDPOINT,
+    partner_name: str | None = None,
 ) -> str:
-    """Построить URL для редиректа пользователя на id.sber.ru.
+    """Построить URL для редиректа пользователя на Sber ID.
 
     Пользователь:
     1. Открывает этот URL в браузере.
     2. Логинится через Sber ID.
     3. Браузер редиректит на `redirect_uri?code=...&state=...`.
     4. URL передаётся в `extract_code_from_redirect()` — получаем code.
+
+    Args:
+        partner_name: Если задан, добавляется как `partner_name` в query.
+            Sber ID отображает его в UI как имя приложения, запрашивающего
+            доступ (для Salute = "Салют! Умный дом").
     """
     params = {
         "response_type": "code",
@@ -90,6 +96,8 @@ def build_authorize_url(
         "code_challenge": pkce.challenge,
         "code_challenge_method": pkce.method,
     }
+    if partner_name is not None:
+        params["partner_name"] = partner_name
     return f"{endpoint}?{urlencode(params)}"
 
 
