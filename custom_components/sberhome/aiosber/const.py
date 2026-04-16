@@ -20,10 +20,10 @@ AUTHORIZE_ENDPOINT: Final = f"{AUTH_BASE_URL}/CSAFront/oidc/authorize.do"
 TOKEN_ENDPOINT: Final = "https://online.sberbank.ru:4431/CSAFront/api/service/oidc/v3/token"
 
 # Companion token exchange (Sber ID access → smarthome companion token).
-# По реверсу APK `smarthome/token` берётся относительно base URL,
-# точный host остаётся в gateway namespace.
-COMPANION_BASE_URL: Final = "https://gateway.iot.sberdevices.ru"
-COMPANION_TOKEN_PATH: Final = "/smarthome/token"
+# Endpoint: companion.devices.sberbank.ru — отдельный сервис, не gateway.
+# Подтверждено через рабочую sister-integration ha-sberdevices.
+COMPANION_BASE_URL: Final = "https://companion.devices.sberbank.ru"
+COMPANION_TOKEN_PATH: Final = "/v13/smarthome/token"
 
 # Gateway REST + WebSocket
 GATEWAY_BASE_URL: Final = "https://gateway.iot.sberdevices.ru/gateway/v1"
