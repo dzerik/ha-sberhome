@@ -86,68 +86,36 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         )
 
     async def _async_send_bundle(self, bundle: SberStateBundle) -> None:
-        """Отправить SberStateBundle через aiosber DeviceAPI + optimistic update."""
-        from .aiosber import AttributeValueDto, AttributeValueType, ColorValue
+        """Convert bundle → list[dict] → send via legacy `home_api.set_device_state`."""
         from .sbermap import ValueType
 
-        attrs: list[AttributeValueDto] = []
+        states: list[dict] = []
         for state in bundle.states:
             v = state.value
+            item: dict = {"key": state.key}
             if v.type is ValueType.BOOL:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.BOOL,
-                        bool_value=v.bool_value,
-                    )
-                )
+                item["bool_value"] = v.bool_value
             elif v.type is ValueType.INTEGER:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.INTEGER,
-                        integer_value=v.integer_value,
-                    )
-                )
+                item["integer_value"] = v.integer_value
             elif v.type is ValueType.FLOAT:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.FLOAT,
-                        float_value=v.float_value,
-                    )
-                )
+                item["float_value"] = v.float_value
             elif v.type is ValueType.STRING:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.STRING,
-                        string_value=v.string_value,
-                    )
-                )
+                item["string_value"] = v.string_value
             elif v.type is ValueType.ENUM:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.ENUM,
-                        enum_value=v.enum_value,
-                    )
-                )
+                item["enum_value"] = v.enum_value
             elif v.type is ValueType.COLOR and v.color_value is not None:
-                attrs.append(
-                    AttributeValueDto(
-                        key=state.key,
-                        type=AttributeValueType.COLOR,
-                        color_value=ColorValue(
-                            hue=v.color_value.hue,
-                            saturation=v.color_value.saturation,
-                            brightness=v.color_value.brightness,
-                        ),
-                    )
-                )
+                item["color_value"] = {
+                    "hue": v.color_value.hue,
+                    "saturation": v.color_value.saturation,
+                    "brightness": v.color_value.brightness,
+                }
+            else:
+                continue
+            states.append(item)
         try:
-            client = await self.coordinator.home_api.get_sber_client()
-            await client.devices.set_state(self._device_id, attrs)
+            await self.coordinator.home_api.set_device_state(
+                self._device_id, states
+            )
         except SberAuthError as err:
             LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
             raise ConfigEntryAuthFailed(str(err)) from err

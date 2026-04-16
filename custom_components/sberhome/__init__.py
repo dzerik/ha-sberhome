@@ -13,7 +13,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
-from ._ha_token_store import HATokenStore
 from .api import HomeAPI, SberAPI, async_init_ssl
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
@@ -47,10 +46,7 @@ async def async_setup_entry(
     """Set up SberHome from a config entry."""
     await async_init_ssl(hass)
     sber = SberAPI(token=entry.data["token"])
-    # HATokenStore persist'ит companion-токены в config_entry.data — переживает
-    # перезагрузку HA, не требуя нового companion exchange при каждом запуске.
-    token_store = HATokenStore(hass, entry)
-    home = HomeAPI(sber, token_store=token_store)
+    home = HomeAPI(sber)
 
     coordinator = SberHomeCoordinator(hass, entry, sber, home)
 

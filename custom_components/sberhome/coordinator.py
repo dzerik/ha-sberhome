@@ -136,9 +136,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Error communicating with API: {err}"
             ) from err
 
-        # После первого успешного polling запускаем WS-task для real-time updates.
-        if self._ws_task is None:
-            self._start_ws_task()
+        # WS-push временно отключён: новый api.py из ha-sberdevices использует
+        # authlib AsyncOAuth2Client без AuthManager, который нужен WebSocketClient.
+        # Polling-only режим (PR будет восстановлен после стабилизации auth).
         return devices
 
     # ------------------------------------------------------------------
