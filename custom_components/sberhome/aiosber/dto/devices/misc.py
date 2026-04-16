@@ -42,7 +42,7 @@ class ScenarioButtonDevice(TypedDevice):
             return v
         return self._reported_int("battery_percentag")
 
-    # ----- Config-fields (из реверса APK ScenarioButtonState) -----
+    # ----- Config-fields (из wire-протокола ScenarioButtonState) -----
     @property
     def click_mode(self) -> str | None:
         """Режим распознавания нажатий (например `single`/`double`/`both`)."""

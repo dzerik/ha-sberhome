@@ -2,8 +2,8 @@
 """Audit покрытия features в typed device wrappers.
 
 Сравнивает атрибуты, которые мы выставили в `aiosber/dto/devices/*.py`,
-с features из `docs/sber_full_spec.json` И с sealed-hierarchy из реверса
-APK (research_docs/04-dataclasses.md §6.1).
+с features из `docs/sber_full_spec.json` И с sealed-hierarchy из wire-наблюдений
+wire-протокол (research_docs/04-dataclasses.md §6.1).
 
 Цель — найти gaps: какие фичи устройств у нас не оборачиваются typed-property.
 
@@ -86,7 +86,7 @@ FEATURE_TO_PROPERTY: dict[str, str] = {
     "open_right_percentage": "right_position",
     "open_right_set": None,
     "open_right_state": None,
-    "fault_alarm": "fault_alarm",  # ⚠ valve — есть в реверсе, у нас НЕТ
+    "fault_alarm": "fault_alarm",  # ⚠ valve — есть в wire-наблюдениях, у нас НЕТ
 
     # HVAC
     "hvac_temp_set": "target_temperature",
@@ -179,11 +179,11 @@ def audit_category(cat: str, cls: type[TypedDevice], cat_spec: dict) -> dict[str
         else:
             missing.append(f)
 
-    # Specific extras в реверсе (НЕ в spec features, но есть в SmartDevice
-    # subclass'ах APK — см. research_docs/04-dataclasses.md §6.1).
-    extras_from_apk = REVERSE_EXTRAS.get(cat, [])
-    apk_missing = [
-        f for f in extras_from_apk
+    # Specific extras в wire-наблюдениях (НЕ в spec features, но есть в SmartDevice
+    # subclass'ах wire-протокола — см. research_docs/04-dataclasses.md §6.1).
+    extras_from_wire = WIRE_EXTRAS.get(cat, [])
+    wire_missing = [
+        f for f in extras_from_wire
         if not has_property(cls, FEATURE_TO_PROPERTY.get(f, f))
     ]
 
@@ -194,7 +194,7 @@ def audit_category(cat: str, cls: type[TypedDevice], cat_spec: dict) -> dict[str
         "covered": covered,
         "missing": missing,
         "not_required": not_required,
-        "apk_extras_missing": apk_missing,
+        "wire_extras_missing": wire_missing,
         "obligatory_covered": all(
             has_property(cls, FEATURE_TO_PROPERTY.get(f, f)) or FEATURE_TO_PROPERTY.get(f) is None
             for f in obligatory
@@ -204,12 +204,12 @@ def audit_category(cat: str, cls: type[TypedDevice], cat_spec: dict) -> dict[str
 
 
 # ============================================================================
-# Дополнительные поля из реверса APK (research_docs/04-dataclasses.md §6.1).
+# Дополнительные поля из wire-протокола (research_docs/04-dataclasses.md §6.1).
 # Эти поля живут в SmartDevice sealed subclass'ах (HvacRadiatorState, Thermostat,
 # CurtainState, ScenarioButtonState, Intercom, ...) — но НЕ упомянуты в
 # `sber_full_spec.json:features`.
 # ============================================================================
-REVERSE_EXTRAS: dict[str, list[str]] = {
+WIRE_EXTRAS: dict[str, list[str]] = {
     # CurtainState: openSet, reverseMode, openingTime, calibration, showSetup
     "curtain": ["reverse_mode", "opening_time", "calibration", "show_setup"],
     "window_blind": ["reverse_mode", "opening_time", "calibration"],
@@ -247,7 +247,7 @@ REVERSE_EXTRAS: dict[str, list[str]] = {
     # Intercom: virtualOpenState, unlockDuration
     "intercom": ["virtual_open_state", "unlock_duration"],
 
-    # Camera (нет в spec, но есть в реверсе как CameraState)
+    # Camera (нет в spec, но есть в wire-наблюдениях как CameraState)
     # Не категория spec, поэтому здесь не появится.
 }
 
@@ -260,26 +260,26 @@ def render_report(audits: list[dict[str, Any]]) -> str:
     out.append("")
     out.append("## Сводка")
     out.append("")
-    out.append("| Категория | Class | Spec features | Covered | Missing (spec) | Missing (APK reverse) |")
+    out.append("| Категория | Class | Spec features | Covered | Missing (spec) | Missing (wire analysis) |")
     out.append("|---|---|---|---|---|---|")
 
-    total_spec = total_covered = total_missing_spec = total_missing_apk = 0
+    total_spec = total_covered = total_missing_spec = total_missing_wire = 0
     for a in audits:
         spec = a["spec_features"]
         cov = len(a["covered"])
         miss = len(a["missing"])
-        apk_miss = len(a["apk_extras_missing"])
+        wire_miss = len(a["wire_extras_missing"])
         total_spec += spec
         total_covered += cov
         total_missing_spec += miss
-        total_missing_apk += apk_miss
+        total_missing_wire += wire_miss
         out.append(
             f"| `{a['category']}` | `{a['class_name']}` | {spec} | {cov} | "
-            f"{miss} {'❌' if miss else '✅'} | {apk_miss} {'⚠️' if apk_miss else '✅'} |"
+            f"{miss} {'❌' if miss else '✅'} | {wire_miss} {'⚠️' if wire_miss else '✅'} |"
         )
     out.append(
         f"| **TOTAL** |  | **{total_spec}** | **{total_covered}** | "
-        f"**{total_missing_spec}** | **{total_missing_apk}** |"
+        f"**{total_missing_spec}** | **{total_missing_wire}** |"
     )
     out.append("")
     pct = 100.0 * total_covered / total_spec if total_spec else 0
@@ -290,7 +290,7 @@ def render_report(audits: list[dict[str, Any]]) -> str:
     out.append("")
 
     for a in audits:
-        if not a["missing"] and not a["apk_extras_missing"]:
+        if not a["missing"] and not a["wire_extras_missing"]:
             continue  # 100% покрытие — пропускаем
         out.append(f"### `{a['category']}` → `{a['class_name']}`")
         out.append("")
@@ -299,15 +299,15 @@ def render_report(audits: list[dict[str, Any]]) -> str:
             for f in a["missing"]:
                 out.append(f"- `{f}`")
             out.append("")
-        if a["apk_extras_missing"]:
-            out.append("**⚠️ Не покрыто (extra fields из реверса APK SmartDevice):**")
-            for f in a["apk_extras_missing"]:
+        if a["wire_extras_missing"]:
+            out.append("**⚠️ Не покрыто (extra fields из wire-протокола SmartDevice):**")
+            for f in a["wire_extras_missing"]:
                 out.append(f"- `{f}`")
             out.append("")
 
     out.append("## 100% покрыты")
     out.append("")
-    full = [a for a in audits if not a["missing"] and not a["apk_extras_missing"]]
+    full = [a for a in audits if not a["missing"] and not a["wire_extras_missing"]]
     out.append(", ".join(f"`{a['category']}`" for a in full) or "_(none)_")
     out.append("")
 

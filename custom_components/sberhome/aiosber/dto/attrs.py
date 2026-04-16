@@ -1,7 +1,7 @@
 """AttrKey constants — все известные ключи AttributeValueDto.key.
 
 Источник: `ru.sberdevices.smarthome.device.models.attributes.AttrKeys`
-из декомпиляции APK + `docs/sber_full_spec.json`.
+из wire-анализа + `docs/sber_full_spec.json`.
 
 Использование:
 

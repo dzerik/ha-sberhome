@@ -25,7 +25,7 @@ class _HvacBaseDevice(TypedDevice):
 class _ThermostatMixin:
     """Mixin для устройств с термостатом (Radiator/Boiler/Underfloor).
 
-    Поля из реверса APK Thermostat sealed-class (research_docs/04 §6.1).
+    Поля из wire-протокола Thermostat sealed-class (research_docs/04 §6.1).
     Большинство — config-фичи, отображаемые только при наличии в reported_state.
     """
 

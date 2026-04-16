@@ -71,7 +71,7 @@ def test_connection_type_camel_case():
 
 
 def test_topic_enum_has_8_members():
-    """В APK в enum Topic 8 значений."""
+    """В wire-протоколе в enum Topic 8 значений."""
     assert len(list(enums.Topic)) == 8
 
 

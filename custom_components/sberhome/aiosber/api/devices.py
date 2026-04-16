@@ -1,6 +1,6 @@
 """DeviceAPI — endpoints for `gateway/v1/devices/*` and device tree.
 
-Семантика endpoints определена реверс-инжинирингом APK + наблюдениями за
+Семантика endpoints определена wire-анализом протокола + наблюдениями за
 живым API (см. `research_docs/01-rest-api.md`):
 
 - `GET /device_groups/tree` — корневой endpoint для получения **всех**

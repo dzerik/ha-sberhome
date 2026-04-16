@@ -7,7 +7,7 @@
 Это устраняет проблему "scaling-формулы рассыпаны по `_transform_*`" — теперь
 вся wire-семантика конкретной feature живёт ровно в одном месте.
 
-**Verified wire-семантика** (из decompiled APK + MQTT-SberGate sister project):
+**Verified wire-семантика** (из wire analysis + MQTT-SberGate sister project):
 - `temperature` (sensor_temp / hvac) → INTEGER × 10 (22.5°C → 225 wire).
 - `humidity` → INTEGER 0..100 без scale.
 - `air_pressure` → INTEGER hPa без scale.
@@ -254,7 +254,7 @@ FEATURE_CODECS: dict[str, FeatureCodec] = {
 
     # ---- Power monitoring (socket / relay) ----
     # NOTE: Sber wire for cur_current — INTEGER в Amperes (не mA, как раньше думали).
-    # Подтверждено через MQTT-SberGate sister project + decompiled APK.
+    # Подтверждено через MQTT-SberGate sister project + wire analysis.
     "cur_voltage": IntegerCodec(
         unit_of_measurement=UnitOfElectricPotential.VOLT,
         device_class=SensorDeviceClass.VOLTAGE,

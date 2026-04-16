@@ -1,7 +1,7 @@
 """Constants for aiosber.
 
-Endpoints, client IDs, root CA. Источник истины — реверс APK
-`com.salute.smarthome.prod` v26.03.1.18015 (см. research_docs/01-rest-api.md).
+Endpoints, client IDs, root CA. Источник истины — wire-анализ протокола
+Sber wire-протокола (см. research_docs/01-rest-api.md).
 """
 
 from __future__ import annotations

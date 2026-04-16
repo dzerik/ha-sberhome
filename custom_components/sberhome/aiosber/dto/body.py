@@ -49,7 +49,7 @@ class UpdateParentBody:
 class DeviceToPairingBody:
     """POST devices/pairing — поставить устройство в режим pairing.
 
-    Поля частично восстановлены из APK; могут потребоваться доп. ключи
+    Поля частично восстановлены из wire-протокола; могут потребоваться доп. ключи
     в зависимости от типа устройства (Wi-Fi vs Zigbee vs Matter).
     """
 

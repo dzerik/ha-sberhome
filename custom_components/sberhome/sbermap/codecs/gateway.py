@@ -9,7 +9,7 @@
 - Bundle: `{"reported_state": [<state>, ...]}` или `{"desired_state": [...]}`
   (в зависимости от direction).
 
-Источник: реверс APK `com.salute.smarthome.prod` v26.03.1.18015.
+Источник: wire-анализ протокола Sber wire-протокола.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """All Sber Smart Home enums.
 
-Источник: декомпиляция APK `com.salute.smarthome.prod`,
+Источник: wire-анализ `com.salute.smarthome.prod`,
 пакеты `ru.sberdevices.smarthome.device.models.attributes`
 и `ru.sberdevices.smarthome.device.models.fields`.
 
@@ -130,7 +130,7 @@ class HvacThermostatModeAttr(StrEnum):
 
 
 class LightOperationModeAttr(StrEnum):
-    """Wire-значения не восстановлены из APK; используем имена в нижнем регистре."""
+    """Wire-значения не восстановлены из wire-протокола; используем имена в нижнем регистре."""
 
     ANTI_FLICKER = "anti_flicker"
     FAST_REACTION = "fast_reaction"
@@ -208,7 +208,7 @@ class ScheduleStatusAttr(StrEnum):
 
 
 class SdFormatStatusAttr(StrEnum):
-    """Wire-значения не восстановлены из APK; имена в нижнем регистре."""
+    """Wire-значения не восстановлены из wire-протокола; имена в нижнем регистре."""
 
     FORMATTING = "formatting"
     EXCEPTION = "exception"
@@ -326,7 +326,7 @@ class DeviceImageSize(StrEnum):
 
 
 # =============================================================================
-# Domain HVAC modes (используется в spec, не в APK как Attr)
+# Domain HVAC modes (используется в spec, не в wire-протоколе как Attr)
 # =============================================================================
 class HvacWorkMode(StrEnum):
     COOL = "cool"
@@ -401,7 +401,7 @@ class ElementType(StrEnum):
 # Schedule.Day (день недели для ScheduleValue.days)
 # =============================================================================
 class ScheduleDay(StrEnum):
-    """Wire-значения предположены lowercase (APK хранит const-имена)."""
+    """Wire-значения предположены lowercase (источник хранит const-имена)."""
 
     MONDAY = "monday"
     TUESDAY = "tuesday"

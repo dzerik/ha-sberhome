@@ -1,7 +1,7 @@
 """Value-types для AttributeValueDto: ColorValue, ScheduleValue, AttributeValueDto.
 
 ColorValue использует поля `hue/saturation/brightness` — НЕ `h/s/v`.
-Это критично: реверс APK подтверждает, что Sber Gateway ждёт именно эти имена.
+Это критично: wire-анализ протокола подтверждает, что Sber Gateway ждёт именно эти имена.
 """
 
 from __future__ import annotations

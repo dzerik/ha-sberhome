@@ -23,10 +23,10 @@ class _OpenCloseMixin:
         """`open` / `close` / `opening` / `closing`."""
         return self._reported_value("open_state")
 
-    # ----- Config-fields (из реверса APK CurtainState) -----
+    # ----- Config-fields (из wire-протокола CurtainState) -----
     @property
     def reverse_mode(self: TypedDevice) -> bool | None:  # type: ignore[misc]
-        """Реверс направления (open ↔ close меняются местами)."""
+        """Инверсия направления (open ↔ close меняются местами)."""
         return self._reported_bool("reverse_mode")
 
     @property
@@ -85,7 +85,7 @@ class CurtainDevice(_OpenCloseMixin, TypedDevice):
 
     @property
     def show_setup(self) -> bool | None:
-        """Показывать setup в UI (config из реверса APK)."""
+        """Показывать setup в UI (config из wire-протокола)."""
         return self._reported_bool("show_setup")
 
 

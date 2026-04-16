@@ -16,7 +16,7 @@ __pycache__
 *.egg-info/
 .serena/
 
-# Research-based protocol documentation (derived from decompiled APK — do NOT commit)
+# Local protocol research notes (do NOT commit)
 /research_docs/
 
 /CLAUDE.md

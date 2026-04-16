@@ -541,7 +541,7 @@ HA coordinator
 
 #### Почему `async_request_refresh()` а не точечный patch
 
-`StateDto` в текущей версии (из реверса APK) НЕ содержит `device_id` напрямую —
+`StateDto` в текущей версии (из wire-протокола) НЕ содержит `device_id` напрямую —
 он часть state объекта. Точечный patch без device_id ненадёжен. Trigger
 refresh даёт latency <1s vs 30s polling — это уже огромный win. После
 верификации формата на реальном устройстве можно добавить
@@ -569,15 +569,15 @@ refresh даёт latency <1s vs 30s polling — это уже огромный w
 ### Audit покрытия typed wrappers (PR #10)
 
 После audit'а в режиме сравнения с `sber_full_spec.json` + sealed-hierarchy
-из реверса APK (`research_docs/04 §6.1`) — закрыты все 6 пропущенных spec-фич
-и 44 extra-поля из реверса.
+из wire-протокола (`research_docs/04 §6.1`) — закрыты все 6 пропущенных spec-фич
+и 44 extra-поля из wire-наблюдений.
 
 #### Coverage до/после
 
 | Метрика | До audit | После closures |
 |---|---|---|
 | Spec features покрыто | 87% (161/185) | **100% (167/167)** |
-| APK reverse extras | 44 ⚠️ | **0 ✅** |
+| wire analysis extras | 44 ⚠️ | **0 ✅** |
 | Тесты | 784 | **801 (+17)** |
 
 Оставшиеся 18 features (185-167) — это commands/set-only fields, которые
@@ -591,14 +591,14 @@ direction/unlock/reject_call). Они отправляются через `Devic
 - **`hvac_humidifier`** — `replace_filter_alarm`, `replace_ionizer_alarm`,
   `water_percentage`.
 
-#### Закрытые APK extras
+#### Закрытые wire-protocol extras
 
 - **`valve.fault_alarm`** — `alarm`/`external`/`normal` (ValveFaultAlarmAttr).
 - **`socket.upper_current_threshold`** — защитный порог тока.
 - **`hvac_air_purifier.decontaminate`** — UV-обеззараживание.
 - **`intercom.virtual_open_state`, `unlock_duration`** — UI-состояние и config.
 - **`scenario_button.click_mode`, `is_double_click_enabled`,
-  `led_indicator_on/off`, `color_indicator_on/off`** — config из реверса.
+  `led_indicator_on/off`, `color_indicator_on/off`** — config из wire-наблюдений.
 - **`_OpenCloseMixin.reverse_mode`, `opening_time`, `calibration`** —
   config-fields для всех cover-устройств.
 - **`CurtainDevice.show_setup`**, **`WindowBlindDevice.light_transmission`**.
@@ -612,7 +612,7 @@ direction/unlock/reject_call). Они отправляются через `Devic
 #### Инструменты
 
 - **`tools/audit_coverage.py`** — auto-script сравнивает `aiosber/dto/devices/*.py`
-  с features из spec.json + extras из реверса. Выводит markdown-отчёт.
+  с features из spec.json + extras из wire-наблюдений. Выводит markdown-отчёт.
 - **`research_docs/07-attribute-coverage-audit.md`** — auto-generated отчёт.
 - **`tests/aiosber/dto/test_devices.py::TestSpecCoverageRegression`** —
   regression-test через subprocess вызов audit script. Падает если в spec
@@ -632,7 +632,7 @@ direction/unlock/reject_call). Они отправляются через `Devic
 
 Полная sealed-hierarchy типизированных wrappers поверх `DeviceDto` —
 один class на каждую из 28 категорий. Соответствует sealed `SmartDevice`
-hierarchy из реверса APK (см. `research_docs/04-dataclasses.md` §6.1).
+hierarchy из wire-протокола (см. `research_docs/04-dataclasses.md` §6.1).
 
 #### `aiosber/_generated/` — auto-generated константы
 
@@ -1033,7 +1033,7 @@ PR #1 из roadmap миграции на чистую архитектуру (с
 ### Добавлено
 
 - **Полный типизированный DTO-слой** `custom_components/sberhome/dto/` на основе
-  декомпиляции APK Sber Салют v26.03.1.18015. 8 модулей, ~30 dataclass'ов с
+  wire-анализа Sber Салют v26.03.1.18015. 8 модулей, ~30 dataclass'ов с
   `from_dict`/`to_dict`, 35 *Attr enum'ов с wire-значениями, namespace `AttrKey`
   со всеми ключами `AttributeValueDto.key`, `SocketMessageDto` для WS с
   диспетчером по `Topic`.
