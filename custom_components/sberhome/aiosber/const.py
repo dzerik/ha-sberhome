@@ -27,10 +27,22 @@ COMPANION_TOKEN_PATH: Final = "/v13/smarthome/token"
 
 # Gateway REST + WebSocket
 GATEWAY_BASE_URL: Final = "https://gateway.iot.sberdevices.ru/gateway/v1"
-# WebSocket: точный path `/v1` найден живым probe (см. research_docs/03-websocket.md).
-# Все другие пути отдают HTTP 404. С `/v1` handshake возвращает HTTP 101, после
-# чего сервер ждёт auth-frame (формат пока не известен — нужен MITM Sber Salute).
+# WebSocket: path `/v1`, auth через `Authorization: Bearer`, подписка на topic'и
+# через query params (см. WebSocketClient).
 WEBSOCKET_BASE_URL: Final = "wss://ws.iot.sberdevices.ru/v1"
+
+# Подписки на topic'и через query string ?topic=X&topic=Y (повторяемый параметр).
+# Нам реально нужны только три первых: DEVICE_STATE — патч state устройства,
+# DEVMAN_EVENT — одноразовые события (button_*, alarm), GROUP_STATE — патч
+# state группы (на будущее).
+DEFAULT_WS_TOPICS: Final = ("DEVICE_STATE", "DEVMAN_EVENT", "GROUP_STATE")
+
+# device_type ∈ {UNKNOWN, BOX, PORTAL}. UNKNOWN подходит для интеграций, не
+# являющихся официальным Sber-устройством.
+DEFAULT_WS_DEVICE_TYPE: Final = "UNKNOWN"
+
+# WebSocket keep-alive ping interval.
+WS_PING_INTERVAL_S: Final = 15.0
 
 # =============================================================================
 # Client IDs

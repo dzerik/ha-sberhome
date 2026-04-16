@@ -120,8 +120,8 @@ async def test_basic_dispatch_one_message():
     assert received[0].topic is Topic.DEVICE_STATE
 
 
-async def test_factory_called_with_bearer_header_first():
-    """Стратегия: сначала пробуем Authorization: Bearer (как описано в APK reverse)."""
+async def test_factory_called_with_bearer_header():
+    """WS handshake идёт с Authorization: Bearer <companion_jwt>."""
     captured: dict = {}
     fake = FakeWebSocket([])  # сразу закрывается
 
@@ -147,35 +147,65 @@ async def test_factory_called_with_bearer_header_first():
     assert captured["headers"]["Authorization"] == "Bearer MYTOK"
 
 
-async def test_factory_falls_back_to_x_auth_jwt_on_handshake_error():
-    """Если Bearer-handshake падает — повторно пробуем с X-AUTH-jwt."""
-    attempts: list[dict[str, str]] = []
-    fake = FakeWebSocket([], close_after_messages=False)
+async def test_url_has_topic_and_device_type_query_params():
+    """Подписка на topic'и и device_type — через query string при handshake."""
+    captured: dict = {}
+    fake = FakeWebSocket([])
 
     async def factory(url: str, headers: dict[str, str]):
-        attempts.append(headers)
-        if len(attempts) == 1:
-            # Первая попытка — Bearer — отклонена сервером
-            raise ConnectionRefusedError("server rejects Authorization: Bearer (401)")
-        # Вторая попытка — X-AUTH-jwt — успех
+        captured["url"] = url
         return fake
 
     client = WebSocketClient(
-        auth=_build_auth(token="MYTOK"),
+        auth=_build_auth(),
         callback=lambda m: None,
         factory=factory,
+        topics=("DEVICE_STATE", "DEVMAN_EVENT"),
+        device_type="UNKNOWN",
         backoff_initial=0.01,
     )
     task = asyncio.create_task(client.run())
-    await client.wait_until_connected(timeout=1.0)
+    await asyncio.sleep(0.05)
     await client.stop()
     task.cancel()
     with contextlib.suppress(BaseException):
         await task
 
-    assert len(attempts) == 2
-    assert attempts[0] == {"Authorization": "Bearer MYTOK"}
-    assert attempts[1] == {"X-AUTH-jwt": "MYTOK"}
+    url = captured["url"]
+    assert "topic=DEVICE_STATE" in url
+    assert "topic=DEVMAN_EVENT" in url
+    assert "device_type=UNKNOWN" in url
+
+
+async def test_url_appends_optional_filters():
+    """home_ids и external_device_ids — опциональные query params."""
+    captured: dict = {}
+    fake = FakeWebSocket([])
+
+    async def factory(url: str, headers: dict[str, str]):
+        captured["url"] = url
+        return fake
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: None,
+        factory=factory,
+        topics=("DEVICE_STATE",),
+        home_ids=("home-A", "home-B"),
+        external_device_ids=("dev-1",),
+        backoff_initial=0.01,
+    )
+    task = asyncio.create_task(client.run())
+    await asyncio.sleep(0.05)
+    await client.stop()
+    task.cancel()
+    with contextlib.suppress(BaseException):
+        await task
+
+    url = captured["url"]
+    assert "desired_home_id=home-A" in url
+    assert "desired_home_id=home-B" in url
+    assert "ext_dvc_id=dev-1" in url
 
 
 async def test_async_callback_supported():

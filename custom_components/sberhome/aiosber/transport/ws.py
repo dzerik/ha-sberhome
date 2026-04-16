@@ -31,11 +31,16 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Protocol
+from urllib.parse import urlencode
 
 from ..auth.manager import AuthManager
-from ..const import WEBSOCKET_BASE_URL
+from ..const import (
+    DEFAULT_WS_DEVICE_TYPE,
+    DEFAULT_WS_TOPICS,
+    WEBSOCKET_BASE_URL,
+)
 from ..dto import SocketMessageDto, Topic
 from ..exceptions import AuthError, NetworkError, SberError
 
@@ -123,6 +128,10 @@ class WebSocketClient:
         *,
         factory: WebSocketFactory = default_websockets_factory,
         url: str = WEBSOCKET_BASE_URL,
+        topics: Iterable[str] = DEFAULT_WS_TOPICS,
+        device_type: str = DEFAULT_WS_DEVICE_TYPE,
+        home_ids: Iterable[str] | None = None,
+        external_device_ids: Iterable[str] | None = None,
         backoff_initial: float = 1.0,
         backoff_max: float = 60.0,
         backoff_multiplier: float = 2.0,
@@ -130,6 +139,17 @@ class WebSocketClient:
     ) -> None:
         """
         Args:
+            url: base WS URL (default — prod /v1). Без query params — они
+                собираются из topics/device_type/home_ids/external_device_ids.
+            topics: список topic'ов на которые подписываемся при connect
+                (Sber wire-формат: query param `topic` повторяется).
+            device_type: query param `device_type` (UNKNOWN/BOX/PORTAL).
+                Для интеграций, не являющихся официальным Sber-устройством, —
+                UNKNOWN.
+            home_ids: optional фильтр по конкретным homes (`desired_home_id`).
+                None = все homes пользователя.
+            external_device_ids: optional фильтр по device_id (`ext_dvc_id`).
+                None = все устройства.
             max_consecutive_failures: после N подряд неудачных connect-попыток
                 run() завершается (degraded mode). Полезно когда WS-endpoint
                 отдаёт стабильный 4xx (неверный path) — лучше отказаться от WS
@@ -139,7 +159,13 @@ class WebSocketClient:
         self._auth = auth
         self._callback = callback
         self._factory = factory
-        self._url = url
+        self._base_url = url
+        self._topics = tuple(topics)
+        self._device_type = device_type
+        self._home_ids = tuple(home_ids) if home_ids is not None else ()
+        self._external_device_ids = (
+            tuple(external_device_ids) if external_device_ids is not None else ()
+        )
         self._backoff_initial = backoff_initial
         self._backoff_max = backoff_max
         self._backoff_multiplier = backoff_multiplier
@@ -148,6 +174,23 @@ class WebSocketClient:
         self._stop_event = asyncio.Event()
         self._connection: WebSocketProtocol | None = None
         self._connected_event = asyncio.Event()
+
+    @property
+    def _url(self) -> str:
+        """Полный URL с query string подписки (Sber wire format)."""
+        params: list[tuple[str, str]] = []
+        for topic in self._topics:
+            params.append(("topic", topic))
+        # device_type — повторяемый, пока используем один
+        params.append(("device_type", self._device_type))
+        for home_id in self._home_ids:
+            params.append(("desired_home_id", home_id))
+        for ext_id in self._external_device_ids:
+            params.append(("ext_dvc_id", ext_id))
+        if not params:
+            return self._base_url
+        sep = "&" if "?" in self._base_url else "?"
+        return f"{self._base_url}{sep}{urlencode(params)}"
 
     # ----- Public API -----
     @property
@@ -231,42 +274,23 @@ class WebSocketClient:
     async def _connect_and_receive(self) -> None:
         """Один цикл: получить токен → handshake → recv loop.
 
-        Sber WS поддерживает оба формата auth-header: стандартный
-        `Authorization: Bearer <token>` (как описано в APK-реверсе) ИЛИ
-        gateway-style `X-AUTH-jwt: <token>` (как в REST-транспорте).
-
-        Стратегия: пробуем Bearer, при handshake-ошибке — fallback на X-AUTH-jwt.
-        Логируем DEBUG, какой путь сработал, для будущей оптимизации.
+        Sber wire-format:
+        - URL: `wss://<host>/v1?topic=...&device_type=...`
+        - Header: `Authorization: Bearer <companion_jwt>`
+        - Подписки на topic'и идут через query params при handshake,
+          отдельного subscribe-сообщения нет.
         """
         token = await self._auth.access_token()
-        primary_headers = {"Authorization": f"Bearer {token}"}
-        fallback_headers = {"X-AUTH-jwt": token}
-        conn: WebSocketProtocol | None = None
-        primary_err: Exception | None = None
+        url = self._url
+        headers = {"Authorization": f"Bearer {token}"}
         try:
-            conn = await self._factory(self._url, primary_headers)
-            _LOGGER.debug("WS handshake OK with Authorization: Bearer")
+            conn = await self._factory(url, headers)
         except Exception as err:
-            primary_err = err
-            _LOGGER.debug(
-                "WS handshake with Authorization: Bearer failed: %s; trying X-AUTH-jwt",
-                err,
-            )
-            try:
-                conn = await self._factory(self._url, fallback_headers)
-                _LOGGER.debug("WS handshake OK with X-AUTH-jwt fallback")
-            except Exception as fallback_err:
-                # Оба варианта упали — это либо network, либо реально невалидный токен.
-                # Различить нельзя без парсинга exception, поэтому маппим в NetworkError —
-                # 401 на REST-уровне поднимется AuthError'ом и инициирует reauth.
-                raise NetworkError(
-                    f"WS connect failed: bearer={primary_err}; jwt={fallback_err}"
-                ) from fallback_err
+            raise NetworkError(f"WS connect failed: {err}") from err
 
-        assert conn is not None  # for mypy
         self._connection = conn
         self._connected_event.set()
-        _LOGGER.debug("WebSocket connected to %s", self._url)
+        _LOGGER.debug("WebSocket connected to %s", url)
         try:
             while not self._stop_event.is_set():
                 raw = await conn.recv()
