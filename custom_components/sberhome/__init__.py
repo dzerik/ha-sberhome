@@ -11,12 +11,10 @@ from homeassistant.components.frontend import (
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .api import HomeAPI, SberAPI, async_init_ssl
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
-from .exceptions import SberAuthError, SberConnectionError, SberSmartHomeError
 from .websocket_api import async_setup_websocket_api
 
 PLATFORMS: list[Platform] = [
@@ -43,35 +41,24 @@ _PANEL_STATIC_PATH = "/sberhome_panel"
 async def async_setup_entry(
     hass: HomeAssistant, entry: SberHomeConfigEntry
 ) -> bool:
-    """Set up SberHome from a config entry."""
+    """Set up SberHome from a config entry.
+
+    Config flow завершается мгновенно после успешного OAuth — никакого
+    blocking-вызова за device list. Coordinator поднимается «пустым»,
+    первый refresh идёт background-task'ом, дальше поддерживается обычным
+    polling timer'ом. Если token reaaly невалиден — обнаружится при первом
+    poll'е и HA триггернет reauth (через `ConfigEntryAuthFailed`).
+
+    Это даёт два эффекта:
+    - Setup не висит на медленном/недоступном Sber API.
+    - Никакой автоматический device-import при добавлении интеграции —
+      пользователь идёт в панель и явно выбирает устройства (opt-in).
+    """
     await async_init_ssl(hass)
     sber = SberAPI(token=entry.data["token"])
     home = HomeAPI(sber)
 
     coordinator = SberHomeCoordinator(hass, entry, sber, home)
-
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except (ConfigEntryNotReady, ConfigEntryAuthFailed):
-        await _close_clients(sber, home)
-        raise
-    except SberAuthError as err:
-        await _close_clients(sber, home)
-        raise ConfigEntryAuthFailed(
-            f"Authentication failed: {err}"
-        ) from err
-    except (SberConnectionError, SberSmartHomeError) as err:
-        await _close_clients(sber, home)
-        raise ConfigEntryNotReady(
-            f"Failed to connect: {err}"
-        ) from err
-    except Exception as err:
-        await _close_clients(sber, home)
-        LOGGER.exception("Unexpected error setting up SberHome")
-        raise ConfigEntryNotReady(
-            f"Unexpected error: {err}"
-        ) from err
-
     entry.runtime_data = coordinator
 
     # Panel + WS API всегда регистрируются — пользователь должен иметь
@@ -86,6 +73,14 @@ async def async_setup_entry(
     # backward-compat passthrough — все устройства импортируются как раньше.
     if _should_forward_platforms(entry):
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Background-refresh — non-blocking. Panel сможет сразу показать список
+    # как только Sber API ответит. Если ошибка — coordinator её залогирует
+    # и retry на следующем polling cycle.
+    hass.async_create_background_task(
+        coordinator.async_refresh(),
+        name=f"{DOMAIN}_initial_refresh",
+    )
 
     # Update listener: при изменении options (e.g. enabled_device_ids через
     # panel) — релоадим entry, чтобы платформы появились/пересоздались.
@@ -178,7 +173,3 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
     hass.data[marker] = True
 
 
-async def _close_clients(sber: SberAPI, home: HomeAPI) -> None:
-    """Close API clients on setup failure."""
-    await home.aclose()
-    await sber.aclose()

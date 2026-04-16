@@ -7,26 +7,32 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 
+from ..const import DOMAIN
 from ..sbermap import resolve_category
 from ._common import get_coordinator
 
 # Известные HA→Sber мосты — устройства с такими значениями manufacturer
 # в device_info.model.manufacturer пришли в Sber из HA-инсталляций.
-# Это лишь информативный badge: устройства МОГУТ быть как из своего HA
-# (loop) так и из чужого (валидный mirror). Различить «свой/чужой»
-# невозможно пока bridge не выкладывает per-HA identifier.
-# TODO: после PR в MQTT-SberGate (serial_number=f"ha-{core_uuid_prefix}")
-# добавить поле `is_own_bridge` сравнением с локальным `core.uuid`.
 BRIDGE_MANUFACTURERS: frozenset[str] = frozenset({"HA-SberBridge"})
 
 
-def _bridge_info(raw: dict) -> dict[str, Any]:
-    """Detect HA→Sber bridge marker в `device_info.model.manufacturer`.
+def _bridge_info(raw: dict, hass: HomeAssistant) -> dict[str, Any]:
+    """Detect HA→Sber bridge marker + own-loop в одном HA.
+
+    `is_bridge` — устройство пришло в Sber из ЛЮБОЙ HA-инсталляции
+    (детекция по manufacturer в device_info.model).
+
+    `is_own_loop` — это устройство пришло из ЭТОГО HA, импортировать его
+    обратно создаст routing-loop. MQTT-SberGate отправляет HA `entity_id`
+    в качестве Sber `device.id` (см. base_entity._build_device_dict).
+    Если такой entity_id живёт в нашем entity_registry И не от нашей же
+    интеграции — это явно loop.
 
     DeviceDto хранит `device_info.model` как `str | None`, упрощая исходный
-    dict — оригинальный объект сохраняется в `home_api._cached_devices`,
-    отсюда и читаем raw model для metadata.
+    dict — оригинальный объект остаётся в `home_api._cached_devices`,
+    отсюда читаем raw model.
     """
     info = raw.get("device_info") or {}
     model = info.get("model")
@@ -34,10 +40,22 @@ def _bridge_info(raw: dict) -> dict[str, Any]:
     if isinstance(model, dict):
         manufacturer = model.get("manufacturer")
     is_bridge = manufacturer in BRIDGE_MANUFACTURERS
+
+    is_own_loop = False
+    if is_bridge:
+        sber_device_id = raw.get("id")
+        if isinstance(sber_device_id, str) and "." in sber_device_id:
+            registry = er.async_get(hass)
+            entry = registry.async_get(sber_device_id)
+            # Не считаем loop, если entity_id принадлежит самой sberhome
+            # (защита от bootstrap-cycle; на практике почти не встречается).
+            is_own_loop = entry is not None and entry.platform != DOMAIN
+
     return {
         "manufacturer": manufacturer,
         "is_bridge": is_bridge,
         "bridge_name": manufacturer if is_bridge else None,
+        "is_own_loop": is_own_loop,
     }
 
 
@@ -90,7 +108,7 @@ def ws_get_devices(
         ents = coord.entities.get(device_id, [])
         # is_enabled: None → не настроено (legacy passthrough — все enabled).
         is_enabled = enabled is None or device_id in enabled
-        bridge = _bridge_info(raw_cache.get(device_id) or {})
+        bridge = _bridge_info(raw_cache.get(device_id) or {}, hass)
         out.append(
             {
                 "device_id": device_id,
@@ -101,6 +119,7 @@ def ws_get_devices(
                 "manufacturer": bridge["manufacturer"],
                 "is_bridge": bridge["is_bridge"],
                 "bridge_name": bridge["bridge_name"],
+                "is_own_loop": bridge["is_own_loop"],
                 "sw_version": dto.sw_version,
                 "serial_number": dto.serial_number,
                 "enabled": is_enabled,

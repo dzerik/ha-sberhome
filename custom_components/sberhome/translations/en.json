@@ -18,6 +18,9 @@
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
       "unknown": "Unexpected error"
+    },
+    "create_entry": {
+      "default": "Authorization successful. **No devices were imported automatically** — open the SberHome panel in the sidebar (or go to [/sberhome](/sberhome)) and pick which devices you want in Home Assistant. Until then the integration is connected but exposes no entities."
     }
   },
   "options": {

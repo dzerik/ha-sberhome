@@ -18,6 +18,9 @@
       "cannot_connect": "Ulanib bo'lmadi",
       "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
       "unknown": "Noma'lum xatolik"
+    },
+    "create_entry": {
+      "default": "Avtorizatsiya muvaffaqiyatli o'tdi. **Qurilmalar avtomatik import qilinmadi** — yon menyudan SberHome panelini oching (yoki [/sberhome](/sberhome) manziliga o'ting) va Home Assistant-ga kerakli qurilmalarni tanlang. Shu paytgacha integratsiya ulangan, lekin entitylar yaratmaydi."
     }
   },
   "options": {
