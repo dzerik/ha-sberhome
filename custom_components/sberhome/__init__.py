@@ -74,24 +74,51 @@ async def async_setup_entry(
 
     entry.runtime_data = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Panel + WS API (PR #12) — идемпотентно, для всех config entries shared.
+    # Panel + WS API всегда регистрируются — пользователь должен иметь
+    # возможность открыть панель и выбрать устройства даже когда платформы
+    # ещё не форварднуты (opt-in flow для новых установок).
     async_setup_websocket_api(hass)
     await _async_register_panel(hass)
 
+    # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
+    # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
+    # entities в HA до выбора. Legacy установки (без ключа options) считаются
+    # backward-compat passthrough — все устройства импортируются как раньше.
+    if _should_forward_platforms(entry):
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     # Update listener: при изменении options (e.g. enabled_device_ids через
-    # panel) — релоадим entry, чтобы платформы пересоздали entities.
+    # panel) — релоадим entry, чтобы платформы появились/пересоздались.
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
+
+
+def _should_forward_platforms(entry: SberHomeConfigEntry) -> bool:
+    """Решить, надо ли форвардить platforms на основе opt-in выбора.
+
+    - `enabled_device_ids` отсутствует в options → legacy install,
+      passthrough (форвардим всегда).
+    - `enabled_device_ids` пустой → opt-in новый install, ничего не
+      форвардим, ждём выбора в панели.
+    - `enabled_device_ids` непустой → форвардим, платформы создадут
+      entities только для выбранных (фильтр в `coordinator._filter_enabled`).
+    """
+    enabled = entry.options.get("enabled_device_ids")
+    if enabled is None:
+        return True
+    return len(enabled) > 0
 
 
 async def async_unload_entry(
     hass: HomeAssistant, entry: SberHomeConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if _should_forward_platforms(entry):
+        unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    else:
+        # Платформы не были форвардены при setup — нечего unloadить.
+        unloaded = True
     # Если последняя SberHome-запись уходит — снимаем panel.
     if unloaded and not hass.config_entries.async_loaded_entries(DOMAIN):
         try:

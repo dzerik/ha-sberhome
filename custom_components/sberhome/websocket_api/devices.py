@@ -11,6 +11,35 @@ from homeassistant.core import HomeAssistant, callback
 from ..sbermap import resolve_category
 from ._common import get_coordinator
 
+# Известные HA→Sber мосты — устройства с такими значениями manufacturer
+# в device_info.model.manufacturer пришли в Sber из HA-инсталляций.
+# Это лишь информативный badge: устройства МОГУТ быть как из своего HA
+# (loop) так и из чужого (валидный mirror). Различить «свой/чужой»
+# невозможно пока bridge не выкладывает per-HA identifier.
+# TODO: после PR в MQTT-SberGate (serial_number=f"ha-{core_uuid_prefix}")
+# добавить поле `is_own_bridge` сравнением с локальным `core.uuid`.
+BRIDGE_MANUFACTURERS: frozenset[str] = frozenset({"HA-SberBridge"})
+
+
+def _bridge_info(raw: dict) -> dict[str, Any]:
+    """Detect HA→Sber bridge marker в `device_info.model.manufacturer`.
+
+    DeviceDto хранит `device_info.model` как `str | None`, упрощая исходный
+    dict — оригинальный объект сохраняется в `home_api._cached_devices`,
+    отсюда и читаем raw model для metadata.
+    """
+    info = raw.get("device_info") or {}
+    model = info.get("model")
+    manufacturer: str | None = None
+    if isinstance(model, dict):
+        manufacturer = model.get("manufacturer")
+    is_bridge = manufacturer in BRIDGE_MANUFACTURERS
+    return {
+        "manufacturer": manufacturer,
+        "is_bridge": is_bridge,
+        "bridge_name": manufacturer if is_bridge else None,
+    }
+
 
 def _entities_summary(entities: list) -> list[dict[str, Any]]:
     """Compact entity list for panel table — platform + unique_id + state."""
@@ -54,12 +83,14 @@ def ws_get_devices(
         return
 
     enabled = coord.enabled_device_ids
+    raw_cache = coord.home_api.get_cached_devices()
     out: list[dict[str, Any]] = []
     for device_id, dto in coord.devices.items():
         category = resolve_category(dto.image_set_type)
         ents = coord.entities.get(device_id, [])
         # is_enabled: None → не настроено (legacy passthrough — все enabled).
         is_enabled = enabled is None or device_id in enabled
+        bridge = _bridge_info(raw_cache.get(device_id) or {})
         out.append(
             {
                 "device_id": device_id,
@@ -67,6 +98,9 @@ def ws_get_devices(
                 "image_set_type": dto.image_set_type,
                 "category": category,
                 "model": dto.device_info.model if dto.device_info else None,
+                "manufacturer": bridge["manufacturer"],
+                "is_bridge": bridge["is_bridge"],
+                "bridge_name": bridge["bridge_name"],
                 "sw_version": dto.sw_version,
                 "serial_number": dto.serial_number,
                 "enabled": is_enabled,

@@ -103,8 +103,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch data from the SberHome API."""
         try:
             await self.home_api.update_devices_cache()
-            devices = self.home_api.get_cached_devices()
-            LOGGER.debug("Updated %d devices from API", len(devices))
+            devices = self._filter_enabled(self.home_api.get_cached_devices())
+            LOGGER.debug(
+                "Updated %d devices from API (%d enabled)",
+                len(self.home_api.get_cached_devices()),
+                len(devices),
+            )
             self.last_polling_at = time.time()
             self.polling_count += 1
             # Параллельно строим типизированные DTO + кэш sbermap-сущностей.
@@ -174,6 +178,20 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if device_id in enabled
             }
 
+    def _filter_enabled(self, devices: dict[str, Any]) -> dict[str, Any]:
+        """Отфильтровать raw-словарь устройств по `enabled_device_ids`.
+
+        Возвращает full dict если ключ не настроен (legacy installs).
+        Иначе только опт-ин выбранные пользователем в панели — это то,
+        что увидят legacy-платформы (sensor, switch, light, ...) через
+        `coordinator.data`. Полный список без фильтра остаётся доступен
+        через `home_api.get_cached_devices()` для panel device picker.
+        """
+        enabled = self.enabled_device_ids
+        if enabled is None:
+            return devices
+        return {k: v for k, v in devices.items() if k in enabled}
+
     @property
     def enabled_device_ids(self) -> set[str] | None:
         """Set of device_ids выбранных пользователем, либо None если не настроено.
@@ -201,7 +219,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
         self._rebuild_dto_caches()
-        self.async_set_updated_data(self.home_api.get_cached_devices())
+        self.async_set_updated_data(
+            self._filter_enabled(self.home_api.get_cached_devices())
+        )
 
     # ------------------------------------------------------------------
     # WebSocket integration — real-time push updates
@@ -297,7 +317,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.devices[device_id] = new_dto
         self.entities[device_id] = device_dto_to_entities(new_dto)
         self.home_api._cached_devices[device_id] = new_dto.to_dict()
-        self.async_set_updated_data(self.home_api.get_cached_devices())
+        self.async_set_updated_data(
+            self._filter_enabled(self.home_api.get_cached_devices())
+        )
 
     async def _on_ws_devman_event(self, msg: SocketMessageDto) -> None:
         """DEVMAN_EVENT — диспатч в HA через signal (PR #11).
