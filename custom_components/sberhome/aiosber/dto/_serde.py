@@ -76,16 +76,28 @@ def _convert(value: Any, tp: Any) -> Any:
     if origin is None:
         if isinstance(tp, type):
             if issubclass(tp, Enum):
-                return tp(value)
+                try:
+                    return tp(value)
+                except ValueError:
+                    return None
             if dataclasses.is_dataclass(tp):
+                # Resilient: если wire-формат сменился (e.g. dict → list для какого-то
+                # nested поля) — не падаем, возвращаем None. Лучше потерять одно поле,
+                # чем целый device при парсинге дерева устройств.
+                if not isinstance(value, dict):
+                    return None
                 return from_dict(tp, value)
         return value
 
     if origin in (list, tuple):
+        if not isinstance(value, (list, tuple)):
+            return []
         (item_tp,) = get_args(tp) or (Any,)
         return [_convert(x, item_tp) for x in value]
 
     if origin is dict:
+        if not isinstance(value, dict):
+            return {}
         args = get_args(tp)
         val_tp = args[1] if len(args) >= 2 else Any
         return {k: _convert(v, val_tp) for k, v in value.items()}
@@ -97,9 +109,10 @@ def from_dict(cls: type, data: dict[str, Any] | None) -> Any:
     """Создать dataclass-объект из dict с учётом типов полей.
 
     Неизвестные поля игнорируются. Отсутствующие optional-поля → None
-    (через дефолты dataclass'а).
+    (через дефолты dataclass'а). Resilient: если `data` не dict —
+    возвращаем None, не падаем (wire может быть нестандартным).
     """
-    if data is None:
+    if data is None or not isinstance(data, dict):
         return None
     if not dataclasses.is_dataclass(cls):
         raise TypeError(f"{cls!r} is not a dataclass")
@@ -110,5 +123,9 @@ def from_dict(cls: type, data: dict[str, Any] | None) -> Any:
     for key, raw in data.items():
         if key not in field_names:
             continue
-        kwargs[key] = _convert(raw, hints.get(key, Any))
+        try:
+            kwargs[key] = _convert(raw, hints.get(key, Any))
+        except (AttributeError, TypeError, ValueError):
+            # Skip только это поле, не ломаем весь DTO.
+            continue
     return cls(**kwargs)

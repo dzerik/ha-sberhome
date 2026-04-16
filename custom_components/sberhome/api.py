@@ -165,12 +165,24 @@ class HomeAPI:
         self._cached_devices: dict = {}
 
     def get_cached_devices_dto(self) -> dict:
-        """Lazy-конвертит raw → DeviceDto для sbermap (PR #2 совместимость)."""
+        """Lazy-конвертит raw → DeviceDto для sbermap (PR #2 совместимость).
+
+        Resilient: skip + log devices которые не парсятся, чтобы один
+        нестандартный device не валил polling всем остальным.
+        """
         from .aiosber.dto.device import DeviceDto
 
         out: dict = {}
         for device_id, raw in self._cached_devices.items():
-            dto = DeviceDto.from_dict(raw)
+            try:
+                dto = DeviceDto.from_dict(raw)
+            except Exception:  # noqa: BLE001
+                LOGGER.debug(
+                    "Cannot parse DTO for device %s — skipping",
+                    device_id,
+                    exc_info=True,
+                )
+                continue
             if dto is not None:
                 out[device_id] = dto
         return out

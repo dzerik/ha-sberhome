@@ -4,7 +4,7 @@ import logging
 
 DOMAIN = "sberhome"
 LOGGER = logging.getLogger(__package__)
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 
 DEFAULT_SCAN_INTERVAL = 30  # seconds
 
