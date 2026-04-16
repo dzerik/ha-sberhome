@@ -1,16 +1,22 @@
-"""Support for SberHome fans (hvac_fan, hvac_air_purifier)."""
+"""Support for SberHome fans — sbermap-driven (PR #6 + bidirectional PR #9)."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_FANS, FanSpec, resolve_category
+from .sbermap import (
+    HaEntityData,
+    build_fan_preset_command,
+    build_fan_turn_off_command,
+    build_fan_turn_on_command,
+)
 
 
 async def async_setup_entry(
@@ -19,19 +25,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericFan] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        spec = CATEGORY_FANS.get(category)
-        if spec is not None:
-            entities.append(SberGenericFan(coordinator, device_id, spec))
+    entities: list[SberSbermapFan] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.FAN:
+                entities.append(SberSbermapFan(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-class SberGenericFan(SberBaseEntity, FanEntity):
-    """Универсальный вентилятор."""
+class SberSbermapFan(SberBaseEntity, FanEntity):
+    """Universal fan — preset_mode mapped from sbermap.HaEntityData.options."""
 
     _enable_turn_on_off_backwards_compatibility = False
 
@@ -39,33 +42,38 @@ class SberGenericFan(SberBaseEntity, FanEntity):
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: FanSpec,
+        ha_entity: HaEntityData,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._spec = spec
+        self._ha_unique_id = ha_entity.unique_id
         features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
-        if spec.speed_key and spec.speeds:
+        if ha_entity.options:
             features |= FanEntityFeature.PRESET_MODE
-            self._attr_preset_modes = list(spec.speeds)
+            self._attr_preset_modes = list(ha_entity.options)
         self._attr_supported_features = features
+
+    def _ent(self) -> HaEntityData | None:
+        return self._entity_data(self._ha_unique_id)
 
     @property
     def is_on(self) -> bool | None:
-        state = self._get_desired_state("on_off")
-        return bool(state and state.get("bool_value"))
+        ent = self._ent()
+        if ent is None:
+            return None
+        return ent.state == "on"
 
     @property
     def preset_mode(self) -> str | None:
-        if not self._spec.speed_key:
+        ent = self._ent()
+        if ent is None:
             return None
-        state = self._get_desired_state(self._spec.speed_key)
-        return state["enum_value"] if state and "enum_value" in state else None
+        return ent.attributes.get("preset_mode")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        if not self._spec.speed_key:
-            return
-        await self._async_send_states(
-            [{"key": self._spec.speed_key, "enum_value": preset_mode}]
+        await self._async_send_bundle(
+            build_fan_preset_command(
+                device_id=self._device_id, preset_mode=preset_mode
+            )
         )
 
     async def async_turn_on(
@@ -74,10 +82,13 @@ class SberGenericFan(SberBaseEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        states: list[dict] = [{"key": "on_off", "bool_value": True}]
-        if preset_mode and self._spec.speed_key:
-            states.append({"key": self._spec.speed_key, "enum_value": preset_mode})
-        await self._async_send_states(states)
+        await self._async_send_bundle(
+            build_fan_turn_on_command(
+                device_id=self._device_id, preset_mode=preset_mode
+            )
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_states([{"key": "on_off", "bool_value": False}])
+        await self._async_send_bundle(
+            build_fan_turn_off_command(device_id=self._device_id)
+        )

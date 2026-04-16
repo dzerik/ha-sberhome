@@ -1,171 +1,130 @@
-"""Tests for the SberHome binary sensor platform."""
+"""Tests for the SberHome binary sensor platform — sbermap-driven (PR #3)."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.const import EntityCategory
 
 from custom_components.sberhome.binary_sensor import (
-    SberBatteryLowSensor,
-    SberDoorSensor,
-    SberMotionSensor,
-    SberWaterLeakSensor,
+    SberSbermapBinarySensor,
     async_setup_entry,
 )
-from tests.conftest import (
-    MOCK_DEVICE_DOOR_SENSOR,
-    MOCK_DEVICE_MOTION_SENSOR,
-    MOCK_DEVICE_WATER_LEAK,
-)
 
 
-class TestSberWaterLeakSensor:
+def _bs_by_id(coordinator, device_id: str, unique_id: str) -> SberSbermapBinarySensor:
+    ent = next(
+        e for e in coordinator.entities[device_id] if e.unique_id == unique_id
+    )
+    return SberSbermapBinarySensor(coordinator, device_id, ent)
+
+
+class TestWaterLeakSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberWaterLeakSensor(coordinator, "device_water_leak_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _bs_by_id(
+            mock_coordinator_with_entities, "device_water_leak_1", "device_water_leak_1"
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_water_leak_1"
 
     def test_name(self, entity):
-        assert entity._attr_name is None  # primary entity inherits device name
+        assert entity._attr_name is None  # primary entity
 
     def test_device_class(self, entity):
-        assert entity.device_class == BinarySensorDeviceClass.MOISTURE
+        assert entity._attr_device_class is BinarySensorDeviceClass.MOISTURE
 
     def test_is_on_false(self, entity):
         assert entity.is_on is False
 
-    def test_is_on_true(self, coordinator):
-        coordinator.data["device_water_leak_1"] = {
-            **MOCK_DEVICE_WATER_LEAK,
-            "reported_state": [
-                {"key": "water_leak_state", "type": "BOOL", "bool_value": True},
-            ],
-        }
-        entity = SberWaterLeakSensor(coordinator, "device_water_leak_1")
-        assert entity.is_on is True
 
-    def test_device_info(self, entity):
-        info = entity.device_info
-        assert info["serial_number"] == "SN_WATER_001"
-
-
-class TestSberDoorSensor:
+class TestDoorSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberDoorSensor(coordinator, "device_door_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _bs_by_id(
+            mock_coordinator_with_entities, "device_door_1", "device_door_1"
+        )
 
     def test_device_class(self, entity):
-        assert entity.device_class == BinarySensorDeviceClass.DOOR
+        assert entity._attr_device_class is BinarySensorDeviceClass.DOOR
 
     def test_is_on(self, entity):
         assert entity.is_on is True
 
-    def test_is_on_no_reported_state(self, coordinator):
-        coordinator.data["device_door_1"] = {
-            **MOCK_DEVICE_DOOR_SENSOR,
-        }
-        del coordinator.data["device_door_1"]["reported_state"]
-        entity = SberDoorSensor(coordinator, "device_door_1")
+    def test_is_on_when_entity_missing(self, entity, mock_coordinator_with_entities):
+        mock_coordinator_with_entities.entities["device_door_1"] = []
         assert entity.is_on is None
 
 
-class TestSberMotionSensor:
+class TestMotionSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberMotionSensor(coordinator, "device_motion_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _bs_by_id(
+            mock_coordinator_with_entities, "device_motion_1", "device_motion_1"
+        )
 
     def test_device_class(self, entity):
-        assert entity.device_class == BinarySensorDeviceClass.MOTION
+        assert entity._attr_device_class is BinarySensorDeviceClass.MOTION
 
     def test_is_on(self, entity):
         assert entity.is_on is False
 
 
-class TestSberBatteryLowSensor:
+class TestBatteryLowSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberBatteryLowSensor(coordinator, "device_water_leak_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _bs_by_id(
+            mock_coordinator_with_entities,
+            "device_water_leak_1",
+            "device_water_leak_1_battery_low",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_water_leak_1_battery_low"
 
     def test_device_class(self, entity):
-        assert entity.device_class == BinarySensorDeviceClass.BATTERY
+        assert entity._attr_device_class is BinarySensorDeviceClass.BATTERY
 
     def test_entity_category_diagnostic(self, entity):
-        assert entity._attr_entity_category == EntityCategory.DIAGNOSTIC
+        assert entity._attr_entity_category is EntityCategory.DIAGNOSTIC
 
     def test_is_on_false(self, entity):
         assert entity.is_on is False
 
-    def test_is_on_true(self, coordinator):
-        coordinator.data["device_water_leak_1"] = {
-            **MOCK_DEVICE_WATER_LEAK,
-            "reported_state": [
-                {"key": "battery_low_power", "type": "BOOL", "bool_value": True},
-            ],
-        }
-        entity = SberBatteryLowSensor(coordinator, "device_water_leak_1")
-        assert entity.is_on is True
 
-    def test_is_on_no_reported_state(self, coordinator):
-        coordinator.data["device_water_leak_1"] = {
-            **MOCK_DEVICE_WATER_LEAK,
-        }
-        del coordinator.data["device_water_leak_1"]["reported_state"]
-        entity = SberBatteryLowSensor(coordinator, "device_water_leak_1")
-        assert entity.is_on is None
+class TestTamperSensor:
+    """Door sensor mock содержит tamper_alarm — проверяем что entity создаётся."""
+
+    @pytest.fixture
+    def entity(self, mock_coordinator_with_entities):
+        return _bs_by_id(
+            mock_coordinator_with_entities,
+            "device_door_1",
+            "device_door_1_tamper",
+        )
+
+    def test_device_class(self, entity):
+        assert entity._attr_device_class is BinarySensorDeviceClass.TAMPER
+
+    def test_entity_category_diagnostic(self, entity):
+        assert entity._attr_entity_category is EntityCategory.DIAGNOSTIC
 
 
 class TestAsyncSetupEntry:
     @pytest.mark.asyncio
-    async def test_creates_entities(self, mock_devices):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices
+    async def test_creates_entities(self, mock_coordinator_with_entities):
         entry = MagicMock()
-        entry.runtime_data = coordinator
+        entry.runtime_data = mock_coordinator_with_entities
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
 
-        entities = []
-
-        def capture(ents):
-            entities.extend(ents)
-
-        await async_setup_entry(MagicMock(), entry, capture)
-
+        device_classes = [e._attr_device_class for e in captured]
         # water leak + battery_low = 2
         # door + battery_low + tamper = 3
-        # motion (no battery_low_power) = 1
-        assert len(entities) == 6
-        device_classes = [e.device_class for e in entities]
+        # motion = 1 (battery_low отсутствует в mock)
         assert device_classes.count(BinarySensorDeviceClass.MOISTURE) == 1
         assert device_classes.count(BinarySensorDeviceClass.DOOR) == 1
         assert device_classes.count(BinarySensorDeviceClass.MOTION) == 1

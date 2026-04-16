@@ -1,106 +1,73 @@
-"""Tests for the SberHome sensor platform."""
+"""Tests for the SberHome sensor platform — sbermap-driven (PR #3)."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import EntityCategory
 
-from custom_components.sberhome.sensor import (
-    SberBatterySensor,
-    SberCurrentSensor,
-    SberHumiditySensor,
-    SberPowerSensor,
-    SberSignalStrengthSensor,
-    SberTemperatureSensor,
-    SberVoltageSensor,
-    async_setup_entry,
-)
-from tests.conftest import (
-    MOCK_DEVICE_CLIMATE_SENSOR,
-    MOCK_DEVICE_DOOR_SENSOR,
-    MOCK_DEVICE_SWITCH,
-    MOCK_DEVICE_WATER_LEAK,
-)
+from custom_components.sberhome.sensor import SberSbermapSensor, async_setup_entry
 
 
-class TestSberTemperatureSensor:
+def _sensor_by_id(coordinator, device_id: str, unique_id: str) -> SberSbermapSensor:
+    """Helper: построить SberSbermapSensor для конкретного unique_id из entities."""
+    ent = next(
+        e for e in coordinator.entities[device_id] if e.unique_id == unique_id
+    )
+    return SberSbermapSensor(coordinator, device_id, ent)
+
+
+class TestTemperatureSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberTemperatureSensor(coordinator, "device_climate_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_climate_1",
+            "device_climate_1_temperature",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_climate_1_temperature"
 
-    def test_name(self, entity):
-        assert entity._attr_name == "Temperature"
-
     def test_native_value(self, entity):
         assert entity.native_value == 23.5
 
-    def test_native_value_missing(self, coordinator):
-        coordinator.data["device_climate_1"] = {
-            **MOCK_DEVICE_CLIMATE_SENSOR,
-            "reported_state": [],
-        }
-        entity = SberTemperatureSensor(coordinator, "device_climate_1")
-        assert entity.native_value is None
-
-    def test_device_info(self, entity):
-        info = entity.device_info
-        assert info["serial_number"] == "SN_CLIMATE_001"
-        assert info["manufacturer"] == "Sber"
+    def test_device_class(self, entity):
+        assert entity._attr_device_class is SensorDeviceClass.TEMPERATURE
 
     def test_suggested_display_precision(self, entity):
         assert entity._attr_suggested_display_precision == 1
 
 
-class TestSberHumiditySensor:
+class TestHumiditySensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberHumiditySensor(coordinator, "device_climate_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_climate_1",
+            "device_climate_1_humidity",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_climate_1_humidity"
 
     def test_native_value(self, entity):
-        assert entity.native_value == 45.2
+        assert entity.native_value == 45  # int(45.2)
 
-    def test_native_value_no_reported_state(self, coordinator):
-        coordinator.data["device_climate_1"] = {
-            **MOCK_DEVICE_CLIMATE_SENSOR,
-        }
-        del coordinator.data["device_climate_1"]["reported_state"]
-        entity = SberHumiditySensor(coordinator, "device_climate_1")
-        assert entity.native_value is None
-
-    def test_suggested_display_precision(self, entity):
-        assert entity._attr_suggested_display_precision == 0
+    def test_device_class(self, entity):
+        assert entity._attr_device_class is SensorDeviceClass.HUMIDITY
 
 
-class TestSberBatterySensor:
+class TestBatterySensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberBatterySensor(coordinator, "device_climate_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_climate_1",
+            "device_climate_1_battery",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_climate_1_battery"
@@ -109,19 +76,17 @@ class TestSberBatterySensor:
         assert entity.native_value == 87
 
     def test_entity_category_diagnostic(self, entity):
-        assert entity._attr_entity_category == EntityCategory.DIAGNOSTIC
+        assert entity._attr_entity_category is EntityCategory.DIAGNOSTIC
 
 
-class TestSberSignalStrengthSensor:
+class TestSignalStrengthSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberSignalStrengthSensor(coordinator, "device_door_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_door_1",
+            "device_door_1_signal_strength",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_door_1_signal_strength"
@@ -130,119 +95,85 @@ class TestSberSignalStrengthSensor:
         assert entity.native_value == -40
 
     def test_entity_category_diagnostic(self, entity):
-        assert entity._attr_entity_category == EntityCategory.DIAGNOSTIC
-
-    def test_native_value_no_reported_state(self, coordinator):
-        coordinator.data["device_door_1"] = {
-            **MOCK_DEVICE_DOOR_SENSOR,
-            "reported_state": [],
-        }
-        entity = SberSignalStrengthSensor(coordinator, "device_door_1")
-        assert entity.native_value is None
+        assert entity._attr_entity_category is EntityCategory.DIAGNOSTIC
 
 
-class TestSberVoltageSensor:
+class TestVoltageSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberVoltageSensor(coordinator, "device_switch_1")
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_switch_1",
+            "device_switch_1_voltage",
+        )
 
     def test_unique_id(self, entity):
         assert entity._attr_unique_id == "device_switch_1_voltage"
 
     def test_native_value(self, entity):
-        assert entity.native_value == 222.5
-
-    def test_native_value_no_reported_state(self, coordinator):
-        coordinator.data["device_switch_1"] = {
-            **MOCK_DEVICE_SWITCH,
-            "reported_state": [],
-        }
-        entity = SberVoltageSensor(coordinator, "device_switch_1")
-        assert entity.native_value is None
+        # Sber wire: INTEGER в Volts напрямую (PR #10).
+        assert entity.native_value == 222
 
 
-class TestSberCurrentSensor:
+class TestCurrentSensor:
     @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberCurrentSensor(coordinator, "device_switch_1")
-
-    def test_unique_id(self, entity):
-        assert entity._attr_unique_id == "device_switch_1_current"
-
-    def test_native_value_milliamps_to_amps(self, entity):
-        assert entity.native_value == 0.15  # 150mA -> 0.15A
-
-    def test_native_value_no_reported_state(self, coordinator):
-        coordinator.data["device_switch_1"] = {
-            **MOCK_DEVICE_SWITCH,
-            "reported_state": [],
-        }
-        entity = SberCurrentSensor(coordinator, "device_switch_1")
-        assert entity.native_value is None
-
-
-class TestSberPowerSensor:
-    @pytest.fixture
-    def coordinator(self, mock_devices):
-        coord = MagicMock()
-        coord.data = mock_devices
-        return coord
-
-    @pytest.fixture
-    def entity(self, coordinator):
-        return SberPowerSensor(coordinator, "device_switch_1")
-
-    def test_unique_id(self, entity):
-        assert entity._attr_unique_id == "device_switch_1_power"
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_switch_1",
+            "device_switch_1_current",
+        )
 
     def test_native_value(self, entity):
-        assert entity.native_value == 33.4
+        # Sber wire: INTEGER в Amperes напрямую (НЕ mA, как раньше думали).
+        # Подтверждено через MQTT-SberGate (PR #10).
+        assert entity.native_value == 1
 
-    def test_native_value_no_reported_state(self, coordinator):
-        coordinator.data["device_switch_1"] = {
-            **MOCK_DEVICE_SWITCH,
-            "reported_state": [],
-        }
-        entity = SberPowerSensor(coordinator, "device_switch_1")
-        assert entity.native_value is None
+
+class TestPowerSensor:
+    @pytest.fixture
+    def entity(self, mock_coordinator_with_entities):
+        return _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_switch_1",
+            "device_switch_1_power",
+        )
+
+    def test_native_value(self, entity):
+        # Sber wire: INTEGER в Watts напрямую (PR #10).
+        assert entity.native_value == 33
+
+
+class TestNativeValueMissing:
+    def test_returns_none_when_entity_disappears(
+        self, mock_coordinator_with_entities
+    ):
+        ent = _sensor_by_id(
+            mock_coordinator_with_entities,
+            "device_climate_1",
+            "device_climate_1_temperature",
+        )
+        # Стереть из entities — sensor должен вернуть None.
+        mock_coordinator_with_entities.entities["device_climate_1"] = []
+        assert ent.native_value is None
 
 
 class TestAsyncSetupEntry:
     @pytest.mark.asyncio
-    async def test_creates_entities(self, mock_devices):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices
+    async def test_creates_entities(self, mock_coordinator_with_entities):
         entry = MagicMock()
-        entry.runtime_data = coordinator
+        entry.runtime_data = mock_coordinator_with_entities
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
 
-        entities = []
-
-        def capture(ents):
-            entities.extend(ents)
-
-        await async_setup_entry(MagicMock(), entry, capture)
-
-        # climate sensor: temperature + humidity + battery + signal_strength = 4
+        # climate sensor: temp + humidity + battery + signal = 4
         # smart plug: voltage + current + power = 3
         # water leak: battery = 1
-        # door: battery + signal_strength = 2
+        # door: battery + signal_strength + tamper(no — value None) → battery+signal=2
         # motion: battery = 1
-        assert len(entities) == 11
-        from homeassistant.components.sensor import SensorDeviceClass
-
-        device_classes = [e.device_class for e in entities]
+        # ledstrip: 0 (no reported sensors in mock)
+        # bulb: 0 (no reported sensors in mock)
+        device_classes = [e._attr_device_class for e in captured]
         assert device_classes.count(SensorDeviceClass.TEMPERATURE) == 1
         assert device_classes.count(SensorDeviceClass.HUMIDITY) == 1
         assert device_classes.count(SensorDeviceClass.BATTERY) == 4

@@ -1,23 +1,17 @@
-"""Support for SberHome switches (declarative via registry)."""
+"""Support for SberHome switches — sbermap-driven (PR #4 + bidirectional PR #9)."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import (
-    CATEGORY_EXTRA_SWITCHES,
-    CATEGORY_SWITCHES,
-    ExtraSwitchSpec,
-    SwitchSpec,
-    resolve_category,
-)
-from .utils import find_from_list
+from .sbermap import HaEntityData, build_switch_command
 
 
 async def async_setup_entry(
@@ -26,79 +20,63 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericSwitch] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        spec = CATEGORY_SWITCHES.get(category)
-        if spec is not None:
-            entities.append(SberGenericSwitch(coordinator, device_id, spec))
-        # Extra config switches (child_lock, night_mode) — только если есть в attributes.
-        for extra in CATEGORY_EXTRA_SWITCHES.get(category, []):
-            if _has_attribute(device, extra.key):
-                entities.append(SberExtraSwitch(coordinator, device_id, extra))
+    entities: list[SberSbermapSwitch] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.SWITCH:
+                entities.append(SberSbermapSwitch(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-def _has_attribute(device: dict, key: str) -> bool:
-    if "attributes" not in device:
-        return False
-    return find_from_list(device["attributes"], key) is not None
-
-
-class SberGenericSwitch(SberBaseEntity, SwitchEntity):
-    """Универсальный switch через SwitchSpec."""
+class SberSbermapSwitch(SberBaseEntity, SwitchEntity):
+    """Universal switch — primary on_off + extra-switches."""
 
     def __init__(
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: SwitchSpec,
+        ha_entity: HaEntityData,
     ) -> None:
-        super().__init__(coordinator, device_id, spec.suffix)
-        self._spec = spec
+        device_real_id = (
+            coordinator.data[device_id].get("id") or device_id
+            if device_id in coordinator.data
+            else device_id
+        )
+        prefix = f"{device_real_id}_"
+        suffix = (
+            ha_entity.unique_id[len(prefix):]
+            if ha_entity.unique_id.startswith(prefix)
+            else ""
+        )
+        super().__init__(coordinator, device_id, suffix)
+        self._ha_unique_id = ha_entity.unique_id
+        self._state_key = ha_entity.state_attribute_key or "on_off"
+        if ha_entity.entity_category is not None:
+            self._attr_entity_category = ha_entity.entity_category
+        if ha_entity.icon is not None:
+            self._attr_icon = ha_entity.icon
 
     @property
     def is_on(self) -> bool | None:
-        state = self._get_desired_state(self._spec.key)
-        if state is None or "bool_value" not in state:
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None:
             return None
-        return state["bool_value"]
+        if ent.state == "on":
+            return True
+        if ent.state == "off":
+            return False
+        return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._async_send_states(
-            [{"key": self._spec.key, "bool_value": True}]
+        await self._async_send_bundle(
+            build_switch_command(
+                device_id=self._device_id, state_key=self._state_key, is_on=True
+            )
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_states(
-            [{"key": self._spec.key, "bool_value": False}]
+        await self._async_send_bundle(
+            build_switch_command(
+                device_id=self._device_id, state_key=self._state_key, is_on=False
+            )
         )
-
-
-class SberExtraSwitch(SberGenericSwitch):
-    """Дополнительный toggle на устройстве (child_lock, night_mode)."""
-
-    def __init__(
-        self,
-        coordinator: SberHomeCoordinator,
-        device_id: str,
-        spec: ExtraSwitchSpec,
-    ) -> None:
-        # SwitchSpec с нужным ключом и суффиксом.
-        sw = SwitchSpec(key=spec.key, suffix=spec.suffix)
-        super().__init__(coordinator, device_id, sw)
-        if spec.entity_category is not None:
-            self._attr_entity_category = spec.entity_category
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
-
-
-class SberSwitchEntity(SberGenericSwitch):
-    """Backwards-compat: default switch (socket on_off)."""
-
-    def __init__(
-        self, coordinator: SberHomeCoordinator, device_id: str
-    ) -> None:
-        super().__init__(coordinator, device_id, CATEGORY_SWITCHES["socket"])

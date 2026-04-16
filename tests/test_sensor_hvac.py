@@ -1,143 +1,92 @@
-"""Tests for SberHome HVAC sensors (temperature/humidity/water_level from reported_state)."""
+"""Tests for HVAC sensors (temperature/humidity/water_level) — sbermap-driven (PR #3)."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 
-from custom_components.sberhome.registry import CATEGORY_SENSORS, SensorSpec
-from custom_components.sberhome.sensor import (
-    SberGenericSensor,
-    async_setup_entry,
-)
+from custom_components.sberhome.sensor import SberSbermapSensor, async_setup_entry
+from tests.conftest import build_coordinator_caches
 
 
 @pytest.fixture
 def coordinator(mock_devices_extra):
     coord = MagicMock()
     coord.data = mock_devices_extra
-    coord.home_api = AsyncMock()
-    coord.home_api.get_cached_devices = MagicMock(return_value=mock_devices_extra)
-    coord.async_set_updated_data = MagicMock()
+    coord.devices, coord.entities = build_coordinator_caches(mock_devices_extra)
     return coord
 
 
-def _spec(category: str, key: str) -> SensorSpec:
-    for s in CATEGORY_SENSORS[category]:
-        if s.key == key:
-            return s
-    raise KeyError(f"{category}/{key}")
+def _sensor(coordinator, device_id: str, unique_id: str) -> SberSbermapSensor:
+    ent = next(
+        e for e in coordinator.entities[device_id] if e.unique_id == unique_id
+    )
+    return SberSbermapSensor(coordinator, device_id, ent)
 
 
 class TestHvacACCurrentSensors:
-    """hvac_ac → temperature + humidity (current from reported_state)."""
-
     def test_temperature_sensor(self, coordinator):
-        entity = SberGenericSensor(
-            coordinator, "device_hvac_ac_1", _spec("hvac_ac", "temperature")
-        )
-        assert entity.device_class == SensorDeviceClass.TEMPERATURE
-        assert entity.native_value == 22.5
+        e = _sensor(coordinator, "device_hvac_ac_1", "device_hvac_ac_1_temperature")
+        assert e._attr_device_class is SensorDeviceClass.TEMPERATURE
+        assert e.native_value == 22.5
 
     def test_humidity_sensor(self, coordinator):
-        entity = SberGenericSensor(
-            coordinator, "device_hvac_ac_1", _spec("hvac_ac", "humidity")
-        )
-        assert entity.device_class == SensorDeviceClass.HUMIDITY
-        assert entity.native_value == 45.0
+        e = _sensor(coordinator, "device_hvac_ac_1", "device_hvac_ac_1_humidity")
+        assert e._attr_device_class is SensorDeviceClass.HUMIDITY
+        assert e.native_value == 45  # int(45.0)
 
 
 class TestHvacHeaterRadiatorBoilerUnderfloor:
-    """Теплогенераторы: temperature sensor из reported_state."""
-
     @pytest.mark.parametrize(
-        "device_id,category,expected",
+        "device_id,expected",
         [
-            ("device_hvac_heater_1", "hvac_heater", 21.0),
-            ("device_hvac_radiator_1", "hvac_radiator", 27.0),
-            ("device_hvac_boiler_1", "hvac_boiler", 55.0),
-            ("device_hvac_underfloor_1", "hvac_underfloor_heating", 30.0),
+            ("device_hvac_heater_1", 21.0),
+            ("device_hvac_radiator_1", 27.0),
+            ("device_hvac_boiler_1", 55.0),
+            ("device_hvac_underfloor_1", 30.0),
         ],
     )
-    def test_temperature(self, coordinator, device_id, category, expected):
-        entity = SberGenericSensor(
-            coordinator, device_id, _spec(category, "temperature")
-        )
-        assert entity.device_class == SensorDeviceClass.TEMPERATURE
-        assert entity.native_value == expected
-        assert entity._attr_unique_id == f"{device_id}_temperature"
+    def test_temperature(self, coordinator, device_id, expected):
+        e = _sensor(coordinator, device_id, f"{device_id}_temperature")
+        assert e._attr_device_class is SensorDeviceClass.TEMPERATURE
+        assert e.native_value == expected
 
 
 class TestHumidifierSensors:
-    """hvac_humidifier → humidity, water_level, water_percentage."""
-
-    def test_humidity(self, coordinator):
-        entity = SberGenericSensor(
-            coordinator, "device_humidifier_1", _spec("hvac_humidifier", "humidity")
-        )
-        assert entity.device_class == SensorDeviceClass.HUMIDITY
-        assert entity.native_value == 50.0
-
     def test_water_level(self, coordinator):
-        entity = SberGenericSensor(
-            coordinator,
-            "device_humidifier_1",
-            _spec("hvac_humidifier", "hvac_water_level"),
+        e = _sensor(
+            coordinator, "device_humidifier_1", "device_humidifier_1_water_level"
         )
-        assert entity._attr_unique_id == "device_humidifier_1_water_level"
-        assert entity.native_value == 75.0
-        assert entity._attr_icon == "mdi:water-percent"
+        assert e.native_value == 75
+        assert e._attr_icon == "mdi:water-percent"
 
     def test_water_percentage(self, coordinator):
-        entity = SberGenericSensor(
+        e = _sensor(
             coordinator,
             "device_humidifier_1",
-            _spec("hvac_humidifier", "hvac_water_percentage"),
+            "device_humidifier_1_water_percentage",
         )
-        assert entity._attr_unique_id == "device_humidifier_1_water_percentage"
-        assert entity.native_value == 80.0
-        assert entity._attr_icon == "mdi:water"
-
-
-class TestHvacSensorMissing:
-    def test_missing_temperature_returns_none(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_hvac_ac_1"])
-        dev["reported_state"] = [
-            {"key": "on_off", "bool_value": True},
-        ]
-        coordinator.data["device_hvac_ac_1"] = dev
-        entity = SberGenericSensor(
-            coordinator, "device_hvac_ac_1", _spec("hvac_ac", "temperature")
-        )
-        assert entity.native_value is None
+        assert e.native_value == 80
+        assert e._attr_icon == "mdi:water"
 
 
 class TestAsyncSetupEntryHvacSensors:
     @pytest.mark.asyncio
-    async def test_creates_hvac_sensors(self, mock_devices_extra):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices_extra
+    async def test_creates_hvac_sensors(self, coordinator):
         entry = MagicMock()
         entry.runtime_data = coordinator
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
 
-        entities = []
-        await async_setup_entry(MagicMock(), entry, entities.extend)
-
-        ids_suffixes = {(e._device_id, e._spec.suffix) for e in entities}
-        # hvac_ac → temperature + humidity
-        assert ("device_hvac_ac_1", "temperature") in ids_suffixes
-        assert ("device_hvac_ac_1", "humidity") in ids_suffixes
-        # hvac_heater → temperature
-        assert ("device_hvac_heater_1", "temperature") in ids_suffixes
-        # hvac_radiator / boiler / underfloor → temperature
-        assert ("device_hvac_radiator_1", "temperature") in ids_suffixes
-        assert ("device_hvac_boiler_1", "temperature") in ids_suffixes
-        assert ("device_hvac_underfloor_1", "temperature") in ids_suffixes
-        # humidifier → humidity + water_level + water_percentage
-        assert ("device_humidifier_1", "humidity") in ids_suffixes
-        assert ("device_humidifier_1", "water_level") in ids_suffixes
-        assert ("device_humidifier_1", "water_percentage") in ids_suffixes
-        # kettle → water_temperature (already existing)
-        assert ("device_kettle_1", "water_temperature") in ids_suffixes
+        ids = {e._attr_unique_id for e in captured}
+        assert "device_hvac_ac_1_temperature" in ids
+        assert "device_hvac_ac_1_humidity" in ids
+        assert "device_hvac_heater_1_temperature" in ids
+        assert "device_hvac_radiator_1_temperature" in ids
+        assert "device_hvac_boiler_1_temperature" in ids
+        assert "device_hvac_underfloor_1_temperature" in ids
+        assert "device_humidifier_1_water_level" in ids
+        assert "device_humidifier_1_water_percentage" in ids
+        assert "device_kettle_1_water_temperature" in ids

@@ -7,7 +7,6 @@ from string import Template
 from urllib.parse import unquote
 
 from aiohttp import web
-
 from homeassistant.components.http import HomeAssistantView
 
 from .const import LOGGER

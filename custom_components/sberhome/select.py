@@ -1,15 +1,15 @@
-"""Support for SberHome select entities (enum-настройки)."""
+"""Support for SberHome select entities — sbermap-driven (PR #7 + PR #9)."""
 
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_SELECTS, SelectSpec, resolve_category
-from .utils import find_from_list
+from .sbermap import HaEntityData, build_select_command
 
 
 async def async_setup_entry(
@@ -18,53 +18,52 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericSelect] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        for spec in CATEGORY_SELECTS.get(category, []):
-            # Создаём только если feature объявлена в attributes (устройство её поддерживает).
-            if _has_attribute(device, spec.key):
-                entities.append(SberGenericSelect(coordinator, device_id, spec))
+    entities: list[SberSbermapSelect] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.SELECT:
+                entities.append(SberSbermapSelect(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-def _has_attribute(device: dict, key: str) -> bool:
-    """Feature объявлена у устройства через attributes ИЛИ присутствует
-    в reported/desired_state (устройство реально репортит эту фичу)."""
-    for section in ("attributes", "reported_state", "desired_state"):
-        if section in device and find_from_list(device[section], key) is not None:
-            return True
-    return False
-
-
-class SberGenericSelect(SberBaseEntity, SelectEntity):
-    """Универсальный select через SelectSpec."""
-
+class SberSbermapSelect(SberBaseEntity, SelectEntity):
     def __init__(
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: SelectSpec,
+        ha_entity: HaEntityData,
     ) -> None:
-        super().__init__(coordinator, device_id, spec.suffix)
-        self._spec = spec
-        self._attr_options = list(spec.options)
-        if spec.entity_category is not None:
-            self._attr_entity_category = spec.entity_category
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
+        device_real_id = (
+            coordinator.data[device_id].get("id") or device_id
+            if device_id in coordinator.data
+            else device_id
+        )
+        prefix = f"{device_real_id}_"
+        suffix = (
+            ha_entity.unique_id[len(prefix):]
+            if ha_entity.unique_id.startswith(prefix)
+            else ""
+        )
+        super().__init__(coordinator, device_id, suffix)
+        self._ha_unique_id = ha_entity.unique_id
+        self._state_key = ha_entity.state_attribute_key or ""
+        self._attr_options = list(ha_entity.options or ())
+        if ha_entity.entity_category is not None:
+            self._attr_entity_category = ha_entity.entity_category
+        if ha_entity.icon is not None:
+            self._attr_icon = ha_entity.icon
 
     @property
     def current_option(self) -> str | None:
-        state = self._get_desired_state(self._spec.key)
-        if state and "enum_value" in state:
-            value = state["enum_value"]
-            return value if value in self._attr_options else None
-        return None
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None:
+            return None
+        v = ent.state
+        return v if v in self._attr_options else None
 
     async def async_select_option(self, option: str) -> None:
-        await self._async_send_states(
-            [{"key": self._spec.key, "enum_value": option}]
+        await self._async_send_bundle(
+            build_select_command(
+                device_id=self._device_id, key=self._state_key, option=option
+            )
         )

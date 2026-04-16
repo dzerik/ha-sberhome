@@ -1,29 +1,18 @@
-"""Support for SberHome binary sensors (declarative via registry)."""
+"""Support for SberHome binary sensors — sbermap-driven (PR #3 рефакторинга).
+
+Платформа полностью обслуживается через `coordinator.entities`.
+"""
 
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import (
-    BINARY_ONLY_ONLINE_CATEGORIES,
-    CATEGORY_BINARY_SENSORS,
-    COMMON_BINARY_SENSORS,
-    BinarySensorSpec,
-    resolve_category,
-)
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.const import EntityCategory
-from .utils import find_from_list
-
-
-def _has_reported(device: dict, key: str) -> bool:
-    if "reported_state" not in device:
-        return False
-    return find_from_list(device["reported_state"], key) is not None
+from .sbermap import HaEntityData
 
 
 async def async_setup_entry(
@@ -32,96 +21,54 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericBinarySensor] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        primary = CATEGORY_BINARY_SENSORS.get(category, [])
-        # Основной binary sensor создаётся всегда для этих категорий (spec.obligatory),
-        # даже если reported_state ещё не пришёл.
-        for spec in primary:
-            entities.append(SberGenericBinarySensor(coordinator, device_id, spec))
-        # Online-индикатор для устройств-шлюзов (hub, intercom).
-        if category in BINARY_ONLY_ONLINE_CATEGORIES:
-            entities.append(
-                SberGenericBinarySensor(
-                    coordinator,
-                    device_id,
-                    BinarySensorSpec(
-                        "online",
-                        "connectivity",
-                        BinarySensorDeviceClass.CONNECTIVITY,
-                        EntityCategory.DIAGNOSTIC,
-                    ),
+    entities: list[SberSbermapBinarySensor] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.BINARY_SENSOR:
+                entities.append(
+                    SberSbermapBinarySensor(coordinator, device_id, ent)
                 )
-            )
-        # Общие диагностические — только если feature присутствует.
-        for spec in COMMON_BINARY_SENSORS:
-            if _has_reported(device, spec.key):
-                entities.append(SberGenericBinarySensor(coordinator, device_id, spec))
     async_add_entities(entities)
 
 
-class SberGenericBinarySensor(SberBaseEntity, BinarySensorEntity):
-    """Универсальный binary sensor через BinarySensorSpec."""
+class SberSbermapBinarySensor(SberBaseEntity, BinarySensorEntity):
+    """Universal binary sensor driven by sbermap HaEntityData."""
 
     def __init__(
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: BinarySensorSpec,
+        ha_entity: HaEntityData,
     ) -> None:
-        super().__init__(coordinator, device_id, spec.suffix)
-        self._spec = spec
-        self._attr_device_class = spec.device_class
-        if spec.entity_category is not None:
-            self._attr_entity_category = spec.entity_category
-        if not spec.enabled_by_default:
+        device_real_id = (
+            coordinator.data[device_id].get("id") or device_id
+            if device_id in coordinator.data
+            else device_id
+        )
+        prefix = f"{device_real_id}_"
+        suffix = (
+            ha_entity.unique_id[len(prefix):]
+            if ha_entity.unique_id.startswith(prefix)
+            else ""
+        )
+        super().__init__(coordinator, device_id, suffix)
+        self._ha_unique_id = ha_entity.unique_id
+        self._attr_device_class = ha_entity.device_class
+        if ha_entity.entity_category is not None:
+            self._attr_entity_category = ha_entity.entity_category
+        if not ha_entity.enabled_by_default:
             self._attr_entity_registry_enabled_default = False
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
+        if ha_entity.icon is not None:
+            self._attr_icon = ha_entity.icon
 
     @property
     def is_on(self) -> bool | None:
-        state = self._get_reported_state(self._spec.key)
-        if state and "bool_value" in state:
-            return state["bool_value"]
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None:
+            return None
+        # state хранится как "on"/"off"/None из STATE_ON/STATE_OFF.
+        if ent.state == "on":
+            return True
+        if ent.state == "off":
+            return False
         return None
-
-
-# ---- Backwards-compat specialised classes ----
-
-
-def _bspec(category: str | None, key: str) -> BinarySensorSpec:
-    """Найти BinarySensorSpec по (категории, ключу).
-
-    Если category=None — ищем только в COMMON_BINARY_SENSORS.
-    """
-    pool = COMMON_BINARY_SENSORS if category is None else (
-        CATEGORY_BINARY_SENSORS.get(category, []) + COMMON_BINARY_SENSORS
-    )
-    for s in pool:
-        if s.key == key:
-            return s
-    raise KeyError(f"No binary spec for {category}/{key}")
-
-
-class SberWaterLeakSensor(SberGenericBinarySensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _bspec("sensor_water_leak", "water_leak_state"))
-
-
-class SberDoorSensor(SberGenericBinarySensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _bspec("sensor_door", "doorcontact_state"))
-
-
-class SberMotionSensor(SberGenericBinarySensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _bspec("sensor_pir", "motion_state"))
-
-
-class SberBatteryLowSensor(SberGenericBinarySensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _bspec(None, "battery_low_power"))

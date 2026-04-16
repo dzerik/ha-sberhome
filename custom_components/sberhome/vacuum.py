@@ -1,4 +1,4 @@
-"""Support for SberHome robot vacuum cleaners."""
+"""Support for SberHome robot vacuums — sbermap-driven (PR #7 + PR #9)."""
 
 from __future__ import annotations
 
@@ -9,24 +9,13 @@ from homeassistant.components.vacuum import (
     VacuumActivity,
     VacuumEntityFeature,
 )
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_VACUUMS, VacuumSpec, resolve_category
-
-# Sber status → HA VacuumActivity
-SBER_TO_HA_STATE: dict[str, VacuumActivity] = {
-    "cleaning": VacuumActivity.CLEANING,
-    "running": VacuumActivity.CLEANING,
-    "paused": VacuumActivity.PAUSED,
-    "returning": VacuumActivity.RETURNING,
-    "docked": VacuumActivity.DOCKED,
-    "charging": VacuumActivity.DOCKED,
-    "idle": VacuumActivity.IDLE,
-    "error": VacuumActivity.ERROR,
-}
+from .sbermap import HaEntityData, build_vacuum_command
 
 
 async def async_setup_entry(
@@ -35,20 +24,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberVacuumEntity] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        spec = CATEGORY_VACUUMS.get(category)
-        if spec is not None:
-            entities.append(SberVacuumEntity(coordinator, device_id, spec))
+    entities: list[SberSbermapVacuum] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.VACUUM:
+                entities.append(SberSbermapVacuum(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-class SberVacuumEntity(SberBaseEntity, StateVacuumEntity):
-    """Sber робот-пылесос."""
-
+class SberSbermapVacuum(SberBaseEntity, StateVacuumEntity):
     _attr_supported_features = (
         VacuumEntityFeature.START
         | VacuumEntityFeature.PAUSE
@@ -63,41 +47,51 @@ class SberVacuumEntity(SberBaseEntity, StateVacuumEntity):
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: VacuumSpec,
+        ha_entity: HaEntityData,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._spec = spec
+        self._ha_unique_id = ha_entity.unique_id
+
+    def _ent(self) -> HaEntityData | None:
+        return self._entity_data(self._ha_unique_id)
 
     @property
     def activity(self) -> VacuumActivity | None:
-        state = self._get_reported_state(self._spec.status_key)
-        if state and "enum_value" in state:
-            return SBER_TO_HA_STATE.get(state["enum_value"], VacuumActivity.IDLE)
-        return None
+        ent = self._ent()
+        if ent is None:
+            return None
+        return ent.state if isinstance(ent.state, VacuumActivity) else None
 
     @property
     def battery_level(self) -> int | None:
-        state = self._get_reported_state("battery_percentage")
-        if state and "integer_value" in state:
-            return int(state["integer_value"])
-        return None
+        ent = self._ent()
+        if ent is None:
+            return None
+        return ent.attributes.get("battery_level")
 
     async def async_start(self) -> None:
-        await self._command("start")
+        await self._async_send_bundle(
+            build_vacuum_command(device_id=self._device_id, command="start")
+        )
 
     async def async_pause(self) -> None:
-        await self._command("pause")
+        await self._async_send_bundle(
+            build_vacuum_command(device_id=self._device_id, command="pause")
+        )
 
     async def async_stop(self, **kwargs: Any) -> None:
-        await self._command("stop")
+        await self._async_send_bundle(
+            build_vacuum_command(device_id=self._device_id, command="stop")
+        )
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
-        await self._command("return_to_base")
+        await self._async_send_bundle(
+            build_vacuum_command(
+                device_id=self._device_id, command="return_to_base"
+            )
+        )
 
     async def async_locate(self, **kwargs: Any) -> None:
-        await self._command("locate")
-
-    async def _command(self, command: str) -> None:
-        await self._async_send_states(
-            [{"key": self._spec.command_key, "enum_value": command}]
+        await self._async_send_bundle(
+            build_vacuum_command(device_id=self._device_id, command="locate")
         )

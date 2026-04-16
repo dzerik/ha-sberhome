@@ -1,7 +1,7 @@
 *~
 __pycache__
 .tox
-.pre-commit-config.yaml
+# .pre-commit-config.yaml — теперь часть проекта (см. PR #7)
 .DS_Store
 
 /bin
@@ -15,3 +15,8 @@ __pycache__
 .coverage
 *.egg-info/
 .serena/
+
+# Research-based protocol documentation (derived from decompiled APK — do NOT commit)
+/research_docs/
+
+/CLAUDE.md

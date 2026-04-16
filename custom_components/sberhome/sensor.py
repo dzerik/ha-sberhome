@@ -1,21 +1,20 @@
-"""Support for SberHome sensors (declarative via registry)."""
+"""Support for SberHome sensors — sbermap-driven (PR #3 рефакторинга).
+
+Платформа полностью обслуживается через `coordinator.entities` —
+готовый кэш `HaEntityData` из `sbermap`. Никакой ad-hoc логики:
+все scaling/units/device_class определены в `sbermap.transform.sber_to_ha`.
+"""
 
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import COMMON_SENSORS, CATEGORY_SENSORS, SensorSpec, resolve_category
-from .utils import find_from_list
-
-
-def _has_reported(device: dict, key: str) -> bool:
-    if "reported_state" not in device:
-        return False
-    return find_from_list(device["reported_state"], key) is not None
+from .sbermap import HaEntityData
 
 
 async def async_setup_entry(
@@ -24,100 +23,56 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericSensor] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        specs = list(CATEGORY_SENSORS.get(category, []))
-        specs.extend(COMMON_SENSORS)
-        for spec in specs:
-            if _has_reported(device, spec.key):
-                entities.append(SberGenericSensor(coordinator, device_id, spec))
+    entities: list[SberSbermapSensor] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.SENSOR:
+                entities.append(SberSbermapSensor(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-class SberGenericSensor(SberBaseEntity, SensorEntity):
-    """Универсальный сенсор, конфигурируемый через SensorSpec."""
+class SberSbermapSensor(SberBaseEntity, SensorEntity):
+    """Universal sensor driven by sbermap HaEntityData."""
 
     def __init__(
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: SensorSpec,
+        ha_entity: HaEntityData,
     ) -> None:
-        super().__init__(coordinator, device_id, spec.suffix)
-        self._spec = spec
-        self._attr_device_class = spec.device_class
-        self._attr_native_unit_of_measurement = spec.unit
-        self._attr_state_class = spec.state_class
-        if spec.entity_category is not None:
-            self._attr_entity_category = spec.entity_category
-        if spec.precision is not None:
-            self._attr_suggested_display_precision = spec.precision
-        if not spec.enabled_by_default:
+        # unique_id-suffix вычисляем как часть после device_id_, иначе "" (primary).
+        device_real_id = (
+            coordinator.data[device_id].get("id") or device_id
+            if device_id in coordinator.data
+            else device_id
+        )
+        prefix = f"{device_real_id}_"
+        suffix = (
+            ha_entity.unique_id[len(prefix):]
+            if ha_entity.unique_id.startswith(prefix)
+            else ""
+        )
+        super().__init__(coordinator, device_id, suffix)
+        # Запоминаем конкретный unique_id для lookup'а актуальной HaEntityData.
+        self._ha_unique_id = ha_entity.unique_id
+        self._attr_device_class = ha_entity.device_class
+        self._attr_native_unit_of_measurement = ha_entity.unit_of_measurement
+        self._attr_state_class = ha_entity.state_class
+        if ha_entity.entity_category is not None:
+            self._attr_entity_category = ha_entity.entity_category
+        if ha_entity.suggested_display_precision is not None:
+            self._attr_suggested_display_precision = (
+                ha_entity.suggested_display_precision
+            )
+        if not ha_entity.enabled_by_default:
             self._attr_entity_registry_enabled_default = False
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
+        if ha_entity.icon is not None:
+            self._attr_icon = ha_entity.icon
 
     @property
-    def native_value(self) -> float | int | None:
-        state = self._get_reported_state(self._spec.key)
-        if not state:
+    def native_value(self) -> float | int | str | None:
+        """Каждый раз перечитываем актуальное HaEntityData из coordinator."""
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None:
             return None
-        raw: float | None = None
-        if "float_value" in state:
-            raw = float(state["float_value"])
-        elif "integer_value" in state:
-            raw = float(state["integer_value"])
-        if raw is None:
-            return None
-        value = raw * self._spec.scale
-        if self._spec.as_int:
-            return int(value)
-        return value
-
-
-# ---- Backwards-compat specialised classes (preserve public API for tests) ----
-
-
-def _spec(category: str, key: str) -> SensorSpec:
-    for s in CATEGORY_SENSORS.get(category, []) + COMMON_SENSORS:
-        if s.key == key:
-            return s
-    raise KeyError(f"No spec for {category}/{key}")
-
-
-class SberTemperatureSensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("sensor_temp", "temperature"))
-
-
-class SberHumiditySensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("sensor_temp", "humidity"))
-
-
-class SberBatterySensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("sensor_temp", "battery_percentage"))
-
-
-class SberSignalStrengthSensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("sensor_temp", "signal_strength"))
-
-
-class SberVoltageSensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("socket", "cur_voltage"))
-
-
-class SberCurrentSensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("socket", "cur_current"))
-
-
-class SberPowerSensor(SberGenericSensor):
-    def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
-        super().__init__(coordinator, device_id, _spec("socket", "cur_power"))
+        return ent.state

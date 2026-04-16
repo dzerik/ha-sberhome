@@ -4,8 +4,6 @@
 
 Поддерживает 28 категорий устройств: освещение, розетки/реле, датчики, шторы, климат, пылесосы, медиаплееры и др. — через Sber Gateway API (`gateway.iot.sberdevices.ru`) с OAuth2/PKCE авторизацией через `id.sber.ru`.
 
-> **Происхождение.** Проект вырос из форка [altfoxie/ha-sberdevices](https://github.com/altfoxie/ha-sberdevices) и постепенно был полностью переписан: сменён HTTP-клиент, добавлен `DataUpdateCoordinator`, написан decla­rativный реестр устройств, покрытие ~86%, поддержка 12 платформ HA вместо 1. Отдельное спасибо @altfoxie за изначальную разведку протокола.
-
 ## Поддерживаемые устройства
 
 Реализованы все **28 категорий** из официальной спецификации Sber Smart Home:
@@ -66,9 +64,50 @@
 - **Options Flow** — настраиваемый интервал опроса API (10–300 секунд)
 - **Diagnostics** — поддержка диагностики для отладки (с автоматической редакцией токенов)
 - **Локализация** — русский, английский, казахский, белорусский, узбекский
-- **437 тестов** (coverage 91%) — API, coordinator, config flow, auth, entity, diagnostics + все 12 платформ
+- **739 тестов** — API, coordinator, config flow, auth, entity, diagnostics + все 13 платформ + 285 тестов нового `aiosber/` ядра
 - **Декларативная архитектура** — `registry.py` с dataclass-дескрипторами; новое устройство добавляется одной строкой
 - **Полное покрытие sber spec** — все 28 категорий и все features реализованы (HVAC: current temp, thermostat_mode, heating_rate, ionization, aromatization, decontaminate; scenario_button до 10 кнопок + directional; replace_filter / water_low / tamper / alarm_mute)
+- **Standalone-ядро `aiosber/`** — async-клиент Sber Gateway API без HA-зависимостей (см. ниже)
+- **Intercom buttons** (`button.intercom_unlock`, `button.intercom_reject_call`) — управление домофоном из HA
+- **Двустворчатые шторы / ворота** — отдельные cover-сущности `<device>_left` и `<device>_right`
+- **TV IR-style commands** — entity services `sberhome.send_custom_key`, `sberhome.send_direction`, `sberhome.play_channel`
+
+## Архитектура
+
+Проект разделён на два слоя:
+
+### `custom_components/sberhome/aiosber/` — standalone async-ядро
+
+Чистый async Python-клиент Sber Gateway API без зависимостей от Home Assistant.
+Готов к выделению в отдельный PyPI-пакет (см. CLAUDE.md → 2.0.0).
+
+```python
+from custom_components.sberhome.aiosber import (
+    SberClient, AttributeValueDto, AttrKey, ColorValue,
+)
+
+async with await SberClient.from_companion_token("...") as client:
+    devices = await client.devices.list()
+    await client.devices.set_state(devices[0].id, [
+        AttributeValueDto.of_color(
+            AttrKey.LIGHT_COLOUR,
+            ColorValue(hue=120, saturation=100, brightness=80),
+        ),
+    ])
+```
+
+Слои:
+- **`auth/`** — OAuth2 PKCE через `id.sber.ru` + companion token + auto-refresh.
+- **`transport/`** — HTTP (httpx + retry + headers) + WebSocket (reconnect + dispatch) + lazy SSL.
+- **`api/`** — `DeviceAPI`, `GroupAPI`, `ScenarioAPI`, `PairingAPI` (Matter), `IndicatorAPI`.
+- **`dto/`** — 30+ dataclass'ов + 47 wire-enum'ов (полная спецификация протокола).
+
+CLI-примеры в `examples/list_devices.py`, `set_color.py`, `ws_listen.py`.
+
+### `custom_components/sberhome/` — HA-адаптер
+
+Тонкий слой поверх `aiosber/`. Платформы: light, switch, sensor, binary_sensor,
+climate, cover, fan, humidifier, media_player, number, select, event, button (13).
 
 ## Установка
 

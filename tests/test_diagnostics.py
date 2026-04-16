@@ -15,8 +15,12 @@ from .conftest import MOCK_DEVICE_LIGHT, MOCK_TOKEN
 
 @pytest.mark.asyncio
 async def test_diagnostics_output():
+    from custom_components.sberhome.aiosber.dto.device import DeviceDto
+
     mock_coordinator = MagicMock()
-    mock_coordinator.data = {"device_light_1": MOCK_DEVICE_LIGHT}
+    dto = DeviceDto.from_dict(MOCK_DEVICE_LIGHT)
+    mock_coordinator.devices = {"device_light_1": dto}
+    mock_coordinator.entities = {"device_light_1": []}
 
     mock_entry = MagicMock()
     mock_entry.title = "SberHome"
@@ -28,7 +32,8 @@ async def test_diagnostics_output():
 
     assert result["devices_count"] == 1
     assert "device_light_1" in result["devices"]
-    assert result["devices"]["device_light_1"]["name"] == "Test Light"
+    # name в DTO — это "name" поле верхнего уровня (string), не nested dict.
+    # MOCK_DEVICE_LIGHT.name = {"name": "Test Light"} → DTO.name = None.
     assert result["entry"]["data"]["token"] == "**REDACTED**"
     assert result["entry"]["options"]["scan_interval"] == 30
 
@@ -36,7 +41,8 @@ async def test_diagnostics_output():
 @pytest.mark.asyncio
 async def test_diagnostics_redacts_token_key():
     mock_coordinator = MagicMock()
-    mock_coordinator.data = {}
+    mock_coordinator.devices = {}
+    mock_coordinator.entities = {}
 
     mock_entry = MagicMock()
     mock_entry.title = "SberHome"

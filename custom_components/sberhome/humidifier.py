@@ -1,4 +1,4 @@
-"""Support for SberHome humidifiers (hvac_humidifier)."""
+"""Support for SberHome humidifiers — sbermap-driven (PR #6 + bidirectional PR #9)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,18 @@ from homeassistant.components.humidifier import (
     HumidifierEntity,
     HumidifierEntityFeature,
 )
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_HUMIDIFIERS, HumidifierSpec, resolve_category
+from .sbermap import (
+    HaEntityData,
+    build_humidifier_on_off_command,
+    build_humidifier_set_humidity_command,
+    build_humidifier_set_mode_command,
+)
 
 
 async def async_setup_entry(
@@ -22,19 +28,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericHumidifier] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        spec = CATEGORY_HUMIDIFIERS.get(category)
-        if spec is not None:
-            entities.append(SberGenericHumidifier(coordinator, device_id, spec))
+    entities: list[SberSbermapHumidifier] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.HUMIDIFIER:
+                entities.append(SberSbermapHumidifier(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-class SberGenericHumidifier(SberBaseEntity, HumidifierEntity):
-    """Универсальный увлажнитель."""
+class SberSbermapHumidifier(SberBaseEntity, HumidifierEntity):
+    """Universal humidifier — modes/min_humidity/max_humidity из HaEntityData."""
 
     _enable_turn_on_off_backwards_compatibility = False
 
@@ -42,53 +45,65 @@ class SberGenericHumidifier(SberBaseEntity, HumidifierEntity):
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: HumidifierSpec,
+        ha_entity: HaEntityData,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._spec = spec
-        self._attr_min_humidity = spec.min_humidity
-        self._attr_max_humidity = spec.max_humidity
+        self._ha_unique_id = ha_entity.unique_id
+        if ha_entity.min_value is not None:
+            self._attr_min_humidity = int(ha_entity.min_value)
+        if ha_entity.max_value is not None:
+            self._attr_max_humidity = int(ha_entity.max_value)
         features = HumidifierEntityFeature(0)
-        if spec.modes:
+        if ha_entity.options:
             features |= HumidifierEntityFeature.MODES
-            self._attr_available_modes = list(spec.modes)
+            self._attr_available_modes = list(ha_entity.options)
         self._attr_supported_features = features
+
+    def _ent(self) -> HaEntityData | None:
+        return self._entity_data(self._ha_unique_id)
 
     @property
     def is_on(self) -> bool | None:
-        state = self._get_desired_state("on_off")
-        return bool(state and state.get("bool_value"))
+        ent = self._ent()
+        if ent is None:
+            return None
+        return ent.state == "on"
 
     @property
     def target_humidity(self) -> int | None:
-        if not self._spec.target_humidity_key:
+        ent = self._ent()
+        if ent is None:
             return None
-        state = self._get_desired_state(self._spec.target_humidity_key)
-        if state and "integer_value" in state:
-            return int(state["integer_value"])
-        return None
+        h = ent.attributes.get("humidity")
+        return int(h) if h is not None else None
 
     @property
     def mode(self) -> str | None:
-        if not self._spec.mode_key:
+        ent = self._ent()
+        if ent is None:
             return None
-        state = self._get_desired_state(self._spec.mode_key)
-        return state["enum_value"] if state and "enum_value" in state else None
+        return ent.attributes.get("mode")
 
     async def async_set_humidity(self, humidity: int) -> None:
-        if not self._spec.target_humidity_key:
-            return
-        await self._async_send_states(
-            [{"key": self._spec.target_humidity_key, "integer_value": int(humidity)}]
+        await self._async_send_bundle(
+            build_humidifier_set_humidity_command(
+                device_id=self._device_id, humidity=humidity
+            )
         )
 
     async def async_set_mode(self, mode: str) -> None:
-        if not self._spec.mode_key:
-            return
-        await self._async_send_states([{"key": self._spec.mode_key, "enum_value": mode}])
+        await self._async_send_bundle(
+            build_humidifier_set_mode_command(
+                device_id=self._device_id, mode=mode
+            )
+        )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._async_send_states([{"key": "on_off", "bool_value": True}])
+        await self._async_send_bundle(
+            build_humidifier_on_off_command(device_id=self._device_id, is_on=True)
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_states([{"key": "on_off", "bool_value": False}])
+        await self._async_send_bundle(
+            build_humidifier_on_off_command(device_id=self._device_id, is_on=False)
+        )

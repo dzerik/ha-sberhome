@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 
 from custom_components.sberhome.const import DOMAIN
 
@@ -125,9 +124,11 @@ MOCK_DEVICE_SWITCH = {
     ],
     "reported_state": [
         {"key": "on_off", "bool_value": True},
-        {"key": "cur_voltage", "type": "FLOAT", "float_value": 222.5},
-        {"key": "cur_current", "type": "INTEGER", "integer_value": 150},
-        {"key": "cur_power", "type": "FLOAT", "float_value": 33.4},
+        # Sber wire: voltage/current/power — INTEGER без скейла (V/A/W).
+        # Подтверждено через MQTT-SberGate (PR #10).
+        {"key": "cur_voltage", "type": "INTEGER", "integer_value": 222},
+        {"key": "cur_current", "type": "INTEGER", "integer_value": 1},
+        {"key": "cur_power", "type": "INTEGER", "integer_value": 33},
     ],
     "attributes": [],
 }
@@ -675,6 +676,7 @@ def mock_config_entry():
     entry.domain = DOMAIN
     entry.title = "SberHome"
     entry.data = {"token": MOCK_TOKEN}
+    entry.options = {}
     entry.source = "user"
     entry.entry_id = "test_entry_id"
     entry.runtime_data = None
@@ -693,3 +695,34 @@ def mock_devices() -> dict:
         "device_door_1": MOCK_DEVICE_DOOR_SENSOR,
         "device_motion_1": MOCK_DEVICE_MOTION_SENSOR,
     }
+
+
+def build_coordinator_caches(raw_devices: dict) -> tuple[dict, dict]:
+    """Helper для тестов: построить (devices_dto, entities) из raw mock_devices.
+
+    Используется тестами платформ, мигрированных на sbermap (PR #3-#7).
+    """
+    from custom_components.sberhome.aiosber.dto.device import DeviceDto
+    from custom_components.sberhome.sbermap import device_dto_to_entities
+
+    devices: dict = {}
+    entities: dict = {}
+    for did, raw in raw_devices.items():
+        dto = DeviceDto.from_dict(raw)
+        if dto is None:
+            continue
+        devices[did] = dto
+        entities[did] = device_dto_to_entities(dto)
+    return devices, entities
+
+
+@pytest.fixture
+def mock_coordinator_with_entities(mock_devices):
+    """Coordinator-like MagicMock с заполненными data/devices/entities.
+
+    Готовый «батарейки в комплекте» mock для тестов sbermap-driven платформ.
+    """
+    coord = MagicMock()
+    coord.data = mock_devices
+    coord.devices, coord.entities = build_coordinator_caches(mock_devices)
+    return coord

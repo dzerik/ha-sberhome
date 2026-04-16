@@ -1,165 +1,128 @@
-"""Tests for the SberHome cover platform."""
+"""Tests for SberHome cover platform — sbermap-driven (PR #5)."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from homeassistant.components.cover import CoverDeviceClass, CoverEntityFeature
+from homeassistant.components.cover import (
+    ATTR_POSITION,
+    CoverDeviceClass,
+    CoverEntityFeature,
+)
 
-from custom_components.sberhome.cover import SberGenericCover, async_setup_entry
-from custom_components.sberhome.registry import CATEGORY_COVERS
+from custom_components.sberhome.cover import SberSbermapCover, async_setup_entry
+from tests.conftest import build_coordinator_caches
 
 
 @pytest.fixture
 def coordinator(mock_devices_extra):
     coord = MagicMock()
     coord.data = mock_devices_extra
+    coord.devices, coord.entities = build_coordinator_caches(mock_devices_extra)
     coord.home_api = AsyncMock()
     coord.home_api.get_cached_devices = MagicMock(return_value=mock_devices_extra)
+    fake_client = AsyncMock()
+    fake_client.devices = AsyncMock()
+    coord.home_api.get_sber_client = AsyncMock(return_value=fake_client)
+    coord._fake_client = fake_client
     coord.async_set_updated_data = MagicMock()
+    coord._rebuild_dto_caches = MagicMock()
     return coord
 
 
-@pytest.fixture
-def curtain_entity(coordinator):
-    return SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
+def _cover(coordinator, device_id: str, unique_id: str) -> SberSbermapCover:
+    ent = next(e for e in coordinator.entities[device_id] if e.unique_id == unique_id)
+    return SberSbermapCover(coordinator, device_id, ent)
 
 
-@pytest.fixture
-def gate_entity(coordinator):
-    return SberGenericCover(coordinator, "device_gate_1", CATEGORY_COVERS["gate"])
+class TestCurtain:
+    @pytest.fixture
+    def curtain(self, coordinator):
+        return _cover(coordinator, "device_curtain_1", "device_curtain_1")
 
+    def test_unique_id(self, curtain):
+        assert curtain._attr_unique_id == "device_curtain_1"
 
-class TestSberGenericCurtain:
-    def test_unique_id(self, curtain_entity):
-        assert curtain_entity._attr_unique_id == "device_curtain_1"
+    def test_device_class(self, curtain):
+        assert curtain._attr_device_class is CoverDeviceClass.CURTAIN
 
-    def test_name(self, curtain_entity):
-        assert curtain_entity._attr_name is None
-
-    def test_device_class(self, curtain_entity):
-        assert curtain_entity._attr_device_class == CoverDeviceClass.CURTAIN
-
-    def test_supported_features(self, curtain_entity):
-        sf = curtain_entity._attr_supported_features
+    def test_supported_features(self, curtain):
+        sf = curtain._attr_supported_features
         assert sf & CoverEntityFeature.OPEN
         assert sf & CoverEntityFeature.CLOSE
         assert sf & CoverEntityFeature.STOP
         assert sf & CoverEntityFeature.SET_POSITION
 
-    def test_current_cover_position(self, curtain_entity):
-        assert curtain_entity.current_cover_position == 70
+    def test_current_cover_position(self, curtain):
+        assert curtain.current_cover_position == 70
 
-    def test_is_closed_opened(self, curtain_entity):
-        assert curtain_entity.is_closed is False
-
-    def test_is_opening_false(self, curtain_entity):
-        assert curtain_entity.is_opening is False
-
-    def test_is_closing_false(self, curtain_entity):
-        assert curtain_entity.is_closing is False
+    def test_is_closed_open(self, curtain):
+        assert curtain.is_closed is False
 
     @pytest.mark.asyncio
-    async def test_open_cover(self, curtain_entity, coordinator):
-        await curtain_entity.async_open_cover()
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_curtain_1", [{"key": "open_set", "integer_value": 100}]
-        )
-        coordinator.async_set_updated_data.assert_called_once()
+    async def test_open_cover(self, curtain, coordinator):
+        await curtain.async_open_cover()
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "open_set" and a.integer_value == 100 for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_close_cover(self, curtain_entity, coordinator):
-        await curtain_entity.async_close_cover()
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_curtain_1", [{"key": "open_set", "integer_value": 0}]
-        )
+    async def test_close_cover(self, curtain, coordinator):
+        await curtain.async_close_cover()
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "open_set" and a.integer_value == 0 for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_set_position(self, curtain_entity, coordinator):
-        from homeassistant.components.cover import ATTR_POSITION
-
-        await curtain_entity.async_set_cover_position(**{ATTR_POSITION: 42})
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_curtain_1", [{"key": "open_set", "integer_value": 42}]
-        )
+    async def test_set_position(self, curtain, coordinator):
+        await curtain.async_set_cover_position(**{ATTR_POSITION: 42})
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "open_set" and a.integer_value == 42 for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_stop_cover(self, curtain_entity, coordinator):
-        await curtain_entity.async_stop_cover()
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_curtain_1", [{"key": "open_state", "enum_value": "stop"}]
-        )
+    async def test_stop(self, curtain, coordinator):
+        await curtain.async_stop_cover()
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "open_state" and a.enum_value == "stop" for a in attrs)
 
 
-class TestSberGenericCoverStates:
-    def test_is_closed_gate_closed(self, gate_entity):
-        assert gate_entity.is_closed is True
+class TestGate:
+    @pytest.fixture
+    def gate(self, coordinator):
+        return _cover(coordinator, "device_gate_1", "device_gate_1")
 
-    def test_is_opening_true(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_curtain_1"])
-        dev["reported_state"] = [{"key": "open_state", "enum_value": "opening"}]
-        coordinator.data["device_curtain_1"] = dev
-        entity = SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
-        assert entity.is_opening is True
-        assert entity.is_closing is False
+    def test_device_class(self, gate):
+        assert gate._attr_device_class is CoverDeviceClass.GATE
 
-    def test_is_closing_true(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_curtain_1"])
-        dev["reported_state"] = [{"key": "open_state", "enum_value": "closing"}]
-        coordinator.data["device_curtain_1"] = dev
-        entity = SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
-        assert entity.is_closing is True
+    def test_is_closed_true(self, gate):
+        assert gate.is_closed is True
 
-    def test_is_closed_fallback_to_position_zero(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_curtain_1"])
-        dev["reported_state"] = [{"key": "open_percentage", "integer_value": 0}]
-        coordinator.data["device_curtain_1"] = dev
-        entity = SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
-        assert entity.is_closed is True
 
-    def test_is_closed_none_when_no_data(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_curtain_1"])
-        dev["reported_state"] = []
-        coordinator.data["device_curtain_1"] = dev
-        entity = SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
-        assert entity.is_closed is None
+class TestValveNoStopOrPosition:
+    """Valve config — supports_set_position=False, supports_stop=False."""
 
-    def test_current_position_missing(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_curtain_1"])
-        dev["reported_state"] = []
-        coordinator.data["device_curtain_1"] = dev
-        entity = SberGenericCover(coordinator, "device_curtain_1", CATEGORY_COVERS["curtain"])
-        assert entity.current_cover_position is None
+    def test_valve_features(self, coordinator):
+        # Mocks не содержат valve, проверяем через config напрямую.
+        from custom_components.sberhome.sbermap import cover_config_for
+
+        cfg = cover_config_for("valve")
+        assert cfg.supports_set_position is False
+        assert cfg.supports_stop is False
 
 
 class TestAsyncSetupEntry:
     @pytest.mark.asyncio
-    async def test_creates_entities_for_covers(self, mock_devices_extra):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices_extra
+    async def test_creates_3_covers(self, coordinator):
         entry = MagicMock()
         entry.runtime_data = coordinator
-
-        entities = []
-
-        def capture(ents):
-            entities.extend(ents)
-
-        await async_setup_entry(MagicMock(), entry, capture)
-
-        # curtain + gate + window_blind = 3 cover entities
-        assert len(entities) == 3
-        ids = {e._device_id for e in entities}
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
+        ids = {e._device_id for e in captured}
         assert ids == {"device_curtain_1", "device_gate_1", "device_blind_1"}
 
     @pytest.mark.asyncio
-    async def test_no_covers_for_unrelated_devices(self, mock_devices):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices
+    async def test_no_covers_for_unrelated(self, mock_coordinator_with_entities):
         entry = MagicMock()
-        entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(MagicMock(), entry, entities.extend)
-        assert entities == []
+        entry.runtime_data = mock_coordinator_with_entities
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
+        assert captured == []

@@ -1,6 +1,6 @@
 [project]
 name = "ha-sberhome"
-version = "1.0.0"
+version = "2.4.0"
 description = "Home Assistant integration for Sber smart home (Салют)"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -23,3 +23,14 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# В тестовых файлах допускаем длинные строки (длинные JSON payloads читаются лучше
+# на одной строке) и неиспользуемые локальные переменные (часто result = await ...
+# нужен только для таймингов или явного await'а).
+"tests/**/*.py" = ["E501", "F841"]
+# Auto-generated файлы — формат под script, lint не применяется.
+"custom_components/sberhome/aiosber/_generated/**/*.py" = ["E501", "I001"]
+"custom_components/sberhome/sbermap/spec/_generated/**/*.py" = ["E501", "I001"]
+# tools/ — utility scripts, не часть production кода.
+"tools/**/*.py" = ["E501"]

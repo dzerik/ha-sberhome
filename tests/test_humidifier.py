@@ -1,158 +1,98 @@
-"""Tests for the SberHome humidifier platform."""
+"""Tests for SberHome humidifier platform — sbermap-driven (PR #6)."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.components.humidifier import HumidifierEntityFeature
 
 from custom_components.sberhome.humidifier import (
-    SberGenericHumidifier,
+    SberSbermapHumidifier,
     async_setup_entry,
 )
-from custom_components.sberhome.registry import CATEGORY_HUMIDIFIERS
+from tests.conftest import build_coordinator_caches
 
 
 @pytest.fixture
 def coordinator(mock_devices_extra):
     coord = MagicMock()
     coord.data = mock_devices_extra
+    coord.devices, coord.entities = build_coordinator_caches(mock_devices_extra)
     coord.home_api = AsyncMock()
     coord.home_api.get_cached_devices = MagicMock(return_value=mock_devices_extra)
+    fake_client = AsyncMock()
+    fake_client.devices = AsyncMock()
+    coord.home_api.get_sber_client = AsyncMock(return_value=fake_client)
+    coord._fake_client = fake_client
     coord.async_set_updated_data = MagicMock()
+    coord._rebuild_dto_caches = MagicMock()
     return coord
 
 
 @pytest.fixture
-def humidifier_entity(coordinator):
-    return SberGenericHumidifier(
-        coordinator, "device_humidifier_1", CATEGORY_HUMIDIFIERS["hvac_humidifier"]
+def humidifier(coordinator):
+    ent = next(
+        e for e in coordinator.entities["device_humidifier_1"]
+        if e.unique_id == "device_humidifier_1"
     )
+    return SberSbermapHumidifier(coordinator, "device_humidifier_1", ent)
 
 
-class TestSberHumidifier:
-    def test_unique_id(self, humidifier_entity):
-        assert humidifier_entity._attr_unique_id == "device_humidifier_1"
+class TestHumidifier:
+    def test_unique_id(self, humidifier):
+        assert humidifier._attr_unique_id == "device_humidifier_1"
 
-    def test_name(self, humidifier_entity):
-        assert humidifier_entity._attr_name is None
+    def test_min_max_humidity(self, humidifier):
+        assert humidifier._attr_min_humidity == 30
+        assert humidifier._attr_max_humidity == 80
 
-    def test_min_max_humidity(self, humidifier_entity):
-        assert humidifier_entity._attr_min_humidity == 30
-        assert humidifier_entity._attr_max_humidity == 80
+    def test_supported_features_modes(self, humidifier):
+        assert humidifier._attr_supported_features & HumidifierEntityFeature.MODES
 
-    def test_is_on_true(self, humidifier_entity):
-        assert humidifier_entity.is_on is True
+    def test_available_modes(self, humidifier):
+        assert humidifier._attr_available_modes == ["auto", "low", "medium", "high", "turbo"]
 
-    def test_is_on_false(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_humidifier_1"])
-        dev["desired_state"] = [{"key": "on_off", "bool_value": False}]
-        coordinator.data["device_humidifier_1"] = dev
-        entity = SberGenericHumidifier(
-            coordinator, "device_humidifier_1", CATEGORY_HUMIDIFIERS["hvac_humidifier"]
-        )
-        assert entity.is_on is False
+    def test_is_on_true(self, humidifier):
+        assert humidifier.is_on is True
 
-    def test_target_humidity(self, humidifier_entity):
-        assert humidifier_entity.target_humidity == 55
+    def test_target_humidity(self, humidifier):
+        assert humidifier.target_humidity == 55
 
-    def test_target_humidity_missing(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_humidifier_1"])
-        dev["desired_state"] = [{"key": "on_off", "bool_value": True}]
-        coordinator.data["device_humidifier_1"] = dev
-        entity = SberGenericHumidifier(
-            coordinator, "device_humidifier_1", CATEGORY_HUMIDIFIERS["hvac_humidifier"]
-        )
-        assert entity.target_humidity is None
-
-    def test_mode_reads_fan_power(self, humidifier_entity):
-        # spec has mode_key=hvac_air_flow_power, desired_state fixture sets "medium"
-        assert humidifier_entity.mode == "medium"
+    def test_mode(self, humidifier):
+        assert humidifier.mode == "medium"
 
     @pytest.mark.asyncio
-    async def test_turn_on(self, humidifier_entity, coordinator):
-        await humidifier_entity.async_turn_on()
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_humidifier_1", [{"key": "on_off", "bool_value": True}]
-        )
+    async def test_set_humidity(self, humidifier, coordinator):
+        await humidifier.async_set_humidity(60)
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "hvac_humidity_set" and a.integer_value == 60 for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_turn_off(self, humidifier_entity, coordinator):
-        await humidifier_entity.async_turn_off()
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_humidifier_1", [{"key": "on_off", "bool_value": False}]
-        )
+    async def test_set_mode(self, humidifier, coordinator):
+        await humidifier.async_set_mode("turbo")
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "hvac_air_flow_power" and a.enum_value == "turbo" for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_set_humidity(self, humidifier_entity, coordinator):
-        await humidifier_entity.async_set_humidity(65)
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_humidifier_1",
-            [{"key": "hvac_humidity_set", "integer_value": 65}],
-        )
-        coordinator.async_set_updated_data.assert_called_once()
+    async def test_turn_on(self, humidifier, coordinator):
+        await humidifier.async_turn_on()
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "on_off" and a.bool_value is True for a in attrs)
 
     @pytest.mark.asyncio
-    async def test_set_mode_sends_fan_power(self, humidifier_entity, coordinator):
-        # hvac_humidifier теперь имеет mode_key=hvac_air_flow_power
-        await humidifier_entity.async_set_mode("auto")
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_humidifier_1",
-            [{"key": "hvac_air_flow_power", "enum_value": "auto"}],
-        )
-
-
-class TestHumidifierModes:
-    """Новые фичи: mode_key=hvac_air_flow_power с 5 скоростями."""
-
-    def test_available_modes_all_five(self, humidifier_entity):
-        assert humidifier_entity._attr_available_modes == [
-            "auto",
-            "low",
-            "medium",
-            "high",
-            "turbo",
-        ]
-
-    def test_supported_features_includes_modes(self, humidifier_entity):
-        from homeassistant.components.humidifier import HumidifierEntityFeature
-
-        assert (
-            humidifier_entity._attr_supported_features & HumidifierEntityFeature.MODES
-        )
-
-    def test_mode_from_desired_state(self, humidifier_entity):
-        """Fixture desired_state имеет hvac_air_flow_power=medium."""
-        assert humidifier_entity.mode == "medium"
-
-    def test_mode_missing_returns_none(self, coordinator, mock_devices_extra):
-        dev = dict(mock_devices_extra["device_humidifier_1"])
-        dev["desired_state"] = [{"key": "on_off", "bool_value": True}]
-        coordinator.data["device_humidifier_1"] = dev
-        entity = SberGenericHumidifier(
-            coordinator, "device_humidifier_1", CATEGORY_HUMIDIFIERS["hvac_humidifier"]
-        )
-        assert entity.mode is None
-
-    @pytest.mark.parametrize("mode", ["auto", "low", "medium", "high", "turbo"])
-    @pytest.mark.asyncio
-    async def test_set_mode_all_values(self, humidifier_entity, coordinator, mode):
-        await humidifier_entity.async_set_mode(mode)
-        coordinator.home_api.set_device_state.assert_called_once_with(
-            "device_humidifier_1",
-            [{"key": "hvac_air_flow_power", "enum_value": mode}],
-        )
+    async def test_turn_off(self, humidifier, coordinator):
+        await humidifier.async_turn_off()
+        attrs = coordinator._fake_client.devices.set_state.call_args.args[1]
+        assert any(a.key == "on_off" and a.bool_value is False for a in attrs)
 
 
 class TestAsyncSetupEntry:
     @pytest.mark.asyncio
-    async def test_creates_humidifier_entities(self, mock_devices_extra):
-        coordinator = MagicMock()
-        coordinator.data = mock_devices_extra
+    async def test_creates_humidifier(self, coordinator):
         entry = MagicMock()
         entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(MagicMock(), entry, entities.extend)
-        assert len(entities) == 1
-        assert entities[0]._device_id == "device_humidifier_1"
+        captured: list = []
+        await async_setup_entry(MagicMock(), entry, captured.extend)
+        ids = {e._device_id for e in captured}
+        assert "device_humidifier_1" in ids

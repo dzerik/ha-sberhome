@@ -2,23 +2,7 @@
 
 from __future__ import annotations
 
-from custom_components.sberhome.utils import extract_devices, find_from_list
-
-
-def test_find_from_list_found():
-    data = [{"key": "on_off", "bool_value": True}]
-    result = find_from_list(data, "on_off")
-    assert result is not None
-    assert result["bool_value"] is True
-
-
-def test_find_from_list_not_found():
-    data = [{"key": "on_off", "bool_value": True}]
-    assert find_from_list(data, "brightness") is None
-
-
-def test_find_from_list_empty():
-    assert find_from_list([], "anything") is None
+from custom_components.sberhome.utils import extract_devices
 
 
 def test_extract_devices_flat():

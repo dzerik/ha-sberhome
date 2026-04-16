@@ -1,14 +1,15 @@
-"""Support for SberHome number entities (e.g. kettle target temp, sleep timer)."""
+"""Support for SberHome number entities — sbermap-driven (PR #7 + PR #9)."""
 
 from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_NUMBERS, NumberSpec, resolve_category
+from .sbermap import HaEntityData, build_number_command
 
 
 async def async_setup_entry(
@@ -17,55 +18,64 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericNumber] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
-        if category is None:
-            continue
-        for spec in CATEGORY_NUMBERS.get(category, []):
-            entities.append(SberGenericNumber(coordinator, device_id, spec))
+    entities: list[SberSbermapNumber] = []
+    for device_id, ha_entities in coordinator.entities.items():
+        for ent in ha_entities:
+            if ent.platform is Platform.NUMBER:
+                entities.append(SberSbermapNumber(coordinator, device_id, ent))
     async_add_entities(entities)
 
 
-class SberGenericNumber(SberBaseEntity, NumberEntity):
-    """Универсальный числовой слайдер/ввод через NumberSpec."""
-
+class SberSbermapNumber(SberBaseEntity, NumberEntity):
     _attr_mode = NumberMode.AUTO
 
     def __init__(
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: NumberSpec,
+        ha_entity: HaEntityData,
     ) -> None:
-        super().__init__(coordinator, device_id, spec.suffix)
-        self._spec = spec
-        if spec.unit:
-            self._attr_native_unit_of_measurement = spec.unit
-        if spec.min_value is not None:
-            self._attr_native_min_value = spec.min_value
-        if spec.max_value is not None:
-            self._attr_native_max_value = spec.max_value
-        if spec.step is not None:
-            self._attr_native_step = spec.step
-        if spec.entity_category is not None:
-            self._attr_entity_category = spec.entity_category
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
+        device_real_id = (
+            coordinator.data[device_id].get("id") or device_id
+            if device_id in coordinator.data
+            else device_id
+        )
+        prefix = f"{device_real_id}_"
+        suffix = (
+            ha_entity.unique_id[len(prefix):]
+            if ha_entity.unique_id.startswith(prefix)
+            else ""
+        )
+        super().__init__(coordinator, device_id, suffix)
+        self._ha_unique_id = ha_entity.unique_id
+        self._state_key = ha_entity.state_attribute_key or ""
+        self._scale = ha_entity.scale
+        if ha_entity.unit_of_measurement is not None:
+            self._attr_native_unit_of_measurement = ha_entity.unit_of_measurement
+        if ha_entity.min_value is not None:
+            self._attr_native_min_value = ha_entity.min_value
+        if ha_entity.max_value is not None:
+            self._attr_native_max_value = ha_entity.max_value
+        if ha_entity.step is not None:
+            self._attr_native_step = ha_entity.step
+        if ha_entity.entity_category is not None:
+            self._attr_entity_category = ha_entity.entity_category
+        if ha_entity.icon is not None:
+            self._attr_icon = ha_entity.icon
 
     @property
     def native_value(self) -> float | None:
-        state = self._get_desired_state(self._spec.key)
-        if not state:
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None:
             return None
-        if "integer_value" in state:
-            return float(state["integer_value"]) * self._spec.scale
-        if "float_value" in state:
-            return state["float_value"] * self._spec.scale
-        return None
+        return ent.state
 
     async def async_set_native_value(self, value: float) -> None:
-        raw = int(value / self._spec.scale) if self._spec.scale else int(value)
-        await self._async_send_states(
-            [{"key": self._spec.key, "integer_value": raw}]
+        await self._async_send_bundle(
+            build_number_command(
+                device_id=self._device_id,
+                key=self._state_key,
+                value=value,
+                scale=self._scale,
+            )
         )

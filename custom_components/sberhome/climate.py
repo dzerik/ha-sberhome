@@ -1,4 +1,4 @@
-"""Support for SberHome HVAC (AC, heater, radiator, boiler, underfloor)."""
+"""Support for SberHome HVAC — sbermap-driven (PR #5 + bidirectional PR #9)."""
 
 from __future__ import annotations
 
@@ -16,27 +16,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .registry import CATEGORY_CLIMATE, ClimateSpec, resolve_category
-
-# Sber → HA HVAC mode mapping.
-# Sber может прислать как "fan_only" так и "fan" — оба маппим в HVACMode.FAN_ONLY.
-SBER_TO_HA_HVAC: dict[str, HVACMode] = {
-    "auto": HVACMode.AUTO,
-    "cool": HVACMode.COOL,
-    "heat": HVACMode.HEAT,
-    "dry": HVACMode.DRY,
-    "fan_only": HVACMode.FAN_ONLY,
-    "fan": HVACMode.FAN_ONLY,
-}
-# Обратный маппинг — явный, чтобы не зависеть от порядка итерации dict
-# (HVACMode.FAN_ONLY → "fan_only", каноничное значение из sber spec).
-HA_TO_SBER_HVAC: dict[HVACMode, str] = {
-    HVACMode.AUTO: "auto",
-    HVACMode.COOL: "cool",
-    HVACMode.HEAT: "heat",
-    HVACMode.DRY: "dry",
-    HVACMode.FAN_ONLY: "fan_only",
-}
+from .sbermap import (
+    ClimateConfig,
+    build_climate_on_off_command,
+    build_climate_set_fan_mode_command,
+    build_climate_set_hvac_mode_command,
+    build_climate_set_temperature_command,
+    climate_config_for,
+    climate_state_from_dto,
+    map_hvac_mode,
+    resolve_category,
+)
 
 
 async def async_setup_entry(
@@ -45,19 +35,20 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberGenericClimate] = []
-    for device_id, device in coordinator.data.items():
-        category = resolve_category(device)
+    entities: list[SberClimateEntity] = []
+    for device_id, dto in coordinator.devices.items():
+        category = resolve_category(dto.image_set_type)
         if category is None:
             continue
-        spec = CATEGORY_CLIMATE.get(category)
-        if spec is not None:
-            entities.append(SberGenericClimate(coordinator, device_id, spec))
+        config = climate_config_for(category)
+        if config is None:
+            continue
+        entities.append(SberClimateEntity(coordinator, device_id, config))
     async_add_entities(entities)
 
 
-class SberGenericClimate(SberBaseEntity, ClimateEntity):
-    """Универсальное HVAC-устройство."""
+class SberClimateEntity(SberBaseEntity, ClimateEntity):
+    """Universal HVAC entity — read через sbermap.climate_state_from_dto."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _enable_turn_on_off_backwards_compatibility = False
@@ -66,111 +57,97 @@ class SberGenericClimate(SberBaseEntity, ClimateEntity):
         self,
         coordinator: SberHomeCoordinator,
         device_id: str,
-        spec: ClimateSpec,
+        config: ClimateConfig,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._spec = spec
-        self._attr_min_temp = spec.min_temp
-        self._attr_max_temp = spec.max_temp
-        self._attr_target_temperature_step = spec.step
+        self._config = config
+        self._attr_min_temp = config.min_temp
+        self._attr_max_temp = config.max_temp
+        self._attr_target_temperature_step = config.step
 
-        features = ClimateEntityFeature(0)
-        if spec.temperature_key:
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if spec.fan_mode_key and spec.fan_modes:
+        features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+        if config.has_fan and config.fan_modes:
             features |= ClimateEntityFeature.FAN_MODE
-            self._attr_fan_modes = list(spec.fan_modes)
-        features |= ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+            self._attr_fan_modes = list(config.fan_modes)
         self._attr_supported_features = features
 
-        # HVAC modes: всегда есть OFF; если есть список — добавляем все HA-эквиваленты.
         modes: list[HVACMode] = [HVACMode.OFF]
-        for m in spec.hvac_modes:
-            ha = SBER_TO_HA_HVAC.get(m)
-            if ha and ha not in modes:
+        for sber in config.hvac_modes:
+            ha = map_hvac_mode(sber, is_on=True)
+            if ha not in modes:
                 modes.append(ha)
         if len(modes) == 1:
-            # Без списка режимов — считаем это heater
             modes.append(HVACMode.HEAT)
         self._attr_hvac_modes = modes
 
-    # ---- on/off + mode ----
+    def _state(self):
+        dto = self._device_dto
+        if dto is None:
+            return None
+        return climate_state_from_dto(dto, self._config)
+
     @property
     def hvac_mode(self) -> HVACMode:
-        on_state = self._get_desired_state("on_off")
-        if not on_state or not on_state.get("bool_value"):
-            return HVACMode.OFF
-        if self._spec.hvac_modes_key:
-            state = self._get_desired_state(self._spec.hvac_modes_key)
-            if state and "enum_value" in state:
-                return SBER_TO_HA_HVAC.get(state["enum_value"], HVACMode.AUTO)
-        return HVACMode.HEAT
+        s = self._state()
+        return s.hvac_mode if s else HVACMode.OFF
 
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        if hvac_mode == HVACMode.OFF:
-            await self._async_send_states([{"key": "on_off", "bool_value": False}])
-            return
-        states: list[dict] = [{"key": "on_off", "bool_value": True}]
-        if self._spec.hvac_modes_key and hvac_mode in HA_TO_SBER_HVAC:
-            states.append(
-                {
-                    "key": self._spec.hvac_modes_key,
-                    "enum_value": HA_TO_SBER_HVAC[hvac_mode],
-                }
-            )
-        await self._async_send_states(states)
-
-    # ---- temperature ----
     @property
     def target_temperature(self) -> float | None:
-        if not self._spec.temperature_key:
-            return None
-        state = self._get_desired_state(self._spec.temperature_key)
-        if state:
-            if "integer_value" in state:
-                return float(state["integer_value"])
-            if "float_value" in state:
-                return state["float_value"]
-        return None
+        s = self._state()
+        return s.target_temperature if s else None
 
     @property
     def current_temperature(self) -> float | None:
-        if not self._spec.current_temp_key:
-            return None
-        state = self._get_reported_state(self._spec.current_temp_key)
-        if state:
-            if "float_value" in state:
-                return state["float_value"]
-            if "integer_value" in state:
-                return float(state["integer_value"])
-        return None
+        s = self._state()
+        return s.current_temperature if s else None
+
+    @property
+    def fan_mode(self) -> str | None:
+        s = self._state()
+        return s.fan_mode if s else None
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        await self._async_send_bundle(
+            build_climate_set_hvac_mode_command(
+                device_id=self._device_id,
+                hvac_mode=hvac_mode,
+                config=self._config,
+            )
+        )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temp = kwargs.get(ATTR_TEMPERATURE)
-        if temp is None or not self._spec.temperature_key:
+        if temp is None:
             return
-        await self._async_send_states(
-            [{"key": self._spec.temperature_key, "integer_value": int(temp)}]
+        await self._async_send_bundle(
+            build_climate_set_temperature_command(
+                device_id=self._device_id,
+                temperature=temp,
+                config=self._config,
+            )
         )
-
-    # ---- fan ----
-    @property
-    def fan_mode(self) -> str | None:
-        if not self._spec.fan_mode_key:
-            return None
-        state = self._get_desired_state(self._spec.fan_mode_key)
-        return state["enum_value"] if state and "enum_value" in state else None
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
-        if not self._spec.fan_mode_key:
+        if not self._config.has_fan:
             return
-        await self._async_send_states(
-            [{"key": self._spec.fan_mode_key, "enum_value": fan_mode}]
+        await self._async_send_bundle(
+            build_climate_set_fan_mode_command(
+                device_id=self._device_id,
+                fan_mode=fan_mode,
+                config=self._config,
+            )
         )
 
-    # ---- on/off ----
     async def async_turn_on(self) -> None:
-        await self._async_send_states([{"key": "on_off", "bool_value": True}])
+        await self._async_send_bundle(
+            build_climate_on_off_command(device_id=self._device_id, is_on=True)
+        )
 
     async def async_turn_off(self) -> None:
-        await self._async_send_states([{"key": "on_off", "bool_value": False}])
+        await self._async_send_bundle(
+            build_climate_on_off_command(device_id=self._device_id, is_on=False)
+        )
