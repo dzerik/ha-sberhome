@@ -47,6 +47,7 @@ from .exceptions import (
     RateLimitError,
     SberError,
 )
+from .service import DeviceService, GroupService, ScenarioService, StateCache
 from .transport import TopicRouter, WebSocketClient
 
 __all__ = [
@@ -60,7 +61,9 @@ __all__ = [
     "DesiredGroupStateDto",
     "DeviceAPI",
     "DeviceDto",
+    "DeviceService",
     "GroupAPI",
+    "GroupService",
     "IndicatorAPI",
     "InvalidGrant",
     "NetworkError",
@@ -70,7 +73,9 @@ __all__ = [
     "RateLimitError",
     "SberClient",
     "ScenarioAPI",
+    "ScenarioService",
     "SberError",
+    "StateCache",
     "SocketMessageDto",
     "Topic",
     "TopicRouter",

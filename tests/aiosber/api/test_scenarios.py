@@ -37,7 +37,7 @@ async def test_list_scenarios():
 
     api, _ = _build(h)
     items = await api.list()
-    assert items[0]["name"] == "Утро"
+    assert items[0].name == "Утро"
 
 
 async def test_get_scenario_by_id():
@@ -46,7 +46,7 @@ async def test_get_scenario_by_id():
 
     api, _ = _build(h)
     s = await api.get("s1")
-    assert s["name"] == "Вечер"
+    assert s.name == "Вечер"
 
 
 async def test_list_system_scenarios():

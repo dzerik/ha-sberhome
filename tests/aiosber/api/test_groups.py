@@ -44,7 +44,9 @@ async def test_list_unwraps_result():
 
     api, _ = _build(h)
     groups = await api.list()
-    assert groups == [{"id": "g1", "name": "Кухня"}]
+    assert len(groups) == 1
+    assert groups[0].id == "g1"
+    assert groups[0].name == "Кухня"
 
 
 async def test_get_single_group():
@@ -53,7 +55,8 @@ async def test_get_single_group():
 
     api, _ = _build(h)
     g = await api.get("g1")
-    assert g["id"] == "g1"
+    assert g.id == "g1"
+    assert g.name == "Кухня"
 
 
 async def test_tree_returns_full_structure():
@@ -64,7 +67,7 @@ async def test_tree_returns_full_structure():
 
     api, _ = _build(h)
     tree = await api.tree()
-    assert "children" in tree
+    assert tree.children is not None
 
 
 # ----- mutations -----
@@ -199,4 +202,4 @@ async def test_sber_client_groups_property():
     assert isinstance(client.groups, GroupAPI)
     async with client:
         result = await client.groups.list()
-    assert result == []
+    assert result == []  # empty list of UnionDto

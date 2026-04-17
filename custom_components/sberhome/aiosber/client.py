@@ -50,6 +50,7 @@ from .const import (
     GATEWAY_BASE_URL,
     TOKEN_ENDPOINT,
 )
+from .service import DeviceService, GroupService, ScenarioService, StateCache
 from .transport import HttpTransport, SslContextProvider
 
 
@@ -63,13 +64,19 @@ class SberClient:
 
     def __init__(self, transport: HttpTransport) -> None:
         self._transport = transport
+        # Low-level API (endpoint-per-method)
         self._devices = DeviceAPI(transport)
         self._groups = GroupAPI(transport)
         self._scenarios = ScenarioAPI(transport)
         self._pairing = PairingAPI(transport)
         self._indicator = IndicatorAPI(transport)
+        # Service layer (high-level, typed, with state cache)
+        self._state = StateCache()
+        self._device_service = DeviceService(self._devices, self._state)
+        self._group_service = GroupService(self._groups, self._state)
+        self._scenario_service = ScenarioService(self._scenarios)
 
-    # ----- Public domains -----
+    # ----- Low-level API domains -----
     @property
     def devices(self) -> DeviceAPI:
         return self._devices
@@ -94,6 +101,31 @@ class SberClient:
     def transport(self) -> HttpTransport:
         """Доступ к низкоуровневому транспорту (для редких custom-запросов)."""
         return self._transport
+
+    # ----- Service layer (high-level) -----
+    @property
+    def state(self) -> StateCache:
+        """Typed in-memory state cache."""
+        return self._state
+
+    @property
+    def device_service(self) -> DeviceService:
+        """High-level device operations."""
+        return self._device_service
+
+    @property
+    def group_service(self) -> GroupService:
+        """High-level group/room operations."""
+        return self._group_service
+
+    @property
+    def scenario_service(self) -> ScenarioService:
+        """High-level scenario operations."""
+        return self._scenario_service
+
+    async def refresh(self) -> None:
+        """Full refresh: fetch tree → update state cache."""
+        await self._device_service.refresh()
 
     # ----- Lifecycle -----
     async def aclose(self) -> None:

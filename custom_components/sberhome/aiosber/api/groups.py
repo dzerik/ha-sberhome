@@ -30,6 +30,7 @@ from ..dto import (
     UpdateNameBody,
     UpdateParentBody,
 )
+from ..dto.union import UnionDto, UnionTreeDto
 from ..transport import HttpTransport
 
 
@@ -40,18 +41,41 @@ class GroupAPI:
         self._transport = transport
 
     # ----- list / get -----
-    async def list(self) -> list[dict[str, Any]]:
+    async def list(self) -> list[UnionDto]:
         """Return all groups (без вложенных устройств)."""
+        resp = await self._transport.get("/device_groups/")
+        raw = _unwrap_list(resp.json())
+        return [u for d in raw if (u := UnionDto.from_dict(d)) is not None]
+
+    async def list_raw(self) -> list[dict[str, Any]]:
+        """Return all groups as raw dicts (backward compat)."""
         resp = await self._transport.get("/device_groups/")
         return _unwrap_list(resp.json())
 
-    async def get(self, group_id: str) -> dict[str, Any]:
+    async def get(self, group_id: str) -> UnionDto:
         """Return single group."""
         resp = await self._transport.get(f"/device_groups/{group_id}")
-        return _unwrap_dict(resp.json())
+        raw = _unwrap_dict(resp.json())
+        dto = UnionDto.from_dict(raw)
+        if dto is None:
+            from ..exceptions import ProtocolError
+            raise ProtocolError(f"Cannot parse group {group_id}")
+        return dto
 
-    async def tree(self) -> dict[str, Any]:
-        """Return full group tree with devices (то же что DeviceAPI использует)."""
+    async def tree(self) -> UnionTreeDto:
+        """Return full group tree with devices."""
+        resp = await self._transport.get("/device_groups/tree")
+        payload = resp.json()
+        if isinstance(payload, dict) and "result" in payload:
+            payload = payload["result"]
+        dto = UnionTreeDto.from_dict(payload)
+        if dto is None:
+            from ..exceptions import ProtocolError
+            raise ProtocolError("Cannot parse group tree")
+        return dto
+
+    async def tree_raw(self) -> dict[str, Any]:
+        """Return full group tree as raw dict (backward compat)."""
         resp = await self._transport.get("/device_groups/tree")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..dto.scenario import ScenarioDto
 from ..transport import HttpTransport
 
 
@@ -35,13 +36,19 @@ class ScenarioAPI:
         self._transport = transport
 
     # ----- list / get -----
-    async def list(self) -> list[dict[str, Any]]:
+    async def list(self) -> list[ScenarioDto]:
         resp = await self._transport.get("/scenario/v2/scenario")
-        return _unwrap_list(resp.json())
+        raw = _unwrap_list(resp.json())
+        return [s for d in raw if (s := ScenarioDto.from_dict(d)) is not None]
 
-    async def get(self, scenario_id: str) -> dict[str, Any]:
+    async def get(self, scenario_id: str) -> ScenarioDto:
         resp = await self._transport.get(f"/scenario/v2/scenario/{scenario_id}")
-        return _unwrap_dict(resp.json())
+        raw = _unwrap_dict(resp.json())
+        dto = ScenarioDto.from_dict(raw)
+        if dto is None:
+            from ..exceptions import ProtocolError
+            raise ProtocolError(f"Cannot parse scenario {scenario_id}")
+        return dto
 
     async def list_system(self) -> list[dict[str, Any]]:
         """Системные сценарии (предустановленные Sber)."""
