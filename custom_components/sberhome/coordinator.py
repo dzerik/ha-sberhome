@@ -103,6 +103,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Typed group cache — делегирует к StateCache."""
         return self.state_cache.get_all_groups()
 
+    @property
+    def ws_connected(self) -> bool:
+        """WS connection status for panel."""
+        return self._ws_client.is_connected if self._ws_client is not None else False
+
+    @property
+    def auth_manager(self):
+        """AuthManager for token info (panel status)."""
+        return self.home_api._auth
+
     async def _async_setup(self) -> None:
         """Perform initial setup on first coordinator refresh."""
         LOGGER.debug("Coordinator initial setup complete")
@@ -260,6 +270,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         router = TopicRouter()
         router.on(Topic.DEVICE_STATE, self._on_ws_device_state)
         router.on(Topic.DEVMAN_EVENT, self._on_ws_devman_event)
+        router.on(Topic.GROUP_STATE, self._on_ws_group_state)
 
         self._ws_client = WebSocketClient(
             auth=auth,
@@ -332,6 +343,18 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(
             self._filter_enabled(self.home_api.get_cached_devices())
         )
+
+    async def _on_ws_group_state(self, msg: SocketMessageDto) -> None:
+        """GROUP_STATE → полный refresh для обновления tree/room mapping."""
+        group_id = msg.target_device_id
+        LOGGER.debug("WS GROUP_STATE for %s", group_id)
+        self._record_ws_message(
+            topic="GROUP_STATE",
+            device_id=group_id,
+            payload=msg.group_state.to_dict() if msg.group_state else None,
+        )
+        # Group changes can affect room↔device mapping — trigger full refresh.
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def _on_ws_devman_event(self, msg: SocketMessageDto) -> None:
         """DEVMAN_EVENT — диспатч в HA через signal (PR #11).

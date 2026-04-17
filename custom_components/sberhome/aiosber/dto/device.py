@@ -52,6 +52,7 @@ class DeviceInfoDto:
 
     product_id: str | None = None
     model: str | None = None
+    manufacturer: str | None = None
     matter_node_id: int | None = None
     sub_device_count: int | None = None
 
@@ -59,6 +60,14 @@ class DeviceInfoDto:
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
         if data is None:
             return None
+        # Wire: model может быть dict {"model": "X", "manufacturer": "Y"}
+        if isinstance(data, dict) and isinstance(data.get("model"), dict):
+            model_obj = data["model"]
+            data = {
+                **data,
+                "model": model_obj.get("model"),
+                "manufacturer": model_obj.get("manufacturer"),
+            }
         return from_dict(cls, data)
 
     def to_dict(self) -> dict[str, Any]:

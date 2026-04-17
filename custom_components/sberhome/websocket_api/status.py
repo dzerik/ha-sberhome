@@ -30,7 +30,7 @@ def ws_get_status(
     # Tokens живут в HomeAPI.AuthManager (после перехода на aiosber 2.6.0).
     # SberID хранится также в SberAPI (для config_entry.data persistence),
     # но canonical источник истины для runtime — AuthManager.
-    auth = coord.home_api._auth
+    auth = coord.auth_manager
     sberid_expires = auth.sberid_expires_at
     companion_expires = auth.companion_expires_at
 
@@ -54,11 +54,7 @@ def ws_get_status(
                 "last_success": coord.last_update_success,
             },
             "ws": {
-                "connected": (
-                    coord._ws_client.is_connected
-                    if coord._ws_client is not None
-                    else False
-                ),
+                "connected": coord.ws_connected,
                 "last_message_at": coord.last_ws_message_at,
                 "message_count": coord.ws_message_count,
             },

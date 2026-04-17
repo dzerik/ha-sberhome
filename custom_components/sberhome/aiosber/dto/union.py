@@ -73,10 +73,33 @@ class UnionTreeDto:
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
         if data is None:
             return None
+        if not isinstance(data, dict):
+            return None
         # Wire key "group" → наше поле "union"
-        if isinstance(data, dict) and "group" in data and "union" not in data:
+        if "group" in data and "union" not in data:
             data = {**data, "union": data["group"]}
-        return from_dict(cls, data)
+        # Рекурсивно парсим children через cls.from_dict (generic serde
+        # не вызывает кастомный from_dict для вложенных dataclass'ов).
+        raw_children = data.get("children")
+        if isinstance(raw_children, list):
+            parsed_children = [
+                cls.from_dict(c) for c in raw_children if isinstance(c, dict)
+            ]
+            data = {**data, "children": [c for c in parsed_children if c is not None]}
+        # Devices тоже парсим через DeviceDto.from_dict (для name normalization).
+        raw_devices = data.get("devices")
+        if isinstance(raw_devices, list):
+            parsed_devices = [
+                DeviceDto.from_dict(d) for d in raw_devices if isinstance(d, dict)
+            ]
+            data = {**data, "devices": [d for d in parsed_devices if d is not None]}
+        union_raw = data.get("union")
+        union = UnionDto.from_dict(union_raw) if isinstance(union_raw, dict) else None
+        return cls(
+            union=union,
+            devices=data.get("devices", []),
+            children=data.get("children", []),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return dataclass_to_dict(self)
