@@ -6,6 +6,7 @@ ColorValue использует поля `hue/saturation/brightness` — НЕ `h
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from typing import Any, Self
 
@@ -165,6 +166,13 @@ class AttributeValueDto:
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
         if data is None:
             return None
+        # Wire-формат: integer_value приходит как строка ("0", "500").
+        # Явно конвертируем str→int для совместимости с downstream кодом.
+        if isinstance(data, dict) and "integer_value" in data:
+            raw = data["integer_value"]
+            if isinstance(raw, str):
+                with contextlib.suppress(ValueError, TypeError):
+                    data = {**data, "integer_value": int(raw)}
         return from_dict(cls, data)
 
     def to_dict(self) -> dict[str, Any]:

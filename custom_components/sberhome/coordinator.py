@@ -292,7 +292,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if msg.state is None or not msg.state.reported_state:
             return
 
-        device_id = msg.target_device_id
+        device_id = msg.state.device_id or msg.target_device_id
         LOGGER.debug(
             "WS DEVICE_STATE for %s with %d attrs at %s",
             device_id or "<unknown>",

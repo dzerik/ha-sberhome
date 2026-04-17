@@ -80,6 +80,7 @@ def test_desired_group_state_without_return_status_omits_field():
 # ============== StateDto (WS DEVICE_STATE) ==============
 def test_state_dto_parses_ws_message():
     src = {
+        "device_id": "abc-123",
         "reported_state": [
             {"key": "on_off", "type": "BOOL", "bool_value": True},
             {"key": "light_brightness", "type": "INTEGER", "integer_value": 500},
@@ -87,10 +88,24 @@ def test_state_dto_parses_ws_message():
         "timestamp": "2026-04-15T12:34:56.789Z",
     }
     s = StateDto.from_dict(src)
+    assert s.device_id == "abc-123"
     assert s.timestamp == "2026-04-15T12:34:56.789Z"
     assert len(s.reported_state) == 2
     assert s.reported_state[0].type is AttributeValueType.BOOL
     assert s.reported_state[1].integer_value == 500
+
+
+def test_state_dto_without_device_id():
+    """device_id optional — backward compat."""
+    src = {
+        "reported_state": [
+            {"key": "on_off", "type": "BOOL", "bool_value": True},
+        ],
+        "timestamp": "t",
+    }
+    s = StateDto.from_dict(src)
+    assert s.device_id is None
+    assert len(s.reported_state) == 1
 
 
 # ============== DeviceOrderElement (PUT devices/order) ==============

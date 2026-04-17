@@ -112,7 +112,7 @@ def ws_get_devices(
         out.append(
             {
                 "device_id": device_id,
-                "name": dto.name or device_id,
+                "name": dto.display_name or device_id,
                 "image_set_type": dto.image_set_type,
                 "category": category,
                 "model": dto.device_info.model if dto.device_info else None,

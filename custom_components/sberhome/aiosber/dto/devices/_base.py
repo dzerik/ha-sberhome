@@ -52,7 +52,7 @@ class TypedDevice:
 
     @property
     def name(self) -> str | None:
-        return self._dto.name
+        return self._dto.display_name
 
     @property
     def category(self) -> str | None:

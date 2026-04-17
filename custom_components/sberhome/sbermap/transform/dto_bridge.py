@@ -83,7 +83,7 @@ def device_dto_to_entities(device: DeviceDto) -> list[HaEntityData]:
     category = resolve_category(device.image_set_type)
     if category is None:
         return []
-    name = device.name or device.id or "Sber Device"
+    name = device.display_name or device.id or "Sber Device"
     bundle = device_dto_to_state_bundle(device)
     return sber_to_ha(category, device.id or "", name, bundle)
 

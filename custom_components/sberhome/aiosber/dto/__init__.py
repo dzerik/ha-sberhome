@@ -48,6 +48,7 @@ from .device import (
     ImagesDto,
     IndicatorColor,
     IndicatorColors,
+    NameDto,
 )
 from .enums import (
     AntiflickerAttr,
@@ -128,6 +129,7 @@ __all__ = [
     "DeviceDto",
     "DeviceInfoDto",
     "ImagesDto",
+    "NameDto",
     "IndicatorColor",
     "IndicatorColors",
     # state

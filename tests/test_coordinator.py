@@ -183,8 +183,8 @@ async def test_on_ws_device_state_direct_patch(coordinator):
     coordinator.hass.async_create_task = MagicMock()
 
     msg = SocketMessageDto(
-        device_id="dev-1",
         state=StateDto(
+            device_id="dev-1",
             reported_state=[
                 AttributeValueDto(
                     key="temperature",
@@ -230,8 +230,7 @@ async def test_on_ws_devman_event_dispatches_signal(coordinator):
     from unittest.mock import patch
 
     msg = SocketMessageDto(
-        device_id="scenario-1",
-        event={"key": "button_1_event", "enum_value": "click"},
+        event={"device_id": "scenario-1", "key": "button_1_event", "enum_value": "click"},
     )
     with patch(
         "custom_components.sberhome.coordinator.async_dispatcher_send"
@@ -241,7 +240,7 @@ async def test_on_ws_devman_event_dispatches_signal(coordinator):
     args = mock_send.call_args.args
     assert args[1] == "sberhome_devman_event"
     assert args[2] == "scenario-1"
-    assert args[3] == {"key": "button_1_event", "enum_value": "click"}
+    assert args[3] == {"device_id": "scenario-1", "key": "button_1_event", "enum_value": "click"}
 
 
 @pytest.mark.asyncio

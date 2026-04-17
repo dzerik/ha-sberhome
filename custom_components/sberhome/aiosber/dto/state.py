@@ -60,9 +60,14 @@ class DesiredGroupStateDto:
 class StateDto:
     """Сообщение DEVICE_STATE из WebSocket (`SocketMessageDto.state`).
 
-    Также поле reported_state в DeviceDto имеет тот же shape.
+    Wire-формат (подтверждён анализом клиентского стека):
+    ``{"device_id": "abc", "reported_state": [...], "timestamp": "..."}``
+
+    Поле `device_id` присутствует в WS push-сообщениях — это primary
+    source для идентификации устройства при точечном state-патче.
     """
 
+    device_id: str | None = None
     reported_state: list[AttributeValueDto] = field(default_factory=list)
     timestamp: str | None = None
 

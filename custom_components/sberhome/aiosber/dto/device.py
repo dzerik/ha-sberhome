@@ -14,6 +14,37 @@ from .values import AttributeValueDto
 
 
 @dataclass(slots=True, frozen=True)
+class NameDto:
+    """Имя устройства (wire: объект с полями name/default_name/names).
+
+    Wire-формат REST: ``{"name": {"name": "Люстра", "defaultName": "", "names": {}}}``
+    Legacy/simplified: ``{"name": "Люстра"}`` (plain string).
+
+    `from_dict` поддерживает оба варианта.
+    """
+
+    name: str | None = None
+    default_name: str | None = None
+    names: dict[str, Any] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | str | None) -> Self | None:
+        if data is None:
+            return None
+        if isinstance(data, str):
+            return cls(name=data)
+        if isinstance(data, dict):
+            # Wire uses camelCase (defaultName), DTO uses snake_case (default_name).
+            if "defaultName" in data and "default_name" not in data:
+                data = {**data, "default_name": data.pop("defaultName")}
+            return from_dict(cls, data)
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclass_to_dict(self)
+
+
+@dataclass(slots=True, frozen=True)
 class DeviceInfoDto:
     """`device_info` поле в DeviceDto."""
 
@@ -135,7 +166,7 @@ class DeviceDto:
     """
 
     id: str | None = None
-    name: str | None = None
+    name: NameDto | None = None
     device_type_name: str | None = None
     parent_id: str | None = None
     routing_key: str | None = None
@@ -171,7 +202,16 @@ class DeviceDto:
     bridge_meta: BridgeMeta | None = None
     landing_id: str | None = None
 
-    # ----- удобные геттеры (по reported_state) -----
+    # ----- удобные геттеры -----
+    @property
+    def display_name(self) -> str | None:
+        """Человекочитаемое имя устройства (из NameDto или legacy str)."""
+        if self.name is None:
+            return None
+        if isinstance(self.name, str):
+            return self.name  # type: ignore[return-value]  # legacy direct construction
+        return self.name.name
+
     def reported(self, key: str) -> AttributeValueDto | None:
         """Найти AttributeValueDto в reported_state по ключу."""
         for av in self.reported_state:
@@ -200,6 +240,18 @@ class DeviceDto:
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
         if data is None:
             return None
+        # Pre-process: name может прийти как строка (legacy) или объект (REST).
+        # Generic _serde вызывает from_dict(cls, data) а не cls.from_dict —
+        # нормализуем name здесь, до вызова generic serde.
+        if isinstance(data, dict) and "name" in data:
+            raw_name = data["name"]
+            if isinstance(raw_name, str):
+                data = {**data, "name": {"name": raw_name}}
+            elif isinstance(raw_name, dict) and "defaultName" in raw_name:
+                # Wire camelCase → snake_case
+                normalized = {**raw_name, "default_name": raw_name["defaultName"]}
+                normalized.pop("defaultName", None)
+                data = {**data, "name": normalized}
         return from_dict(cls, data)
 
     def to_dict(self) -> dict[str, Any]:

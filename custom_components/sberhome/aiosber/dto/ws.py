@@ -39,20 +39,26 @@ class SocketMessageDto:
     event: dict[str, Any] | None = None  # DevmanDto (button events, alarms)
     group_state: dict[str, Any] | None = None  # GroupStateDto
     home_transfer: dict[str, Any] | None = None  # HomeTransferBaseDto
-    device_id: str | None = None
-    id: str | None = None
 
     @property
     def target_device_id(self) -> str | None:
-        """Первое непустое из device_id / id / event['device_id']."""
-        if self.device_id:
-            return self.device_id
-        if self.id:
-            return self.id
+        """Извлечь device_id из вложенного payload.
+
+        Приоритет:
+        1. state.device_id (DEVICE_STATE — primary, подтверждён wire-анализом)
+        2. event['device_id'] / event['id'] (DEVMAN_EVENT)
+        3. group_state['id'] (GROUP_STATE — для полноты)
+        """
+        if self.state is not None and self.state.device_id:
+            return self.state.device_id
         if self.event and isinstance(self.event, dict):
             ev_id = self.event.get("device_id") or self.event.get("id")
             if ev_id:
                 return str(ev_id)
+        if self.group_state and isinstance(self.group_state, dict):
+            gs_id = self.group_state.get("id")
+            if gs_id:
+                return str(gs_id)
         return None
 
     @property

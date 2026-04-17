@@ -138,3 +138,25 @@ def test_av_unknown_keys_ignored_on_parse():
     src = {"key": "x", "type": "BOOL", "bool_value": True, "unknown_field": "ignore_me"}
     av = AttributeValueDto.from_dict(src)
     assert av.bool_value is True
+
+
+def test_av_integer_value_from_string():
+    """Wire-формат: integer_value приходит как строка — конвертируем в int."""
+    src = {"key": "light_brightness", "type": "INTEGER", "integer_value": "500"}
+    av = AttributeValueDto.from_dict(src)
+    assert av.integer_value == 500
+    assert isinstance(av.integer_value, int)
+
+
+def test_av_integer_value_from_int():
+    """integer_value как int — без изменений."""
+    src = {"key": "light_brightness", "type": "INTEGER", "integer_value": 500}
+    av = AttributeValueDto.from_dict(src)
+    assert av.integer_value == 500
+
+
+def test_av_integer_value_from_zero_string():
+    """integer_value "0" — корректно конвертируется."""
+    src = {"key": "x", "type": "INTEGER", "integer_value": "0"}
+    av = AttributeValueDto.from_dict(src)
+    assert av.integer_value == 0

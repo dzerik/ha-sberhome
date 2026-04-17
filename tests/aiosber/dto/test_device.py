@@ -8,13 +8,14 @@ from custom_components.sberhome.aiosber.dto import (
     ConnectionType,
     DeviceDto,
     DeviceInfoDto,
+    NameDto,
     VendorType,
 )
 
 # Реалистичный payload (минимально полный) — лампочка в группе
 SAMPLE_BULB = {
     "id": "11111111-1111-1111-1111-111111111111",
-    "name": "Люстра",
+    "name": {"name": "Люстра", "defaultName": "", "names": {}},
     "device_type_name": "bulb_sber",
     "parent_id": "22222222-2222-2222-2222-222222222222",
     "serial_number": "SBDV-W007",
@@ -55,7 +56,8 @@ SAMPLE_BULB = {
 def test_device_dto_parses_full_payload():
     d = DeviceDto.from_dict(SAMPLE_BULB)
     assert d.id == "11111111-1111-1111-1111-111111111111"
-    assert d.name == "Люстра"
+    assert d.name == NameDto(name="Люстра", default_name="", names={})
+    assert d.display_name == "Люстра"
     assert d.device_type_name == "bulb_sber"
     assert d.image_set_type == "bulb_sber"
     assert d.connection_type is ConnectionType.WIRELESS
@@ -127,7 +129,25 @@ def test_device_to_dict_omits_none():
     assert "mac" not in out
     assert "device_info" not in out
     assert out["id"] == "abc"
-    assert out["name"] == "Test"
+    assert out["name"] == {"name": "Test"}
+
+
+def test_device_name_as_string_legacy():
+    """Legacy wire: name как plain string."""
+    d = DeviceDto.from_dict({"id": "x", "name": "Лампа"})
+    assert d.display_name == "Лампа"
+    assert d.name == NameDto(name="Лампа")
+
+
+def test_device_name_as_object():
+    """REST wire: name как NameDto объект."""
+    d = DeviceDto.from_dict({
+        "id": "x",
+        "name": {"name": "Вытяжка", "defaultName": "Fan", "names": {"en": "Fan"}},
+    })
+    assert d.display_name == "Вытяжка"
+    assert d.name.default_name == "Fan"
+    assert d.name.names == {"en": "Fan"}
 
 
 def test_bridge_meta_parses():

@@ -10,6 +10,7 @@ from custom_components.sberhome.aiosber.dto import SocketMessageDto, Topic
 def test_device_state_message_topic():
     src = {
         "state": {
+            "device_id": "dev-42",
             "reported_state": [{"key": "on_off", "type": "BOOL", "bool_value": True}],
             "timestamp": "2026-04-15T12:00:00.000Z",
         }
@@ -17,7 +18,9 @@ def test_device_state_message_topic():
     msg = SocketMessageDto.from_dict(src)
     assert msg.topic is Topic.DEVICE_STATE
     assert msg.state is not None
+    assert msg.state.device_id == "dev-42"
     assert msg.state.reported_state[0].bool_value is True
+    assert msg.target_device_id == "dev-42"
 
 
 def test_devman_event_topic():
@@ -25,6 +28,7 @@ def test_devman_event_topic():
     msg = SocketMessageDto.from_dict(src)
     assert msg.topic is Topic.DEVMAN_EVENT
     assert msg.event == src["event"]
+    assert msg.target_device_id == "x"
 
 
 def test_group_state_topic():
@@ -77,6 +81,6 @@ def test_empty_message_has_no_topic():
 )
 def test_all_topics_dispatched(field, topic):
     """Каждое из 8 полей корректно мапится в Topic."""
-    src = {field: {} if field != "state" else {"reported_state": [], "timestamp": "t"}}
+    src = {field: {} if field != "state" else {"device_id": "d", "reported_state": [], "timestamp": "t"}}
     msg = SocketMessageDto.from_dict(src)
     assert msg.topic is topic
