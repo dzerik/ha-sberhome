@@ -56,11 +56,6 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         """Типизированный DTO из StateCache."""
         return self.coordinator.state_cache.get_device(self._device_id)
 
-    @property
-    def _device_data(self) -> dict:
-        """Legacy raw dict — deprecated, для diagnostics."""
-        return self.coordinator.data[self._device_id]
-
     def _entity_data(self, unique_id: str) -> HaEntityData | None:
         """Найти HaEntityData по unique_id в coordinator.entities[device_id]."""
         for ent in self.coordinator.entities.get(self._device_id, []):
@@ -71,20 +66,14 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         dto = self._device_dto
-        if dto is not None:
-            serial = dto.serial_number or dto.id or self._device_id
-            name = dto.display_name
-            model = dto.device_info.model if dto.device_info else None
-            sw_version = dto.sw_version
-        else:
-            # Fallback на raw dict если DTO недоступен.
-            device = self.coordinator.data.get(self._device_id, {})
-            serial = device.get("serial_number") or device.get("id", self._device_id)
-            name_field = device.get("name")
-            name = name_field.get("name") if isinstance(name_field, dict) else name_field
-            info = device.get("device_info") or {}
-            model = info.get("model")
-            sw_version = device.get("sw_version")
+        serial = (
+            (dto.serial_number if dto else None)
+            or (dto.id if dto else None)
+            or self._device_id
+        )
+        name = dto.display_name if dto else None
+        model = dto.device_info.model if dto and dto.device_info else None
+        sw_version = dto.sw_version if dto else None
         room_name = self.coordinator.state_cache.device_room(self._device_id)
         return DeviceInfo(
             identifiers={(DOMAIN, serial)},
@@ -109,9 +98,7 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
 
         self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
         self.coordinator._rebuild_dto_caches()
-        self.coordinator.async_set_updated_data(
-            self.coordinator.home_api.get_cached_devices()
-        )
+        self.coordinator.async_set_updated_data(self.coordinator.data)
 
     async def _async_send_command(self, **features: Any) -> None:
         """Send command via bidirectional mapper.

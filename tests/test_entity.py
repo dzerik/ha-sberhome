@@ -49,9 +49,6 @@ class TestSberBaseEntity:
     def test_name_primary_is_none(self, entity):
         assert entity._attr_name is None
 
-    def test_device_data_returns_raw(self, entity):
-        assert entity._device_data["id"] == "device_light_1"
-
     def test_device_info(self, entity):
         info = entity.device_info
         assert ("sberhome", "SN_LIGHT_001") in info["identifiers"]

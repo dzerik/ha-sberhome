@@ -121,11 +121,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch data from the SberHome API."""
         try:
             await self.home_api.update_devices_cache()
-            devices = self._filter_enabled(self.home_api.get_cached_devices())
             LOGGER.debug(
-                "Updated %d devices from API (%d enabled)",
-                len(self.home_api.get_cached_devices()),
-                len(devices),
+                "Updated %d devices from API",
+                len(self.state_cache.get_all_devices()),
             )
             self.last_polling_at = time.time()
             self.polling_count += 1
@@ -165,7 +163,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._ws_task is None:
             self._start_ws_task()
 
-        return devices
+        return self._derive_data()
 
     # ------------------------------------------------------------------
     # Sbermap entities cache — typed DeviceDto + HaEntityData
@@ -198,19 +196,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if device_id in enabled
             }
 
-    def _filter_enabled(self, devices: dict[str, Any]) -> dict[str, Any]:
-        """Отфильтровать raw-словарь устройств по `enabled_device_ids`.
+    def _derive_data(self) -> dict[str, Any]:
+        """Derive coordinator.data from state_cache (for HA framework compat).
 
-        Возвращает full dict если ключ не настроен (legacy installs).
-        Иначе только опт-ин выбранные пользователем в панели — это то,
-        что увидят legacy-платформы (sensor, switch, light, ...) через
-        `coordinator.data`. Полный список без фильтра остаётся доступен
-        через `home_api.get_cached_devices()` для panel device picker.
+        Returns dict[device_id → dto.to_dict()] filtered by enabled_device_ids.
         """
+        all_devices = self.state_cache.get_all_devices()
         enabled = self.enabled_device_ids
-        if enabled is None:
-            return devices
-        return {k: v for k, v in devices.items() if k in enabled}
+        if enabled is not None:
+            all_devices = {k: v for k, v in all_devices.items() if k in enabled}
+        return {did: dto.to_dict() for did, dto in all_devices.items()}
 
     @property
     def enabled_device_ids(self) -> set[str] | None:
@@ -239,9 +234,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
         self._rebuild_dto_caches()
-        self.async_set_updated_data(
-            self._filter_enabled(self.home_api.get_cached_devices())
-        )
+        self.async_set_updated_data(self._derive_data())
 
     # ------------------------------------------------------------------
     # WebSocket integration — real-time push updates
@@ -338,11 +331,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if new_dto is not None:
             self.entities[device_id] = map_device_to_entities(new_dto)
-            # Sync raw cache для backward compat (diagnostics, entity.device_info).
-            self.home_api._cached_devices[device_id] = new_dto.to_dict()
-        self.async_set_updated_data(
-            self._filter_enabled(self.home_api.get_cached_devices())
-        )
+        self.async_set_updated_data(self._derive_data())
 
     async def _on_ws_group_state(self, msg: SocketMessageDto) -> None:
         """GROUP_STATE → полный refresh для обновления tree/room mapping."""

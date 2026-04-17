@@ -2,13 +2,11 @@
 
 Слои:
 - **`spec/`** — категории + IMAGE_TYPE_MAP + ha_mapping.
-- **`codecs/`** — wire-encoders (Gateway/C2C).
 - **`transform/`** — Feature-Descriptor маппер + per-platform helpers.
 """
 
 from __future__ import annotations
 
-from .codecs import C2cCodec, Codec, GatewayCodec
 from .exceptions import CodecError, MappingError, SbermapError, SpecError
 from .spec.ha_mapping import IMAGE_TYPE_MAP, resolve_category
 from .transform import (
@@ -57,14 +55,11 @@ from .transform import (
 )
 
 __all__ = [
-    "C2cCodec",
     "ClimateConfig",
     "ClimateState",
-    "Codec",
     "CodecError",
     "CoverConfig",
     "CoverStateSnapshot",
-    "GatewayCodec",
     "HaEntityData",
     "IMAGE_TYPE_MAP",
     "LightConfig",
@@ -108,19 +103,4 @@ __all__ = [
     "light_state_from_dto",
     "map_device_to_entities",
     "resolve_category",
-    # values (used by command builders + codecs)
-    "HsvColor",
-    "SberState",
-    "SberStateBundle",
-    "SberValue",
-    "ValueType",
 ]
-
-# Re-export values for command builders and codecs
-from .values import (  # noqa: E402
-    HsvColor,
-    SberState,
-    SberStateBundle,
-    SberValue,
-    ValueType,
-)

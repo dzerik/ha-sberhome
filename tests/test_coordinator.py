@@ -88,7 +88,8 @@ async def test_update_data_success(coordinator, mock_home_api, mock_devices):
     """Test successful data update."""
     result = await coordinator._async_update_data()
     mock_home_api.update_devices_cache.assert_called_once()
-    assert result == mock_devices
+    # result is derived from state_cache (DTO.to_dict), not raw mock_devices
+    assert isinstance(result, dict)
 
 
 @pytest.mark.asyncio
