@@ -52,6 +52,8 @@ from .transform import (
     light_config_from_dto,
     light_state_from_dto,
     map_device_to_entities,
+    map_hvac_mode,
+    map_hvac_mode_to_sber,
 )
 
 __all__ = [
@@ -102,5 +104,7 @@ __all__ = [
     "light_config_from_dto",
     "light_state_from_dto",
     "map_device_to_entities",
+    "map_hvac_mode",
+    "map_hvac_mode_to_sber",
     "resolve_category",
 ]

@@ -13,6 +13,8 @@ from .climate_helpers import (
     build_climate_set_temperature_command,
     climate_config_for,
     climate_state_from_dto,
+    map_hvac_mode,
+    map_hvac_mode_to_sber,
 )
 from .covers import (
     CoverConfig,
@@ -98,4 +100,6 @@ __all__ = [
     "light_state_from_dto",
     "build_command",
     "map_device_to_entities",
+    "map_hvac_mode",
+    "map_hvac_mode_to_sber",
 ]
