@@ -33,6 +33,7 @@ from .aiosber.auth import (
 )
 from .aiosber.const import DEFAULT_PARTNER_NAME, ROOT_CA_PEM
 from .aiosber.dto.device import DeviceDto
+from .aiosber.dto.union import UnionTreeDto
 from .aiosber.exceptions import (
     ApiError,
     AuthError,
@@ -163,6 +164,7 @@ class HomeAPI:
         )
         self._transport = HttpTransport(http=self._http, auth=self._auth)
         self._cached_devices: dict = {}
+        self._cached_tree: UnionTreeDto | None = None
 
     async def get_auth_manager(self) -> AuthManager:
         """Доступ к AuthManager для WS handshake (`coordinator._run_ws`).
@@ -195,7 +197,14 @@ class HomeAPI:
 
     async def update_devices_cache(self) -> None:
         device_data = await self._request("GET", "/device_groups/tree")
-        self._cached_devices = extract_devices(device_data["result"])
+        raw_tree = device_data["result"]
+        self._cached_devices = extract_devices(raw_tree)
+        # Параллельно парсим typed tree для StateCache.
+        self._cached_tree = UnionTreeDto.from_dict(raw_tree)
+
+    def get_cached_tree(self) -> UnionTreeDto | None:
+        """Typed дерево групп — для StateCache."""
+        return self._cached_tree
 
     def get_cached_devices(self) -> dict:
         return self._cached_devices

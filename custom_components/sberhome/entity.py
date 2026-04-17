@@ -76,6 +76,7 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         else:
             name = None
         info = device.get("device_info") or {}
+        room_name = self.coordinator.state_cache.device_room(self._device_id)
         return DeviceInfo(
             identifiers={(DOMAIN, serial)},
             name=name,
@@ -83,6 +84,7 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             model=info.get("model"),
             sw_version=device.get("sw_version"),
             serial_number=serial,
+            suggested_area=room_name,
         )
 
     async def _async_send_bundle(self, bundle: SberStateBundle) -> None:

@@ -8,7 +8,7 @@ import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.sberhome.aiosber import SocketMessageDto
+from custom_components.sberhome.aiosber import SocketMessageDto, StateCache
 from custom_components.sberhome.aiosber.dto.devman import DevmanDto
 from custom_components.sberhome.aiosber.dto.state import (
     AttributeValueDto,
@@ -33,6 +33,7 @@ def mock_sber_api():
 def mock_home_api(mock_devices):
     api = AsyncMock(spec=HomeAPI)
     api.get_cached_devices = MagicMock(return_value=mock_devices)
+    api.get_cached_tree = MagicMock(return_value=None)  # no tree → fallback to DTO
     api.update_devices_cache = AsyncMock()
     return api
 
@@ -67,8 +68,8 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     # async_create_background_task падает в MagicMock'нутом hass.
     coord._ws_task = MagicMock()  # truthy → пропускается _start_ws_task в _async_update_data
     coord._ws_client = None
-    # PR #2 attrs — параллельные DTO/sbermap кэши.
-    coord.devices = {}
+    # StateCache + sbermap entities cache.
+    coord.state_cache = StateCache()
     coord.entities = {}
     # PR #11 stats для panel.
     from collections import deque
@@ -148,7 +149,7 @@ async def test_on_ws_device_state_unknown_id_falls_back_to_refresh(coordinator):
         ),
     )
     coordinator.hass.async_create_task = MagicMock()
-    coordinator.devices = {}
+    coordinator.state_cache._devices = {}  # empty — device unknown
 
     await coordinator._on_ws_device_state(msg)
 
@@ -174,7 +175,7 @@ async def test_on_ws_device_state_direct_patch(coordinator):
             ),
         ],
     )
-    coordinator.devices = {"dev-1": dto}
+    coordinator.state_cache._devices = {"dev-1": dto}
     coordinator.entities = {}
     coordinator.home_api._cached_devices = {"dev-1": dto.to_dict()}
     coordinator.home_api.get_cached_devices = MagicMock(

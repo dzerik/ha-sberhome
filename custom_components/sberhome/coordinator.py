@@ -29,8 +29,9 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from ._ws_adapter import make_aiohttp_factory
-from .aiosber import SocketMessageDto, Topic, TopicRouter, WebSocketClient
+from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
 from .aiosber.dto.device import DeviceDto
+from .aiosber.dto.union import UnionDto
 from .api import HomeAPI, SberAPI
 from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, DOMAIN, LOGGER
 from .exceptions import (
@@ -41,7 +42,6 @@ from .exceptions import (
 )
 from .sbermap import (
     HaEntityData,
-    apply_reported_state,
     device_dto_to_entities,
 )
 
@@ -80,11 +80,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # WebSocket — lazy, после первого успешного polling refresh.
         self._ws_client: WebSocketClient | None = None
         self._ws_task: asyncio.Task | None = None
-        # Параллельные кэши на DTO/sbermap (заполняются после каждого refresh).
-        # `data` остаётся legacy dict для обратной совместимости с платформами,
-        # которые ещё не мигрированы. PR #3-#7 переведут платформы на эти каналы;
-        # PR #8 удалит `data`.
-        self.devices: dict[str, DeviceDto] = {}
+        # StateCache — typed single source of truth (devices + groups + rooms).
+        self.state_cache = StateCache()
+        # sbermap entities cache (rebuilt from state_cache after each refresh).
         self.entities: dict[str, list[HaEntityData]] = {}
         # Stats для panel (PR #12) — count + last timestamps + ring buffer WS msgs.
         self.last_polling_at: float | None = None
@@ -94,6 +92,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.ws_message_count: int = 0
         self._ws_log: deque[dict[str, Any]] = deque(maxlen=100)
         self._ws_log_subscribers: list[Callable[[dict[str, Any]], None]] = []
+
+    @property
+    def devices(self) -> dict[str, DeviceDto]:
+        """Typed device cache — делегирует к StateCache."""
+        return self.state_cache.get_all_devices()
+
+    @property
+    def groups(self) -> dict[str, UnionDto]:
+        """Typed group cache — делегирует к StateCache."""
+        return self.state_cache.get_all_groups()
 
     async def _async_setup(self) -> None:
         """Perform initial setup on first coordinator refresh."""
@@ -153,28 +161,30 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Sbermap entities cache — typed DeviceDto + HaEntityData
     # ------------------------------------------------------------------
     def _rebuild_dto_caches(self) -> None:
-        """Перестроить `self.devices` и `self.entities` из cached raw dicts.
+        """Обновить StateCache из parsed tree + пересобрать sbermap entities.
 
-        `self.devices` содержит **все** Sber-устройства (для panel device picker).
-        `self.entities` строится с фильтром через `enabled_device_ids` (PR #12):
-        - Если ключ отсутствует в options (legacy installs ≤ v2.3.0 или новая
-          установка ещё не настроенная) → entities для ВСЕХ devices
-          (backward-compat).
-        - Если список присутствует (даже пустой — opt-in) → entities только
-          для выбранных. Disabled devices → нет entities → HA пометит unavailable.
+        StateCache содержит **все** устройства и группы.
+        ``self.entities`` строится с фильтром ``enabled_device_ids``.
         """
-        self.devices = self.home_api.get_cached_devices_dto()
+        tree = self.home_api.get_cached_tree()
+        if tree is not None:
+            self.state_cache.update_from_tree(tree)
+        else:
+            # Fallback: tree не распарсился — заполним state_cache из raw DTO.
+            for did, dto in self.home_api.get_cached_devices_dto().items():
+                self.state_cache._devices[did] = dto
+
         enabled = self.enabled_device_ids
+        all_devices = self.state_cache.get_all_devices()
         if enabled is None:
-            # Legacy / not configured yet — pass through all devices.
             self.entities = {
                 device_id: device_dto_to_entities(dto)
-                for device_id, dto in self.devices.items()
+                for device_id, dto in all_devices.items()
             }
         else:
             self.entities = {
                 device_id: device_dto_to_entities(dto)
-                for device_id, dto in self.devices.items()
+                for device_id, dto in all_devices.items()
                 if device_id in enabled
             }
 
@@ -308,15 +318,17 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
 
-        if device_id is None or device_id not in self.devices:
+        if device_id is None or self.state_cache.get_device(device_id) is None:
             self.hass.async_create_task(self.async_request_refresh())
             return
 
-        old_dto = self.devices[device_id]
-        new_dto = apply_reported_state(old_dto, msg.state.reported_state)
-        self.devices[device_id] = new_dto
-        self.entities[device_id] = device_dto_to_entities(new_dto)
-        self.home_api._cached_devices[device_id] = new_dto.to_dict()
+        new_dto = self.state_cache.patch_device_state(
+            device_id, msg.state.reported_state
+        )
+        if new_dto is not None:
+            self.entities[device_id] = device_dto_to_entities(new_dto)
+            # Sync raw cache для backward compat (diagnostics, entity.device_info).
+            self.home_api._cached_devices[device_id] = new_dto.to_dict()
         self.async_set_updated_data(
             self._filter_enabled(self.home_api.get_cached_devices())
         )
