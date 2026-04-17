@@ -57,7 +57,7 @@ class TestHvacHeaterRadiatorBoilerUnderfloor:
 class TestHumidifierSensors:
     def test_water_level(self, coordinator):
         e = _sensor(
-            coordinator, "device_humidifier_1", "device_humidifier_1_water_level"
+            coordinator, "device_humidifier_1", "device_humidifier_1_hvac_water_level"
         )
         assert e.native_value == 75
         assert e._attr_icon == "mdi:water-percent"
@@ -66,7 +66,7 @@ class TestHumidifierSensors:
         e = _sensor(
             coordinator,
             "device_humidifier_1",
-            "device_humidifier_1_water_percentage",
+            "device_humidifier_1_hvac_water_percentage",
         )
         assert e.native_value == 80
         assert e._attr_icon == "mdi:water"
@@ -87,6 +87,6 @@ class TestAsyncSetupEntryHvacSensors:
         assert "device_hvac_radiator_1_temperature" in ids
         assert "device_hvac_boiler_1_temperature" in ids
         assert "device_hvac_underfloor_1_temperature" in ids
-        assert "device_humidifier_1_water_level" in ids
-        assert "device_humidifier_1_water_percentage" in ids
-        assert "device_kettle_1_water_temperature" in ids
+        assert "device_humidifier_1_hvac_water_level" in ids
+        assert "device_humidifier_1_hvac_water_percentage" in ids
+        assert "device_kettle_1_kitchen_water_temperature" in ids

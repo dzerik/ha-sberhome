@@ -66,11 +66,11 @@ class TestBatterySensor:
         return _sensor_by_id(
             mock_coordinator_with_entities,
             "device_climate_1",
-            "device_climate_1_battery",
+            "device_climate_1_battery_percentage",
         )
 
     def test_unique_id(self, entity):
-        assert entity._attr_unique_id == "device_climate_1_battery"
+        assert entity._attr_unique_id == "device_climate_1_battery_percentage"
 
     def test_native_value(self, entity):
         assert entity.native_value == 87
@@ -104,11 +104,11 @@ class TestVoltageSensor:
         return _sensor_by_id(
             mock_coordinator_with_entities,
             "device_switch_1",
-            "device_switch_1_voltage",
+            "device_switch_1_cur_voltage",
         )
 
     def test_unique_id(self, entity):
-        assert entity._attr_unique_id == "device_switch_1_voltage"
+        assert entity._attr_unique_id == "device_switch_1_cur_voltage"
 
     def test_native_value(self, entity):
         # Sber wire: INTEGER в Volts напрямую (PR #10).
@@ -121,7 +121,7 @@ class TestCurrentSensor:
         return _sensor_by_id(
             mock_coordinator_with_entities,
             "device_switch_1",
-            "device_switch_1_current",
+            "device_switch_1_cur_current",
         )
 
     def test_native_value(self, entity):
@@ -136,7 +136,7 @@ class TestPowerSensor:
         return _sensor_by_id(
             mock_coordinator_with_entities,
             "device_switch_1",
-            "device_switch_1_power",
+            "device_switch_1_cur_power",
         )
 
     def test_native_value(self, entity):

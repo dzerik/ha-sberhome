@@ -144,7 +144,11 @@ class AttributeValueDto:
     # ----- helpers -----
     @property
     def value(self) -> Any:
-        """Вернуть актуальное значение в соответствии с type, без проверок."""
+        """Вернуть актуальное значение в соответствии с type.
+
+        Если type задан — strict dispatch. Если type=None (legacy mock data
+        без type field) — fallback на первое non-None value поле.
+        """
         if self.type is AttributeValueType.BOOL:
             return self.bool_value
         if self.type is AttributeValueType.INTEGER:
@@ -159,6 +163,19 @@ class AttributeValueDto:
             return self.color_value
         if self.type is AttributeValueType.SCHEDULE:
             return self.schedule_value
+        # Fallback: type=None → return first non-None value field.
+        if self.bool_value is not None:
+            return self.bool_value
+        if self.integer_value is not None:
+            return self.integer_value
+        if self.float_value is not None:
+            return self.float_value
+        if self.enum_value is not None:
+            return self.enum_value
+        if self.string_value is not None:
+            return self.string_value
+        if self.color_value is not None:
+            return self.color_value
         return None
 
     # ----- serialization -----

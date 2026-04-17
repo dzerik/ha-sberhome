@@ -75,14 +75,15 @@ class TestAsyncSetupEntryOnline:
             assert e._attr_device_class is not BinarySensorDeviceClass.CONNECTIVITY
 
 
-class TestIntercomConnectivityNotPresent:
-    """Intercom mock в нашем conftest не имеет 'online' attribute — connectivity нет."""
+class TestIntercomConnectivityPresent:
+    """Intercom mock имеет 'online' → connectivity sensor создаётся (mapper 3.0)."""
 
-    def test_no_connectivity_for_intercom(self, coordinator):
-        for e in coordinator.entities["device_intercom_1"]:
-            assert not (
-                hasattr(e, "device_class") and e.device_class is BinarySensorDeviceClass.CONNECTIVITY
-            )
+    def test_intercom_has_connectivity(self, coordinator):
+        has_connectivity = any(
+            getattr(e, "device_class", None) is BinarySensorDeviceClass.CONNECTIVITY
+            for e in coordinator.entities.get("device_intercom_1", [])
+        )
+        assert has_connectivity
 
 
 class TestEntityCategoryDiagnostic:

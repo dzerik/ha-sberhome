@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -138,6 +138,32 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             raise ConfigEntryAuthFailed(str(err)) from err
 
         # Optimistic update через StateCache (typed, без raw dict mutation).
+        self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
+        self.coordinator._rebuild_dto_caches()
+        self.coordinator.async_set_updated_data(
+            self.coordinator.home_api.get_cached_devices()
+        )
+
+    async def _async_send_command(self, **features: Any) -> None:
+        """Send command via bidirectional mapper.
+
+        Usage: ``await self._async_send_command(on_off=True, light_brightness=200)``
+
+        Uses FEATURE_SPECS codecs for HA→Sber conversion. Replaces
+        _async_send_bundle for new code.
+        """
+        from .sbermap import build_command
+
+        attrs = build_command(self._device_id, **features)
+        states_dicts = [a.to_dict() for a in attrs]
+        try:
+            await self.coordinator.home_api.set_device_state(
+                self._device_id, states_dicts
+            )
+        except SberAuthError as err:
+            LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
+            raise ConfigEntryAuthFailed(str(err)) from err
+
         self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
         self.coordinator._rebuild_dto_caches()
         self.coordinator.async_set_updated_data(

@@ -79,11 +79,11 @@ class TestBatteryLowSensor:
         return _bs_by_id(
             mock_coordinator_with_entities,
             "device_water_leak_1",
-            "device_water_leak_1_battery_low",
+            "device_water_leak_1_battery_low_power",
         )
 
     def test_unique_id(self, entity):
-        assert entity._attr_unique_id == "device_water_leak_1_battery_low"
+        assert entity._attr_unique_id == "device_water_leak_1_battery_low_power"
 
     def test_device_class(self, entity):
         assert entity._attr_device_class is BinarySensorDeviceClass.BATTERY
@@ -103,7 +103,7 @@ class TestTamperSensor:
         return _bs_by_id(
             mock_coordinator_with_entities,
             "device_door_1",
-            "device_door_1_tamper",
+            "device_door_1_tamper_alarm",
         )
 
     def test_device_class(self, entity):

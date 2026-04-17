@@ -26,10 +26,10 @@ def _event(coordinator, device_id: str, unique_id: str) -> SberSbermapEvent:
 class TestScenarioButton:
     @pytest.fixture
     def button1(self, coordinator):
-        return _event(coordinator, "device_scenario_1", "device_scenario_1_button_1")
+        return _event(coordinator, "device_scenario_1", "device_scenario_1_button_1_event")
 
     def test_unique_id(self, button1):
-        assert button1._attr_unique_id == "device_scenario_1_button_1"
+        assert button1._attr_unique_id == "device_scenario_1_button_1_event"
 
     def test_event_types(self, button1):
         assert "click" in button1._attr_event_types
@@ -44,5 +44,5 @@ class TestAsyncSetupEntry:
         captured: list = []
         await async_setup_entry(MagicMock(), entry, captured.extend)
         ids = {e._attr_unique_id for e in captured}
-        assert "device_scenario_1_button_1" in ids
-        assert "device_scenario_1_button_2" in ids
+        assert "device_scenario_1_button_1_event" in ids
+        assert "device_scenario_1_button_2_event" in ids

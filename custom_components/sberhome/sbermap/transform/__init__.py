@@ -38,7 +38,7 @@ from .lights import (
     light_config_from_dto,
     light_state_from_dto,
 )
-from .mapper import map_device_to_entities
+from .mapper import build_command, map_device_to_entities
 from .media_players import (
     TV_SOURCES,
     build_tv_channel_command,
@@ -96,5 +96,6 @@ __all__ = [
     "cover_state_from_dto",
     "light_config_from_dto",
     "light_state_from_dto",
+    "build_command",
     "map_device_to_entities",
 ]

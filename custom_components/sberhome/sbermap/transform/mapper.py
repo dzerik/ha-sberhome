@@ -1,10 +1,10 @@
-"""Mapper: DeviceDto → list[HaEntityData].
+"""Bidirectional mapper: DeviceDto ↔ HA entities/commands.
 
-Feature-Descriptor pattern: iterates DeviceDto.reported_state, creates
-HaEntityData for each feature that has a FeatureSpec, plus a primary
-composite entity from CategorySpec.
+Read path (Sber → HA):
+    map_device_to_entities(dto) → list[HaEntityData]
 
-This replaces the 1255-line sber_to_ha.py with a ~80-line data-driven mapper.
+Write path (HA → Sber):
+    build_command(device_id, on_off=True, light_brightness=200) → list[AttributeValueDto]
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_OFF, STATE_ON, Platform
 
+from ...aiosber.dto import AttributeValueDto, ColorValue
 from ..spec.ha_mapping import resolve_category
 from ._types import HaEntityData
 from .category_specs import CATEGORY_SPECS, build_primary_entity
@@ -104,4 +105,46 @@ def map_device_to_entities(dto: DeviceDto) -> list[HaEntityData]:
     return entities
 
 
-__all__ = ["map_device_to_entities"]
+# =============================================================================
+# Reverse mapper: HA → Sber (write/command path)
+# =============================================================================
+
+
+def build_command(device_id: str, **features: Any) -> list[AttributeValueDto]:
+    """Build list[AttributeValueDto] from HA-friendly kwargs.
+
+    Generic bidirectional command builder: uses FEATURE_SPECS codecs to
+    convert HA values → Sber wire values, then wraps in typed AttributeValueDto.
+
+    Usage:
+        attrs = build_command("dev-1", on_off=True, light_brightness=200)
+        await api.devices.set_state("dev-1", attrs)
+
+    Replaces all per-platform build_*_command() functions.
+    """
+    attrs: list[AttributeValueDto] = []
+    for key, ha_value in features.items():
+        if ha_value is None:
+            continue
+        spec = FEATURE_SPECS.get(key)
+        sber_value = spec.codec.to_sber(ha_value) if spec is not None else ha_value
+        attrs.append(_to_attr(key, sber_value))
+    return attrs
+
+
+def _to_attr(key: str, value: Any) -> AttributeValueDto:
+    """Auto-detect type and build AttributeValueDto."""
+    if isinstance(value, bool):
+        return AttributeValueDto.of_bool(key, value)
+    if isinstance(value, int):
+        return AttributeValueDto.of_int(key, value)
+    if isinstance(value, float):
+        return AttributeValueDto.of_float(key, value)
+    if isinstance(value, str):
+        return AttributeValueDto.of_enum(key, value)
+    if isinstance(value, ColorValue):
+        return AttributeValueDto.of_color(key, value)
+    return AttributeValueDto.of_string(key, str(value))
+
+
+__all__ = ["build_command", "map_device_to_entities"]
