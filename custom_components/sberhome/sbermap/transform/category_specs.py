@@ -197,7 +197,7 @@ def build_primary_entity(
             state=STATE_ON if reported.get("on_off") else STATE_OFF,
             attributes={
                 "source": reported.get("source"),
-                "volume_level": volume_raw / 100.0 if volume_raw is not None else None,
+                "volume_level": float(volume_raw) / 100.0 if volume_raw is not None else None,
                 "is_volume_muted": reported.get("mute"),
             },
             sber_category=category,
