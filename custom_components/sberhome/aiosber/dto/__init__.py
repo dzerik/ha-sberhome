@@ -40,16 +40,22 @@ from .body import (
     UpdateNameBody,
     UpdateParentBody,
 )
+from .category import DeviceCategoryDto
 from .device import (
     BridgeMeta,
+    ChildrenDto,
     CommandDto,
+    DeviceCorrectionDto,
     DeviceDto,
     DeviceInfoDto,
+    DeviceLinkDto,
     ImagesDto,
     IndicatorColor,
     IndicatorColors,
     NameDto,
+    OwnerInfoDto,
 )
+from .devman import DevmanDto
 from .enums import (
     AntiflickerAttr,
     AttributeValueType,
@@ -100,12 +106,28 @@ from .enums import (
     WaterLeakSensorModeAttr,
     WorkModeAttr,
 )
+from .feature import (
+    ColorRange,
+    ColorValues,
+    DeviceFeatureDto,
+    EnumValues,
+    FloatRange,
+    FloatValues,
+    IntRange,
+    IntValues,
+    StringValues,
+)
+from .group import GroupStateDto
+from .home import HomeChangeVariableDto
+from .ota import OtaUpdateInfoDto
+from .scenario import ScenarioWidgetDto
 from .state import (
     DesiredDeviceStateDto,
     DesiredGroupStateDto,
     DeviceOrderElement,
     StateDto,
 )
+from .transfer import HomeTransferBaseDto
 from .values import (
     AttributeValueDto,
     ColorValue,
@@ -123,15 +145,43 @@ __all__ = [
     "ColorValue",
     "ScheduleEvent",
     "ScheduleValue",
+    # category
+    "DeviceCategoryDto",
+    # devman
+    "DevmanDto",
     # device
     "BridgeMeta",
+    "ChildrenDto",
     "CommandDto",
+    "DeviceCorrectionDto",
     "DeviceDto",
     "DeviceInfoDto",
+    "DeviceLinkDto",
     "ImagesDto",
     "NameDto",
     "IndicatorColor",
     "IndicatorColors",
+    "OwnerInfoDto",
+    # feature
+    "ColorRange",
+    "ColorValues",
+    "DeviceFeatureDto",
+    "EnumValues",
+    "FloatRange",
+    "FloatValues",
+    "IntRange",
+    "IntValues",
+    "StringValues",
+    # group
+    "GroupStateDto",
+    # home
+    "HomeChangeVariableDto",
+    # ota
+    "OtaUpdateInfoDto",
+    # scenario
+    "ScenarioWidgetDto",
+    # transfer
+    "HomeTransferBaseDto",
     # state
     "DesiredDeviceStateDto",
     "DesiredGroupStateDto",

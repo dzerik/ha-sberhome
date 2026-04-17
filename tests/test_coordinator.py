@@ -9,6 +9,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.sberhome.aiosber import SocketMessageDto
+from custom_components.sberhome.aiosber.dto.devman import DevmanDto
 from custom_components.sberhome.aiosber.dto.state import (
     AttributeValueDto,
     StateDto,
@@ -230,7 +231,7 @@ async def test_on_ws_devman_event_dispatches_signal(coordinator):
     from unittest.mock import patch
 
     msg = SocketMessageDto(
-        event={"device_id": "scenario-1", "key": "button_1_event", "enum_value": "click"},
+        event=DevmanDto(device_id="scenario-1"),
     )
     with patch(
         "custom_components.sberhome.coordinator.async_dispatcher_send"
@@ -240,7 +241,7 @@ async def test_on_ws_devman_event_dispatches_signal(coordinator):
     args = mock_send.call_args.args
     assert args[1] == "sberhome_devman_event"
     assert args[2] == "scenario-1"
-    assert args[3] == {"device_id": "scenario-1", "key": "button_1_event", "enum_value": "click"}
+    assert args[3] == {"device_id": "scenario-1"}
 
 
 @pytest.mark.asyncio

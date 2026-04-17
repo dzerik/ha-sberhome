@@ -331,16 +331,17 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         LOGGER.debug("WS DEVMAN_EVENT for %s: %s", device_id, msg.event)
         if msg.event is None:
             return
+        event_dict = msg.event.to_dict()
         self._record_ws_message(
             topic="DEVMAN_EVENT",
             device_id=device_id,
-            payload=msg.event,
+            payload=event_dict,
         )
         async_dispatcher_send(
             self.hass,
             SIGNAL_DEVMAN_EVENT,
             device_id,
-            msg.event,
+            event_dict,
         )
 
     # ------------------------------------------------------------------

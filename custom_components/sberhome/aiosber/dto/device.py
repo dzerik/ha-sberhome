@@ -1,6 +1,7 @@
 """Top-level device DTOs.
 
-DeviceDto, DeviceInfoDto, ImagesDto, BridgeMeta, CommandDto, IndicatorColor.
+DeviceDto, DeviceInfoDto, ImagesDto, BridgeMeta, CommandDto, IndicatorColor,
+ChildrenDto, DeviceLinkDto, DeviceCorrectionDto, OwnerInfoDto.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from typing import Any, Self
 
 from ._serde import dataclass_to_dict, from_dict
 from .enums import ConnectionType, VendorType
+from .feature import DeviceFeatureDto
 from .values import AttributeValueDto
 
 
@@ -158,6 +160,75 @@ class IndicatorColors:
 
 
 @dataclass(slots=True, frozen=True)
+class ChildrenDto:
+    """Метаданные дочерних устройств (для хабов/мостов)."""
+
+    count: int | None = None
+    limit: int | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
+        if data is None:
+            return None
+        return from_dict(cls, data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclass_to_dict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class DeviceLinkDto:
+    """Связь между устройствами (linked devices)."""
+
+    id: str | None = None
+    type: str | None = None
+    to_id: str | None = None
+    from_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
+        if data is None:
+            return None
+        return from_dict(cls, data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclass_to_dict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class DeviceCorrectionDto:
+    """Калибровочные коэффициенты устройства (correction)."""
+
+    formula_type: str | None = None
+    data: dict[str, Any] | None = None  # DeviceCorrectionDataDto — неполная структура
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
+        if data is None:
+            return None
+        return from_dict(cls, data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclass_to_dict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class OwnerInfoDto:
+    """Информация о владельце устройства."""
+
+    is_owner: bool | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
+        if data is None:
+            return None
+        return from_dict(cls, data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclass_to_dict(self)
+
+
+@dataclass(slots=True, frozen=True)
 class DeviceDto:
     """Главный DTO устройства из GET /gateway/v1/devices/.
 
@@ -179,22 +250,22 @@ class DeviceDto:
     reported_state: list[AttributeValueDto] = field(default_factory=list)
     desired_state: list[AttributeValueDto] = field(default_factory=list)
 
-    correction: dict[str, Any] | None = None  # сырая структура — не разворачиваем
+    correction: DeviceCorrectionDto | None = None
     image_set_type: str | None = None
     images: ImagesDto | None = None
 
-    attributes: list[Any] | None = None  # legacy/extended attributes
-    full_categories: list[str] | None = None
+    attributes: list[DeviceFeatureDto] | None = None
+    full_categories: list[str] | None = None  # wire: массив строк (slug'и категорий)
 
     sw_version: str | None = None
     coprocessor_fw_version: str | None = None
     sort_weight_int: int | None = None
 
     commands: list[CommandDto] | None = None
-    children: list[str] | None = None
-    linked: list[str] | None = None
+    children: ChildrenDto | None = None
+    linked: list[DeviceLinkDto] | None = None
 
-    owner_info: dict[str, Any] | None = None  # сырая структура
+    owner_info: OwnerInfoDto | None = None
 
     connection_type: ConnectionType | None = None
     ip: str | None = None

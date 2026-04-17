@@ -24,10 +24,12 @@ def test_device_state_message_topic():
 
 
 def test_devman_event_topic():
-    src = {"event": {"device_id": "x", "event_type": "button_1_event"}}
+    src = {"event": {"device_id": "x", "type": "button_1_event"}}
     msg = SocketMessageDto.from_dict(src)
     assert msg.topic is Topic.DEVMAN_EVENT
-    assert msg.event == src["event"]
+    assert msg.event is not None
+    assert msg.event.device_id == "x"
+    assert msg.event.type == "button_1_event"
     assert msg.target_device_id == "x"
 
 
