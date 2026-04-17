@@ -41,11 +41,8 @@ class SberSbermapSensor(SberBaseEntity, SensorEntity):
         ha_entity: HaEntityData,
     ) -> None:
         # unique_id-suffix вычисляем как часть после device_id_, иначе "" (primary).
-        device_real_id = (
-            coordinator.data[device_id].get("id") or device_id
-            if device_id in coordinator.data
-            else device_id
-        )
+        dto = coordinator.devices.get(device_id)
+        device_real_id = (dto.id if dto else None) or device_id
         prefix = f"{device_real_id}_"
         suffix = (
             ha_entity.unique_id[len(prefix):]

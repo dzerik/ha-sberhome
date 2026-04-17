@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.sberhome.aiosber.dto.device import DeviceDto
+from custom_components.sberhome.aiosber.service.state_cache import StateCache
 from custom_components.sberhome.entity import SberBaseEntity
 
 from .conftest import MOCK_DEVICE_CLIMATE_SENSOR, MOCK_DEVICE_LIGHT
@@ -14,7 +16,15 @@ from .conftest import MOCK_DEVICE_CLIMATE_SENSOR, MOCK_DEVICE_LIGHT
 def _make_coordinator(devices: dict) -> MagicMock:
     coordinator = MagicMock()
     coordinator.data = devices
-    coordinator.devices = {}
+    # Populate state_cache with typed DTOs.
+    cache = StateCache()
+    for did, raw in devices.items():
+        dto = DeviceDto.from_dict(raw)
+        if dto is not None:
+            cache._devices[did] = dto
+    coordinator.state_cache = cache
+    # devices property returns state_cache content.
+    coordinator.devices = cache.get_all_devices()
     coordinator.entities = {}
     return coordinator
 
@@ -56,5 +66,7 @@ class TestSberBaseEntity:
         coordinator = _make_coordinator({"device_light_1": MOCK_DEVICE_LIGHT})
         coordinator.last_update_success = True
         ent = SberBaseEntity(coordinator, "device_light_1")
+        # Remove from both raw and typed cache.
         del coordinator.data["device_light_1"]
+        coordinator.state_cache._devices.pop("device_light_1", None)
         assert ent.available is False
