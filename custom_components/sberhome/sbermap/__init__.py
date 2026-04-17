@@ -1,21 +1,9 @@
 """sbermap — bidirectional mapper между HA и Sber Smart Home.
 
-Standalone-пакет (sibling к `aiosber/`). Single source of truth для всех
-конверсий состояний/команд между HA-моделью и Sber-моделью.
-
 Слои:
-- **`values/`** — canonical типы (HsvColor, SberValue, SberStateBundle).
 - **`spec/`** — категории + IMAGE_TYPE_MAP + ha_mapping.
 - **`codecs/`** — wire-encoders (Gateway/C2C).
-- **`transform/`** — двусторонние функции:
-  - `sber_to_ha()` — общий dispatcher.
-  - per-platform helpers (`lights`, `climate_helpers`, `covers`, `fans`,
-    `humidifiers`, `vacuums`, `media_players`, `selects`, `numbers`,
-    `buttons`, `switches`) — каждый с парой `*_state_from_dto` +
-    `build_*_command` для bidirectional поддержки.
-
-Архитектурные правила: гибридный режим — HA enums разрешены **только** в
-`transform/` и `spec/ha_mapping.py`; всё остальное standalone (см. CLAUDE.md).
+- **`transform/`** — Feature-Descriptor маппер + per-platform helpers.
 """
 
 from __future__ import annotations
@@ -32,8 +20,6 @@ from .transform import (
     HaEntityData,
     LightConfig,
     VacuumCommand,
-    apply_reported_state,
-    brightness_ha_to_sber,
     build_button_press_command,
     build_climate_on_off_command,
     build_climate_set_fan_mode_command,
@@ -64,29 +50,9 @@ from .transform import (
     climate_state_from_dto,
     cover_config_for,
     cover_state_from_dto,
-    device_dto_to_entities,
-    device_dto_to_state_bundle,
-    ha_climate_to_sber,
-    ha_cover_to_sber,
-    ha_light_to_sber,
-    ha_switch_to_sber,
-    ha_to_sber_generic,
     light_config_from_dto,
     light_state_from_dto,
-    map_hvac_mode,
-    map_hvac_mode_to_sber,
-    map_vacuum_status,
-    sber_to_ha,
-)
-from .values import (
-    HsvColor,
-    SberState,
-    SberStateBundle,
-    SberValue,
-    ScheduleEvent,
-    ScheduleValue,
-    ValueType,
-    Weekday,
+    map_device_to_entities,
 )
 
 __all__ = [
@@ -99,23 +65,13 @@ __all__ = [
     "CoverStateSnapshot",
     "GatewayCodec",
     "HaEntityData",
-    "HsvColor",
     "IMAGE_TYPE_MAP",
     "LightConfig",
     "MappingError",
-    "SberState",
-    "SberStateBundle",
-    "SberValue",
     "SbermapError",
-    "ScheduleEvent",
-    "ScheduleValue",
     "SpecError",
     "TV_SOURCES",
     "VacuumCommand",
-    "ValueType",
-    "Weekday",
-    "apply_reported_state",
-    "brightness_ha_to_sber",
     "build_button_press_command",
     "build_climate_on_off_command",
     "build_climate_set_fan_mode_command",
@@ -146,18 +102,23 @@ __all__ = [
     "climate_state_from_dto",
     "cover_config_for",
     "cover_state_from_dto",
-    "device_dto_to_entities",
-    "device_dto_to_state_bundle",
-    "ha_climate_to_sber",
-    "ha_cover_to_sber",
-    "ha_light_to_sber",
-    "ha_switch_to_sber",
-    "ha_to_sber_generic",
     "light_config_from_dto",
     "light_state_from_dto",
-    "map_hvac_mode",
-    "map_hvac_mode_to_sber",
-    "map_vacuum_status",
+    "map_device_to_entities",
     "resolve_category",
-    "sber_to_ha",
+    # values (used by command builders + codecs)
+    "HsvColor",
+    "SberState",
+    "SberStateBundle",
+    "SberValue",
+    "ValueType",
 ]
+
+# Re-export values for command builders and codecs
+from .values import (  # noqa: E402
+    HsvColor,
+    SberState,
+    SberStateBundle,
+    SberValue,
+    ValueType,
+)

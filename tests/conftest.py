@@ -703,7 +703,7 @@ def build_coordinator_caches(raw_devices: dict) -> tuple[dict, dict]:
     Используется тестами платформ, мигрированных на sbermap (PR #3-#7).
     """
     from custom_components.sberhome.aiosber.dto.device import DeviceDto
-    from custom_components.sberhome.sbermap import device_dto_to_entities
+    from custom_components.sberhome.sbermap import map_device_to_entities
 
     devices: dict = {}
     entities: dict = {}
@@ -712,7 +712,7 @@ def build_coordinator_caches(raw_devices: dict) -> tuple[dict, dict]:
         if dto is None:
             continue
         devices[did] = dto
-        entities[did] = device_dto_to_entities(dto)
+        entities[did] = map_device_to_entities(dto)
     return devices, entities
 
 

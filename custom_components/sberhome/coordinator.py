@@ -42,7 +42,7 @@ from .exceptions import (
 )
 from .sbermap import (
     HaEntityData,
-    device_dto_to_entities,
+    map_device_to_entities,
 )
 
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
@@ -188,12 +188,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_devices = self.state_cache.get_all_devices()
         if enabled is None:
             self.entities = {
-                device_id: device_dto_to_entities(dto)
+                device_id: map_device_to_entities(dto)
                 for device_id, dto in all_devices.items()
             }
         else:
             self.entities = {
-                device_id: device_dto_to_entities(dto)
+                device_id: map_device_to_entities(dto)
                 for device_id, dto in all_devices.items()
                 if device_id in enabled
             }
@@ -337,7 +337,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_id, msg.state.reported_state
         )
         if new_dto is not None:
-            self.entities[device_id] = device_dto_to_entities(new_dto)
+            self.entities[device_id] = map_device_to_entities(new_dto)
             # Sync raw cache для backward compat (diagnostics, entity.device_info).
             self.home_api._cached_devices[device_id] = new_dto.to_dict()
         self.async_set_updated_data(
