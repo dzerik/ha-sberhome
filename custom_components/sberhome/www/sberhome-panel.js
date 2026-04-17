@@ -1,8 +1,7 @@
 /**
  * SberHome — main SPA panel.
  *
- * Tabs: Devices (picker) | Status | Log | Diagnostics | Settings.
- * Stack: LitElement bundled with HA, no build step, ESM with cache-busting.
+ * Tabs: Rooms | Devices | Status | Log | Diagnostics | Settings.
  */
 
 const _v = new URL(import.meta.url).searchParams.get("v") || "";
@@ -11,6 +10,7 @@ await Promise.all([
   import(`./components/sberhome-toast.js${_q}`),
   import(`./components/sberhome-status-card.js${_q}`),
   import(`./components/sberhome-device-picker.js${_q}`),
+  import(`./components/sberhome-rooms-view.js${_q}`),
   import(`./components/sberhome-log-view.js${_q}`),
   import(`./components/sberhome-diagnostics.js${_q}`),
   import(`./components/sberhome-settings.js${_q}`),
@@ -30,9 +30,12 @@ class SberHomePanel extends LitElement {
       panel: { type: Object },
       _tab: { type: Number },
       _devices: { type: Array },
+      _rooms: { type: Array },
+      _home: { type: Object },
       _status: { type: Object },
       _loading: { type: Boolean },
       _error: { type: String },
+      _roomFilter: { type: String },
     };
   }
 
@@ -40,9 +43,12 @@ class SberHomePanel extends LitElement {
     super();
     this._tab = 0;
     this._devices = [];
+    this._rooms = [];
+    this._home = null;
     this._status = null;
     this._loading = false;
     this._error = "";
+    this._roomFilter = null;
     this._autoRefresh = null;
   }
 
@@ -70,12 +76,15 @@ class SberHomePanel extends LitElement {
     if (!this.hass) return;
     this._loading = true;
     try {
-      const [devicesResp, status] = await Promise.all([
+      const [devicesResp, status, roomsResp] = await Promise.all([
         this.hass.callWS({ type: "sberhome/get_devices" }),
         this.hass.callWS({ type: "sberhome/get_status" }),
+        this.hass.callWS({ type: "sberhome/get_rooms" }),
       ]);
       this._devices = devicesResp.devices || [];
       this._status = status;
+      this._rooms = roomsResp.rooms || [];
+      this._home = roomsResp.home || null;
       this._error = "";
     } catch (e) {
       this._error = e.message || String(e);
@@ -89,8 +98,14 @@ class SberHomePanel extends LitElement {
   }
 
   _onDeviceToggled() {
-    // Refresh после изменения picker.
     setTimeout(() => this._fetchAll(), 500);
+  }
+
+  _onRoomSelected(e) {
+    this._roomFilter = e.detail.roomId;
+    if (this._roomFilter) {
+      this._tab = 1; // Switch to Devices tab with room filter
+    }
   }
 
   _onToast(e) {
@@ -115,11 +130,7 @@ class SberHomePanel extends LitElement {
         height: var(--header-height, 56px);
         box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.1));
       }
-      .header h1 {
-        margin: 0;
-        font-size: 20px;
-        flex: 1;
-      }
+      .header h1 { margin: 0; font-size: 20px; flex: 1; }
       .tabs {
         display: flex;
         background: var(--app-header-background-color, var(--primary-color));
@@ -136,67 +147,50 @@ class SberHomePanel extends LitElement {
         white-space: nowrap;
         opacity: 0.7;
       }
-      .tab.active {
-        border-color: #fff;
-        opacity: 1;
-      }
+      .tab.active { border-color: #fff; opacity: 1; }
       .content { padding: 0; }
       .error {
-        padding: 16px;
-        margin: 16px;
-        background: var(--error-color);
-        color: #fff;
-        border-radius: 8px;
+        padding: 16px; margin: 16px;
+        background: var(--error-color); color: #fff; border-radius: 8px;
       }
     `;
   }
 
   render() {
-    const tabs = ["Devices", "Status", "Log", "Diagnostics", "Settings"];
+    const tabs = ["Rooms", "Devices", "Status", "Log", "Diagnostics", "Settings"];
     return html`
-      <div class="header">
-        <h1>SberHome</h1>
-      </div>
+      <div class="header"><h1>SberHome</h1></div>
       <div class="tabs">
         ${tabs.map(
           (label, idx) => html`
-            <div
-              class="tab ${this._tab === idx ? "active" : ""}"
-              @click=${() => this._onTabClick(idx)}
-            >
+            <div class="tab ${this._tab === idx ? "active" : ""}"
+              @click=${() => this._onTabClick(idx)}>
               ${label}
             </div>
           `
         )}
       </div>
-      ${this._error
-        ? html`<div class="error">${this._error}</div>`
-        : ""}
-      <div class="content" @toast=${this._onToast}>
-        ${this._tab === 0
-          ? html`<sberhome-device-picker
-              .hass=${this.hass}
-              .devices=${this._devices}
-              @device-toggled=${this._onDeviceToggled}
-            ></sberhome-device-picker>`
-          : ""}
-        ${this._tab === 1
-          ? html`<sberhome-status-card
-              .status=${this._status}
-            ></sberhome-status-card>`
-          : ""}
-        ${this._tab === 2
-          ? html`<sberhome-log-view .hass=${this.hass}></sberhome-log-view>`
-          : ""}
-        ${this._tab === 3
-          ? html`<sberhome-diagnostics
-              .hass=${this.hass}
-              .devices=${this._devices}
-            ></sberhome-diagnostics>`
-          : ""}
-        ${this._tab === 4
-          ? html`<sberhome-settings .hass=${this.hass}></sberhome-settings>`
-          : ""}
+      ${this._error ? html`<div class="error">${this._error}</div>` : ""}
+      <div class="content" @toast=${this._onToast} @room-selected=${this._onRoomSelected}>
+        ${this._tab === 0 ? html`
+          <sberhome-rooms-view .hass=${this.hass}
+            .rooms=${this._rooms} .home=${this._home}
+            .totalDevices=${this._devices.length}>
+          </sberhome-rooms-view>` : ""}
+        ${this._tab === 1 ? html`
+          <sberhome-device-picker .hass=${this.hass}
+            .devices=${this._devices} .roomFilter=${this._roomFilter}
+            @device-toggled=${this._onDeviceToggled}>
+          </sberhome-device-picker>` : ""}
+        ${this._tab === 2 ? html`
+          <sberhome-status-card .status=${this._status}></sberhome-status-card>` : ""}
+        ${this._tab === 3 ? html`
+          <sberhome-log-view .hass=${this.hass}></sberhome-log-view>` : ""}
+        ${this._tab === 4 ? html`
+          <sberhome-diagnostics .hass=${this.hass} .devices=${this._devices}>
+          </sberhome-diagnostics>` : ""}
+        ${this._tab === 5 ? html`
+          <sberhome-settings .hass=${this.hass}></sberhome-settings>` : ""}
       </div>
       <sberhome-toast></sberhome-toast>
     `;

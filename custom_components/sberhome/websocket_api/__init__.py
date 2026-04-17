@@ -22,6 +22,7 @@ from ..const import DOMAIN
 from .devices import ws_device_detail, ws_get_devices
 from .enabled import ws_set_enabled, ws_toggle_device
 from .log import ws_clear_message_log, ws_message_log, ws_subscribe_messages
+from .rooms import ws_get_rooms
 from .settings import ws_force_refresh, ws_get_settings, ws_update_settings
 from .status import ws_get_status
 
@@ -36,6 +37,7 @@ _COMMANDS = (
     ws_message_log,
     ws_clear_message_log,
     ws_subscribe_messages,
+    ws_get_rooms,
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,

@@ -106,6 +106,12 @@ def ws_get_devices(
                 "is_own_loop": bridge["is_own_loop"],
                 "sw_version": dto.sw_version,
                 "serial_number": dto.serial_number,
+                "room_id": coord.state_cache.device_room_id(device_id),
+                "room_name": coord.state_cache.device_room(device_id),
+                "features": [av.key for av in dto.reported_state if av.key],
+                "connection_type": (
+                    str(dto.connection_type.value) if dto.connection_type else None
+                ),
                 "enabled": is_enabled,
                 "entity_count": len(ents),
                 "platforms": sorted({str(e.platform) for e in ents}),
