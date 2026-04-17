@@ -109,11 +109,16 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: SberHomeConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    # Only unload platforms that were actually loaded (avoids ValueError
-    # when background refresh hasn't completed yet).
-    loaded = [p for p in PLATFORMS if p in entry.platforms]
-    if loaded:
-        unloaded = await hass.config_entries.async_unload_platforms(entry, loaded)
+    if _should_forward_platforms(entry):
+        try:
+            unloaded = await hass.config_entries.async_unload_platforms(
+                entry, PLATFORMS
+            )
+        except ValueError:
+            # Platforms were forwarded but not yet loaded (background refresh
+            # hasn't completed). Safe to ignore — no entities to clean up.
+            LOGGER.debug("Some platforms not loaded yet, skipping unload")
+            unloaded = True
     else:
         unloaded = True
     # Если последняя SberHome-запись уходит — снимаем panel.
