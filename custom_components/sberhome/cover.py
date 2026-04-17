@@ -92,23 +92,23 @@ class SberSbermapCover(SberBaseEntity, CoverEntity):
         return ent is not None and ent.state == CoverState.CLOSING
 
     async def async_open_cover(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_cover_position_command(device_id=self._device_id, position=100)
         )
 
     async def async_close_cover(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_cover_position_command(device_id=self._device_id, position=0)
         )
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_cover_position_command(
                 device_id=self._device_id, position=kwargs[ATTR_POSITION]
             )
         )
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_cover_stop_command(device_id=self._device_id)
         )

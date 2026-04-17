@@ -1,35 +1,26 @@
-"""Humidifiers — bidirectional sbermap helpers (PR #9)."""
+"""Humidifiers — command builders."""
 
 from __future__ import annotations
 
-from ..values import SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto
 
 
 def build_humidifier_on_off_command(
     *, device_id: str, is_on: bool
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("on_off", SberValue.of_bool(is_on)),),
-    )
+) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_bool("on_off", is_on)]
 
 
 def build_humidifier_set_humidity_command(
     *, device_id: str, humidity: int
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("hvac_humidity_set", SberValue.of_int(int(humidity))),),
-    )
+) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_int("hvac_humidity_set", int(humidity))]
 
 
 def build_humidifier_set_mode_command(
     *, device_id: str, mode: str
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("hvac_air_flow_power", SberValue.of_enum(mode)),),
-    )
+) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("hvac_air_flow_power", mode)]
 
 
 __all__ = [

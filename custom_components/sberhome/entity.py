@@ -8,14 +8,14 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .aiosber.dto import AttributeValueDto, ColorValue
+from .aiosber.dto import AttributeValueDto
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeCoordinator
 from .exceptions import SberAuthError
 
 if TYPE_CHECKING:
     from .aiosber.dto.device import DeviceDto
-    from .sbermap import HaEntityData, SberStateBundle
+    from .sbermap import HaEntityData
 
 
 class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
@@ -96,38 +96,8 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             suggested_area=room_name,
         )
 
-    async def _async_send_bundle(self, bundle: SberStateBundle) -> None:
-        """Convert SberStateBundle → list[AttributeValueDto] → send via API."""
-        from .sbermap import ValueType
-
-        attrs: list[AttributeValueDto] = []
-        for state in bundle.states:
-            v = state.value
-            if v.type is ValueType.BOOL:
-                attrs.append(AttributeValueDto.of_bool(state.key, v.bool_value))
-            elif v.type is ValueType.INTEGER:
-                attrs.append(AttributeValueDto.of_int(state.key, v.integer_value))
-            elif v.type is ValueType.FLOAT:
-                attrs.append(AttributeValueDto.of_float(state.key, v.float_value))
-            elif v.type is ValueType.STRING:
-                attrs.append(AttributeValueDto.of_string(state.key, v.string_value or ""))
-            elif v.type is ValueType.ENUM:
-                attrs.append(AttributeValueDto.of_enum(state.key, v.enum_value or ""))
-            elif v.type is ValueType.COLOR and v.color_value is not None:
-                attrs.append(
-                    AttributeValueDto.of_color(
-                        state.key,
-                        ColorValue(
-                            hue=v.color_value.hue,
-                            saturation=v.color_value.saturation,
-                            brightness=v.color_value.brightness,
-                        ),
-                    )
-                )
-            else:
-                continue
-
-        # Отправляем через legacy API (поддерживает retry + refresh).
+    async def _async_send_attrs(self, attrs: list[AttributeValueDto]) -> None:
+        """Send list[AttributeValueDto] via API + optimistic cache update."""
         states_dicts = [a.to_dict() for a in attrs]
         try:
             await self.coordinator.home_api.set_device_state(
@@ -137,7 +107,6 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
             raise ConfigEntryAuthFailed(str(err)) from err
 
-        # Optimistic update через StateCache (typed, без raw dict mutation).
         self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
         self.coordinator._rebuild_dto_caches()
         self.coordinator.async_set_updated_data(
@@ -148,24 +117,7 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         """Send command via bidirectional mapper.
 
         Usage: ``await self._async_send_command(on_off=True, light_brightness=200)``
-
-        Uses FEATURE_SPECS codecs for HA→Sber conversion. Replaces
-        _async_send_bundle for new code.
         """
         from .sbermap import build_command
 
-        attrs = build_command(self._device_id, **features)
-        states_dicts = [a.to_dict() for a in attrs]
-        try:
-            await self.coordinator.home_api.set_device_state(
-                self._device_id, states_dicts
-            )
-        except SberAuthError as err:
-            LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
-            raise ConfigEntryAuthFailed(str(err)) from err
-
-        self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
-        self.coordinator._rebuild_dto_caches()
-        self.coordinator.async_set_updated_data(
-            self.coordinator.home_api.get_cached_devices()
-        )
+        await self._async_send_attrs(build_command(self._device_id, **features))

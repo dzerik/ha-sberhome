@@ -111,7 +111,7 @@ class SberClimateEntity(SberBaseEntity, ClimateEntity):
         return s.fan_mode if s else None
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_climate_set_hvac_mode_command(
                 device_id=self._device_id,
                 hvac_mode=hvac_mode,
@@ -123,7 +123,7 @@ class SberClimateEntity(SberBaseEntity, ClimateEntity):
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_climate_set_temperature_command(
                 device_id=self._device_id,
                 temperature=temp,
@@ -134,7 +134,7 @@ class SberClimateEntity(SberBaseEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         if not self._config.has_fan:
             return
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_climate_set_fan_mode_command(
                 device_id=self._device_id,
                 fan_mode=fan_mode,
@@ -143,11 +143,11 @@ class SberClimateEntity(SberBaseEntity, ClimateEntity):
         )
 
     async def async_turn_on(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_climate_on_off_command(device_id=self._device_id, is_on=True)
         )
 
     async def async_turn_off(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_climate_on_off_command(device_id=self._device_id, is_on=False)
         )

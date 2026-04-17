@@ -3,7 +3,7 @@
 Вся scaling-логика (HSV ranges, color_temp Kelvin↔Sber, brightness 100..900)
 живёт в `sbermap.transform.lights`. Платформа лишь оркеструет: читает state
 через `light_state_from_dto`, пишет через `build_light_command` →
-`_async_send_bundle`.
+`_async_send_attrs`.
 """
 
 from __future__ import annotations
@@ -134,8 +134,8 @@ class SberLightEntity(SberBaseEntity, LightEntity):
             color_temp_kelvin=kwargs.get(ATTR_COLOR_TEMP_KELVIN),
             white=kwargs.get(ATTR_WHITE),
         )
-        await self._async_send_bundle(bundle)
+        await self._async_send_attrs(bundle)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         bundle = build_light_command(self._config, self._device_id, is_on=False)
-        await self._async_send_bundle(bundle)
+        await self._async_send_attrs(bundle)

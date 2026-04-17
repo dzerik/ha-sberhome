@@ -1,35 +1,27 @@
-"""Fans — bidirectional sbermap helpers (PR #9)."""
+"""Fans — command builders."""
 
 from __future__ import annotations
 
-from ..values import SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto
 
 
 def build_fan_turn_on_command(
     *, device_id: str, preset_mode: str | None = None
-) -> SberStateBundle:
-    states: list[SberState] = [SberState("on_off", SberValue.of_bool(True))]
+) -> list[AttributeValueDto]:
+    attrs = [AttributeValueDto.of_bool("on_off", True)]
     if preset_mode:
-        states.append(
-            SberState("hvac_air_flow_power", SberValue.of_enum(preset_mode))
-        )
-    return SberStateBundle(device_id=device_id, states=tuple(states))
+        attrs.append(AttributeValueDto.of_enum("hvac_air_flow_power", preset_mode))
+    return attrs
 
 
-def build_fan_turn_off_command(*, device_id: str) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("on_off", SberValue.of_bool(False)),),
-    )
+def build_fan_turn_off_command(*, device_id: str) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_bool("on_off", False)]
 
 
 def build_fan_preset_command(
     *, device_id: str, preset_mode: str
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("hvac_air_flow_power", SberValue.of_enum(preset_mode)),),
-    )
+) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("hvac_air_flow_power", preset_mode)]
 
 
 __all__ = [

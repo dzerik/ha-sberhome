@@ -115,60 +115,60 @@ class SberSbermapMediaPlayer(SberBaseEntity, MediaPlayerEntity):
         return ent.attributes.get("source")
 
     async def async_turn_on(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_on_off_command(device_id=self._device_id, is_on=True)
         )
 
     async def async_turn_off(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_on_off_command(device_id=self._device_id, is_on=False)
         )
 
     async def async_set_volume_level(self, volume: float) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_volume_command(
                 device_id=self._device_id, volume_level=volume
             )
         )
 
     async def async_volume_up(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_volume_step_command(
                 device_id=self._device_id, direction="+"
             )
         )
 
     async def async_volume_down(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_volume_step_command(
                 device_id=self._device_id, direction="-"
             )
         )
 
     async def async_mute_volume(self, mute: bool) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_mute_command(device_id=self._device_id, mute=mute)
         )
 
     async def async_select_source(self, source: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_source_command(device_id=self._device_id, source=source)
         )
 
     async def async_send_custom_key(self, key: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_custom_key_command(device_id=self._device_id, key=key)
         )
 
     async def async_send_direction(self, direction: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_direction_command(
                 device_id=self._device_id, direction=direction
             )
         )
 
     async def async_play_channel(self, channel: int) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_tv_channel_command(
                 device_id=self._device_id, channel=channel
             )

@@ -1,77 +1,46 @@
-"""Media players (TV) — bidirectional sbermap helpers (PR #9)."""
+"""Media players (TV) — command builders."""
 
 from __future__ import annotations
 
 from typing import Final
 
-from ..values import SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto
 
-# Sber TV использует фиксированный набор источников.
 TV_SOURCES: Final[tuple[str, ...]] = (
     "hdmi1", "hdmi2", "hdmi3", "tv", "av", "content",
 )
 
 
-def build_tv_on_off_command(*, device_id: str, is_on: bool) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("on_off", SberValue.of_bool(is_on)),),
-    )
+def build_tv_on_off_command(*, device_id: str, is_on: bool) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_bool("on_off", is_on)]
 
 
-def build_tv_volume_command(
-    *, device_id: str, volume_level: float
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("volume_int", SberValue.of_int(int(volume_level * 100))),),
-    )
+def build_tv_volume_command(*, device_id: str, volume_level: float) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_int("volume_int", int(volume_level * 100))]
 
 
-def build_tv_volume_step_command(
-    *, device_id: str, direction: str
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("direction", SberValue.of_enum(direction)),),
-    )
+def build_tv_volume_step_command(*, device_id: str, direction: str) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("direction", direction)]
 
 
-def build_tv_mute_command(*, device_id: str, mute: bool) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("mute", SberValue.of_bool(mute)),),
-    )
+def build_tv_mute_command(*, device_id: str, mute: bool) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_bool("mute", mute)]
 
 
-def build_tv_source_command(*, device_id: str, source: str) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("source", SberValue.of_enum(source)),),
-    )
+def build_tv_source_command(*, device_id: str, source: str) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("source", source)]
 
 
-def build_tv_custom_key_command(*, device_id: str, key: str) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("custom_key", SberValue.of_enum(key)),),
-    )
+def build_tv_custom_key_command(*, device_id: str, key: str) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("custom_key", key)]
 
 
-def build_tv_direction_command(
-    *, device_id: str, direction: str
-) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("direction", SberValue.of_enum(direction)),),
-    )
+def build_tv_direction_command(*, device_id: str, direction: str) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_enum("direction", direction)]
 
 
-def build_tv_channel_command(*, device_id: str, channel: int) -> SberStateBundle:
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState("channel_int", SberValue.of_int(int(channel))),),
-    )
+def build_tv_channel_command(*, device_id: str, channel: int) -> list[AttributeValueDto]:
+    return [AttributeValueDto.of_int("channel_int", int(channel))]
 
 
 __all__ = [

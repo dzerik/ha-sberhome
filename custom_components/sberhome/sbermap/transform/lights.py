@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.util.color import brightness_to_value, value_to_brightness
 from homeassistant.util.scaling import scale_ranged_value_to_int_range
 
-from ..values import HsvColor, SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto, ColorValue
 
 if TYPE_CHECKING:
     from ...aiosber.dto.device import DeviceDto
@@ -196,84 +196,48 @@ def build_light_command(
     hs_color: tuple[float, float] | None = None,
     color_temp_kelvin: int | None = None,
     white: int | None = None,
-) -> SberStateBundle:
-    """Build SberStateBundle для команды light, с применённым per-device scaling.
+) -> list[AttributeValueDto]:
+    """Build list[AttributeValueDto] для команды light, с per-device scaling."""
+    attrs: list[AttributeValueDto] = [AttributeValueDto.of_bool("on_off", is_on)]
 
-    Логика идентична legacy `SberLightEntity.async_turn_on`, но вся в sbermap.
-    """
-    states: list[SberState] = [SberState("on_off", SberValue.of_bool(is_on))]
+    def _brightness_attr(ha_val: int) -> AttributeValueDto:
+        return AttributeValueDto.of_int(
+            "light_brightness",
+            math.ceil(brightness_to_value(config.brightness_range, ha_val)),
+        )
 
     if hs_color is not None:
         h, s = hs_color
         v_brightness = brightness or 255
-        states.append(
-            SberState("light_mode", SberValue.of_enum("colour"))
-        )
-        states.append(
-            SberState(
+        attrs.append(AttributeValueDto.of_enum("light_mode", "colour"))
+        attrs.append(
+            AttributeValueDto.of_color(
                 "light_colour",
-                SberValue.of_color(
-                    HsvColor(
-                        hue=scale_ranged_value_to_int_range(
-                            H_RANGE, config.color_h_range, h
-                        ),
-                        saturation=scale_ranged_value_to_int_range(
-                            S_RANGE, config.color_s_range, s
-                        ),
-                        brightness=math.ceil(
-                            brightness_to_value(config.color_v_range, v_brightness)
-                        ),
-                    )
+                ColorValue(
+                    hue=scale_ranged_value_to_int_range(H_RANGE, config.color_h_range, h),
+                    saturation=scale_ranged_value_to_int_range(S_RANGE, config.color_s_range, s),
+                    brightness=math.ceil(brightness_to_value(config.color_v_range, v_brightness)),
                 ),
             )
         )
         if brightness is not None:
-            states.append(
-                SberState(
-                    "light_brightness",
-                    SberValue.of_int(
-                        math.ceil(brightness_to_value(config.brightness_range, brightness))
-                    ),
-                )
-            )
+            attrs.append(_brightness_attr(brightness))
     elif color_temp_kelvin is not None:
         sber_temp = scale_ranged_value_to_int_range(
             config.real_color_temp_range, config.color_temp_range, color_temp_kelvin
         )
-        states.append(SberState("light_mode", SberValue.of_enum("white")))
-        states.append(SberState("light_colour_temp", SberValue.of_int(max(0, sber_temp))))
+        attrs.append(AttributeValueDto.of_enum("light_mode", "white"))
+        attrs.append(AttributeValueDto.of_int("light_colour_temp", max(0, sber_temp)))
         if brightness is not None:
-            states.append(
-                SberState(
-                    "light_brightness",
-                    SberValue.of_int(
-                        math.ceil(brightness_to_value(config.brightness_range, brightness))
-                    ),
-                )
-            )
+            attrs.append(_brightness_attr(brightness))
     elif white is not None:
-        states.append(SberState("light_mode", SberValue.of_enum("white")))
-        states.append(
-            SberState(
-                "light_brightness",
-                SberValue.of_int(
-                    math.ceil(brightness_to_value(config.brightness_range, white))
-                ),
-            )
-        )
+        attrs.append(AttributeValueDto.of_enum("light_mode", "white"))
+        attrs.append(_brightness_attr(white))
     elif brightness is not None:
-        # brightness без явного цвета — выбираем mode по текущим возможностям.
         mode = "colour" if "colour" in config.light_modes else "white"
-        states.append(SberState("light_mode", SberValue.of_enum(mode)))
-        states.append(
-            SberState(
-                "light_brightness",
-                SberValue.of_int(
-                    math.ceil(brightness_to_value(config.brightness_range, brightness))
-                ),
-            )
-        )
-    return SberStateBundle(device_id=device_id, states=tuple(states))
+        attrs.append(AttributeValueDto.of_enum("light_mode", mode))
+        attrs.append(_brightness_attr(brightness))
+    return attrs
 
 
 __all__ = [

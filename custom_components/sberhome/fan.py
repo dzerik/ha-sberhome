@@ -70,7 +70,7 @@ class SberSbermapFan(SberBaseEntity, FanEntity):
         return ent.attributes.get("preset_mode")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_fan_preset_command(
                 device_id=self._device_id, preset_mode=preset_mode
             )
@@ -82,13 +82,13 @@ class SberSbermapFan(SberBaseEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_fan_turn_on_command(
                 device_id=self._device_id, preset_mode=preset_mode
             )
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_fan_turn_off_command(device_id=self._device_id)
         )

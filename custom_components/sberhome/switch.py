@@ -65,14 +65,14 @@ class SberSbermapSwitch(SberBaseEntity, SwitchEntity):
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_switch_command(
                 device_id=self._device_id, state_key=self._state_key, is_on=True
             )
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_switch_command(
                 device_id=self._device_id, state_key=self._state_key, is_on=False
             )

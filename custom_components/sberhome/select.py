@@ -59,7 +59,7 @@ class SberSbermapSelect(SberBaseEntity, SelectEntity):
         return v if v in self._attr_options else None
 
     async def async_select_option(self, option: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_select_command(
                 device_id=self._device_id, key=self._state_key, option=option
             )

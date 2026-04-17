@@ -85,25 +85,25 @@ class SberSbermapHumidifier(SberBaseEntity, HumidifierEntity):
         return ent.attributes.get("mode")
 
     async def async_set_humidity(self, humidity: int) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_humidifier_set_humidity_command(
                 device_id=self._device_id, humidity=humidity
             )
         )
 
     async def async_set_mode(self, mode: str) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_humidifier_set_mode_command(
                 device_id=self._device_id, mode=mode
             )
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_humidifier_on_off_command(device_id=self._device_id, is_on=True)
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_humidifier_on_off_command(device_id=self._device_id, is_on=False)
         )

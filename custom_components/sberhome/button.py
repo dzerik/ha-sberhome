@@ -52,7 +52,7 @@ class SberSbermapButton(SberBaseEntity, ButtonEntity):
             self._attr_entity_category = ha_entity.entity_category
 
     async def async_press(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_button_press_command(
                 device_id=self._device_id,
                 key=self._state_key,

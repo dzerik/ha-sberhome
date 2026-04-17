@@ -1,18 +1,15 @@
-"""Selects — bidirectional sbermap helpers (PR #9)."""
+"""Selects — command builder."""
 
 from __future__ import annotations
 
-from ..values import SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto
 
 
 def build_select_command(
     *, device_id: str, key: str, option: str
-) -> SberStateBundle:
+) -> list[AttributeValueDto]:
     """Set enum_value для select-сущности."""
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState(key, SberValue.of_enum(option)),),
-    )
+    return [AttributeValueDto.of_enum(key, option)]
 
 
 __all__ = ["build_select_command"]

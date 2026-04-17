@@ -1,11 +1,8 @@
-"""Buttons — bidirectional sbermap helpers (PR #9).
-
-Fire-and-forget action button (intercom unlock/reject_call).
-"""
+"""Buttons — command builder."""
 
 from __future__ import annotations
 
-from ..values import SberState, SberStateBundle, SberValue
+from ...aiosber.dto import AttributeValueDto
 
 
 def build_button_press_command(
@@ -13,19 +10,11 @@ def build_button_press_command(
     device_id: str,
     key: str,
     command_value: str | None = None,
-) -> SberStateBundle:
-    """Build single-action command bundle.
-
-    Если `command_value` задан — отправляет enum_value, иначе bool_value=True.
-    """
+) -> list[AttributeValueDto]:
+    """Build single-action command."""
     if command_value is not None:
-        value = SberValue.of_enum(command_value)
-    else:
-        value = SberValue.of_bool(True)
-    return SberStateBundle(
-        device_id=device_id,
-        states=(SberState(key, value),),
-    )
+        return [AttributeValueDto.of_enum(key, command_value)]
+    return [AttributeValueDto.of_bool(key, True)]
 
 
 __all__ = ["build_button_press_command"]

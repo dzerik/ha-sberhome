@@ -70,28 +70,28 @@ class SberSbermapVacuum(SberBaseEntity, StateVacuumEntity):
         return ent.attributes.get("battery_level")
 
     async def async_start(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_vacuum_command(device_id=self._device_id, command="start")
         )
 
     async def async_pause(self) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_vacuum_command(device_id=self._device_id, command="pause")
         )
 
     async def async_stop(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_vacuum_command(device_id=self._device_id, command="stop")
         )
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_vacuum_command(
                 device_id=self._device_id, command="return_to_base"
             )
         )
 
     async def async_locate(self, **kwargs: Any) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_vacuum_command(device_id=self._device_id, command="locate")
         )

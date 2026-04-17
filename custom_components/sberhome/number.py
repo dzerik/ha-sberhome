@@ -68,7 +68,7 @@ class SberSbermapNumber(SberBaseEntity, NumberEntity):
         return ent.state
 
     async def async_set_native_value(self, value: float) -> None:
-        await self._async_send_bundle(
+        await self._async_send_attrs(
             build_number_command(
                 device_id=self._device_id,
                 key=self._state_key,
