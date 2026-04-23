@@ -1,0 +1,124 @@
+rules:
+  # ---------------------------------------------------------------------------
+  # Bronze — ОБЯЗАТЕЛЬНЫЕ требования для всех интеграций
+  # ---------------------------------------------------------------------------
+  action-setup:
+    status: exempt
+    comment: Интеграция не регистрирует service actions в async_setup — только
+      platform-scoped services в media_player (send_custom_key, send_direction,
+      play_channel). Они работают без глобальной регистрации.
+  appropriate-polling: done
+  brands:
+    status: exempt
+    comment: Sber Smart Home — brand добавлять в home-assistant/brands repo.
+      Для custom_components через HACS не требуется.
+  common-modules: done
+  config-flow: done
+  config-flow-test-coverage:
+    status: done
+    comment: tests/test_config_flow.py (14 тестов), tests/test_init.py (14 тестов
+      для migrate/setup/unload lifecycle).
+  dependency-transparency: done
+  docs-actions:
+    status: exempt
+    comment: Platform-scoped services описаны в services.yaml.
+  docs-high-level-description: done
+  docs-installation-instructions:
+    status: done
+    comment: README.md содержит полную инструкцию установки через HACS.
+  docs-removal-instructions: done
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: exempt
+    comment: OAuth flow валидирует сам — authorize_by_url возвращает False
+      при любой ошибке, entry создаётся только при наличии token.
+  test-before-setup:
+    status: done
+    comment: async_setup_entry ловит ConfigEntryAuthFailed + SberSmartHomeError,
+      мапит в ConfigEntryNotReady / ConfigEntryAuthFailed.
+  unique-config-entry:
+    status: done
+    comment: config_flow.async_set_unique_id(sub) из JWT id_token (3.5.0+).
+      _abort_if_unique_id_configured для нового flow, _mismatch для reauth.
+
+  # ---------------------------------------------------------------------------
+  # Silver — повышенные требования
+  # ---------------------------------------------------------------------------
+  action-exceptions: todo
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: done
+    comment: entity.available учитывает coordinator.last_update_success +
+      state_cache + reported_state["online"] (с 3.6.0).
+  integration-owner: done
+  log-when-unavailable:
+    status: done
+    comment: coordinator логирует connection/auth/api errors через LOGGER.warning.
+  parallel-updates:
+    status: exempt
+    comment: DataUpdateCoordinator сам сериализует updates через asyncio.Lock.
+  reauthentication-flow: done
+  test-coverage:
+    status: done
+    comment: 764 passed, 13 skipped, ~90% overall coverage.
+
+  # ---------------------------------------------------------------------------
+  # Gold — опциональные best practices
+  # ---------------------------------------------------------------------------
+  devices: done
+  diagnostics:
+    status: done
+    comment: diagnostics.py (3.6.1) включает entry (redacted), auth state,
+      coordinator stats, devices summary с entities.
+  discovery:
+    status: exempt
+    comment: Sber Smart Home — cloud-only, device discovery не применима.
+  discovery-update-info:
+    status: exempt
+    comment: См. discovery.
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices: todo
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations:
+    status: todo
+    comment: Текущие entities полагаются на device_class → HA builtin перевод.
+      Кастомных keys пока нет, нужно будет при расширении.
+  exception-translations: todo
+  icon-translations:
+    status: exempt
+    comment: Все entities используют device_class-based icons или материал-иконки
+      из sbermap — кастомные SVG не нужны.
+  reconfiguration-flow: todo
+  repair-issues:
+    status: exempt
+    comment: Нет известных issue-workflows.
+  stale-devices:
+    status: todo
+    comment: Coordinator пока не удаляет устройства из device_registry когда
+      они пропадают из Sber API. Планируется после завершения Phase 3.
+
+  # ---------------------------------------------------------------------------
+  # Platinum — самые высокие требования
+  # ---------------------------------------------------------------------------
+  async-dependency: done
+  inject-websession:
+    status: done
+    comment: aiohttp WS session инжектится через make_aiohttp_factory(hass) в
+      _ws_adapter.py. httpx shared по entry с verify=ssl_ctx.
+  strict-typing:
+    status: todo
+    comment: Есть type hints везде, но `mypy --strict` полностью не запускается —
+      несколько legacy мест с Any. Планируется вычистить.

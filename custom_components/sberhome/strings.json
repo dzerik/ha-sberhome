@@ -1,0 +1,71 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Authorize via Sber ID"
+      },
+      "reauth_confirm": {
+        "title": "[%key:common::config_flow::title::reauth%]",
+        "description": "The SberHome authorization token has expired. Please sign in again via Sber ID."
+      }
+    },
+    "abort": {
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "wrong_account": "Signed in with a different Sber ID account than the original config entry. Sign in again with the correct account."
+    },
+    "error": {
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "create_entry": {
+      "default": "Authorization successful. **No devices were imported automatically** — open the SberHome panel in the sidebar (or go to [/sberhome](/sberhome)) and pick which devices you want in Home Assistant. Until then the integration is connected but exposes no entities."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SberHome Settings",
+        "data": {
+          "scan_interval": "Scan interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the API for device state updates (10 to 300 seconds)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_custom_key": {
+      "name": "Send custom key",
+      "description": "Send a custom key press (confirm/back/home) to a SberHome TV.",
+      "fields": {
+        "key": {
+          "name": "Key",
+          "description": "Which key to send."
+        }
+      }
+    },
+    "send_direction": {
+      "name": "Send direction",
+      "description": "Send a D-pad direction (up/down/left/right) to a SberHome TV.",
+      "fields": {
+        "direction": {
+          "name": "Direction",
+          "description": "Navigation direction."
+        }
+      }
+    },
+    "play_channel": {
+      "name": "Play channel",
+      "description": "Switch to a specific channel number on a SberHome TV.",
+      "fields": {
+        "channel": {
+          "name": "Channel",
+          "description": "Channel number."
+        }
+      }
+    }
+  }
+}

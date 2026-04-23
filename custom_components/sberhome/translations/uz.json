@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sber ID orqali avtorizatsiya"
+      },
+      "reauth_confirm": {
+        "title": "Qayta avtorizatsiya",
+        "description": "SberHome avtorizatsiya tokeni muddati tugadi. Sber ID orqali qayta kirish kerak."
+      }
+    },
+    "abort": {
+      "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
+      "already_configured": "Qurilma allaqachon sozlangan",
+      "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi",
+      "wrong_account": "Boshlang'ich yozuvdan farqli Sber ID bilan kirildi. To'g'ri hisob bilan qaytadan kiring."
+    },
+    "error": {
+      "cannot_connect": "Ulanib bo'lmadi",
+      "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
+      "unknown": "Noma'lum xatolik"
+    },
+    "create_entry": {
+      "default": "Avtorizatsiya muvaffaqiyatli o'tdi. **Qurilmalar avtomatik import qilinmadi** — yon menyudan SberHome panelini oching (yoki [/sberhome](/sberhome) manziliga o'ting) va Home Assistant-ga kerakli qurilmalarni tanlang. Shu paytgacha integratsiya ulangan, lekin entitylar yaratmaydi."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SberHome sozlamalari",
+        "data": {
+          "scan_interval": "So'rov oralig'i (soniya)"
+        },
+        "data_description": {
+          "scan_interval": "Qurilmalar holatini yangilash uchun API so'rov chastotasi (10 dan 300 soniyagacha)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_custom_key": {
+      "name": "Tugmani yuborish",
+      "description": "SberHome televizoriga tugma bosishni (confirm/back/home) yuborish.",
+      "fields": {
+        "key": {
+          "name": "Tugma",
+          "description": "Qaysi tugmani yuborish."
+        }
+      }
+    },
+    "send_direction": {
+      "name": "Yo'nalishni yuborish",
+      "description": "SberHome televizoriga D-pad yo'nalishini (up/down/left/right) yuborish.",
+      "fields": {
+        "direction": {
+          "name": "Yo'nalish",
+          "description": "Navigatsiya yo'nalishi."
+        }
+      }
+    },
+    "play_channel": {
+      "name": "Kanalni o'zgartirish",
+      "description": "SberHome televizorida muayyan kanalga o'tish.",
+      "fields": {
+        "channel": {
+          "name": "Kanal",
+          "description": "Kanal raqami."
+        }
+      }
+    }
+  }
+}

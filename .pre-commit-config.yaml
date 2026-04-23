@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: aiosber-no-ha-imports
+        name: aiosber must not import HA (compliance check)
+        entry: python -m pytest tests/aiosber/test_no_ha_imports.py --no-cov -p no:cacheprovider -q
+        language: system
+        pass_filenames: false
+        files: ^custom_components/sberhome/aiosber/.*\.py$

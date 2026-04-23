@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Сбер ID арқылы авторизация"
+      },
+      "reauth_confirm": {
+        "title": "Қайта авторизация",
+        "description": "SberHome авторизация токені мерзімі аяқталды. Сбер ID арқылы қайта кіру қажет."
+      }
+    },
+    "abort": {
+      "invalid_auth": "Авторизация деректері қате",
+      "already_configured": "Құрылғы бұрыннан конфигурацияланған",
+      "reauth_successful": "Қайта авторизация сәтті аяқталды",
+      "wrong_account": "Бастапқы жазбадан бөлек Sber ID арқылы кіру жасалды. Дұрыс есептік жазба арқылы қайта кіріңіз."
+    },
+    "error": {
+      "cannot_connect": "Қосылу мүмкін болмады",
+      "invalid_auth": "Авторизация деректері қате",
+      "unknown": "Белгісіз қате"
+    },
+    "create_entry": {
+      "default": "Авторизация сәтті өтті. **Құрылғылар автоматты түрде импортталмады** — бүйірлік мәзірден SberHome панелін ашыңыз (немесе [/sberhome](/sberhome) сілтемесіне өтіңіз) және Home Assistant-қа қажетті құрылғыларды таңдаңыз. Бұған дейін интеграция қосылған, бірақ сущностар жасамайды."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SberHome параметрлері",
+        "data": {
+          "scan_interval": "Сұрау аралығы (секунд)"
+        },
+        "data_description": {
+          "scan_interval": "Құрылғылар күйін жаңарту үшін API сұрау жиілігі (10-ден 300 секундқа дейін)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_custom_key": {
+      "name": "Батырманы жіберу",
+      "description": "SberHome теледидарына батырма басуын (confirm/back/home) жіберу.",
+      "fields": {
+        "key": {
+          "name": "Батырма",
+          "description": "Қандай батырманы жіберу."
+        }
+      }
+    },
+    "send_direction": {
+      "name": "Бағытты жіберу",
+      "description": "SberHome теледидарына D-pad бағытын (up/down/left/right) жіберу.",
+      "fields": {
+        "direction": {
+          "name": "Бағыт",
+          "description": "Навигация бағыты."
+        }
+      }
+    },
+    "play_channel": {
+      "name": "Арнаны ауыстыру",
+      "description": "SberHome теледидарында нақты арнаға ауысу.",
+      "fields": {
+        "channel": {
+          "name": "Арна",
+          "description": "Арна нөмірі."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Аўтарызацыя праз Сбер ID"
+      },
+      "reauth_confirm": {
+        "title": "Паўторная аўтарызацыя",
+        "description": "Токен аўтарызацыі SberHome скончыўся. Неабходна паўторна ўвайсці праз Сбер ID."
+      }
+    },
+    "abort": {
+      "invalid_auth": "Няправільныя даныя аўтарызацыі",
+      "already_configured": "Прылада ўжо наладжана",
+      "reauth_successful": "Паўторная аўтарызацыя паспяхова завершана",
+      "wrong_account": "Уваход выкананы з іншым Sber ID, адрозным ад першапачатковага запісу. Увайдзіце пад правільным уліковым запісам."
+    },
+    "error": {
+      "cannot_connect": "Не ўдалося падключыцца",
+      "invalid_auth": "Няправільныя даныя аўтарызацыі",
+      "unknown": "Невядомая памылка"
+    },
+    "create_entry": {
+      "default": "Аўтарызацыя прайшла паспяхова. **Прылады не імпартаваны аўтаматычна** — адкрыйце панэль SberHome у бакавым меню (або перайдзіце па [/sberhome](/sberhome)) і вылучыце патрэбныя прылады для Home Assistant. Да гэтага інтэграцыя падключана, але сутнасцяў не стварае."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Налады SberHome",
+        "data": {
+          "scan_interval": "Інтэрвал апытання (секунды)"
+        },
+        "data_description": {
+          "scan_interval": "Частата апытання API для абнаўлення стану прылад (ад 10 да 300 секунд)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_custom_key": {
+      "name": "Адправіць кнопку",
+      "description": "Адправіць націск кнопкі (confirm/back/home) на тэлевізар SberHome.",
+      "fields": {
+        "key": {
+          "name": "Кнопка",
+          "description": "Якую кнопку адправіць."
+        }
+      }
+    },
+    "send_direction": {
+      "name": "Адправіць напрамак",
+      "description": "Адправіць напрамак D-pad (up/down/left/right) на тэлевізар SberHome.",
+      "fields": {
+        "direction": {
+          "name": "Напрамак",
+          "description": "Напрамак навігацыі."
+        }
+      }
+    },
+    "play_channel": {
+      "name": "Пераключыць канал",
+      "description": "Пераключыць на канкрэтны канал на тэлевізары SberHome.",
+      "fields": {
+        "channel": {
+          "name": "Канал",
+          "description": "Нумар канала."
+        }
+      }
+    }
+  }
+}

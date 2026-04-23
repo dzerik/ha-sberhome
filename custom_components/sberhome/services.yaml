@@ -1,0 +1,85 @@
+refresh:
+  name: Принудительное обновление state
+  description: >
+    Запросить свежий state всех устройств из Sber Gateway (REST poll).
+    Полезно в автоматизациях перед чтением датчиков, если WS push
+    молчит или нужна гарантированно свежая метрика.
+
+send_raw_command:
+  name: Send raw desired_state (debug)
+  description: >
+    Отправить произвольный `desired_state` list в Sber API. Debug-инструмент
+    для экспериментов с serialized format. Возвращает sent payload в response.
+  fields:
+    device_id:
+      name: Device ID
+      description: Sber device_id (из панели Диагностика).
+      required: true
+      selector:
+        text:
+    state:
+      name: Desired state
+      description: >
+        Список AttributeValueDto в serialized format.
+        Пример: [{"key":"on_off","type":"BOOL","bool_value":true},
+        {"key":"light_colour","type":"COLOR","color_value":{"hue":120,"saturation":100,"brightness":50}}]
+      required: true
+      selector:
+        object:
+
+send_custom_key:
+  name: Send custom key
+  description: Send a custom key press to a SberHome media player (TV).
+  target:
+    entity:
+      integration: sberhome
+      domain: media_player
+  fields:
+    key:
+      name: Key
+      description: Which key to send.
+      required: true
+      selector:
+        select:
+          options:
+            - "confirm"
+            - "back"
+            - "home"
+
+send_direction:
+  name: Send direction
+  description: Send a D-pad direction to a SberHome media player (TV).
+  target:
+    entity:
+      integration: sberhome
+      domain: media_player
+  fields:
+    direction:
+      name: Direction
+      description: Navigation direction.
+      required: true
+      selector:
+        select:
+          options:
+            - "up"
+            - "down"
+            - "left"
+            - "right"
+
+play_channel:
+  name: Play channel
+  description: Switch to a specific channel number on a SberHome TV.
+  target:
+    entity:
+      integration: sberhome
+      domain: media_player
+  fields:
+    channel:
+      name: Channel
+      description: Channel number to switch to.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 999
+          mode: box

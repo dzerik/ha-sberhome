@@ -1,0 +1,25 @@
+*~
+__pycache__
+.tox
+# .pre-commit-config.yaml — теперь часть проекта (см. PR #7)
+.DS_Store
+
+/bin
+/lib
+/include
+/pyvenv.cfg
+/.idea/
+/.mcp.json
+/.venv/
+.pytest_cache/
+.coverage
+*.egg-info/
+.serena/
+
+# Local notes (do NOT commit)
+/notes/
+/docs/
+/docs-draft/
+
+/CLAUDE.md
+uv.lock
