@@ -22,11 +22,7 @@ await Promise.all([
   import(`./components/sberhome-settings.js${_q}`),
 ]);
 
-const LitElement = Object.getPrototypeOf(
-  customElements.get("ha-panel-lovelace") ?? customElements.get("hui-view")
-);
-const html = LitElement?.prototype.html;
-const css = LitElement?.prototype.css;
+import { LitElement, html, css } from "./lit-base.js";
 
 class SberHomePanel extends LitElement {
   static get properties() {

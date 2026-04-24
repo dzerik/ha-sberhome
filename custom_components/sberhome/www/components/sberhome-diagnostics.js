@@ -7,11 +7,7 @@
  * Каждая секция с кнопкой "Copy JSON" (через Clipboard API).
  */
 
-const LitElement = Object.getPrototypeOf(
-  customElements.get("ha-panel-lovelace") ?? customElements.get("hui-view")
-);
-const html = LitElement?.prototype.html;
-const css = LitElement?.prototype.css;
+import { LitElement, html, css } from "../lit-base.js";
 
 async function copyJson(obj) {
   const text = JSON.stringify(obj, null, 2);

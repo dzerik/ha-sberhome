@@ -5,11 +5,7 @@
  * подключение/отключение + выбор HA space. Per-row checkbox'ов больше нет.
  */
 
-const LitElement = Object.getPrototypeOf(
-  customElements.get("ha-panel-lovelace") ?? customElements.get("hui-view")
-);
-const html = LitElement?.prototype.html;
-const css = LitElement?.prototype.css;
+import { LitElement, html, css } from "../lit-base.js";
 
 const IMG_BASE = "https://img.iot.sberdevices.ru";
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.14.7] — 2026-04-24
+
+### Fixed
+
+- **Panel: `css is not a function` в чистых HA-установках**.  Раньше
+  компоненты получали `LitElement`, `html`, `css` через
+  `Object.getPrototypeOf(customElements.get("ha-panel-lovelace"))` —
+  этот подход зависит от того, гидратируют ли `html`/`css` через
+  prototype сторонние HACS-карты.  В «толстых» установках панель
+  работала, в «чистых» — падала при первом рендере.
+
+### Changed
+
+- **Vendored lit 3.2.1** — `www/vendor/lit.js` (16 КБ, self-contained).
+- **Новый shim** `www/lit-base.js` реэкспортирует `LitElement`,
+  `html`, `css` и базовые helpers.
+- **Все 16 компонентов** + `sberhome-panel.js` используют
+  `import { LitElement, html, css } from "./lit-base.js"`
+  (или `"../lit-base.js"` в `components/`).  Поведение не изменилось
+  для пользователей, у которых панель уже работала.
+
 ## [3.14.6] — 2026-04-22
 
 ### Fixed

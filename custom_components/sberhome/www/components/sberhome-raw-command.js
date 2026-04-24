@@ -7,11 +7,7 @@
  * light_mode, и т.д.).
  */
 
-const LitElement = Object.getPrototypeOf(
-  customElements.get("ha-panel-lovelace") ?? customElements.get("hui-view")
-);
-const html = LitElement?.prototype.html;
-const css = LitElement?.prototype.css;
+import { LitElement, html, css } from "../lit-base.js";
 
 // Sber serialized format: color_value использует короткие ключи {h, s, v}.
 // Диапазон — per-device: для dt_bulb_e27_m (Beken cb2l) s/v идут в 0..1000,
