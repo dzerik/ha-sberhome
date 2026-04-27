@@ -195,6 +195,44 @@ async def test_sber_client_scenarios_property():
 
 
 # ---------------------------------------------------------------------------
+# run — programmatic execute scenario by id
+# ---------------------------------------------------------------------------
+
+
+async def test_run_scenario_posts_to_run_endpoint():
+    """POST /scenario/v2/scenario/{id}/run с body {is_active: true}.
+
+    Programmatic-run endpoint (decompiled `runScenario`) — то же что
+    кнопка «Запустить действие» в мобильном приложении.
+    """
+    captured: dict = {}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        captured["path"] = req.url.path
+        captured["method"] = req.method
+        captured["body"] = json.loads(req.content)
+        return httpx.Response(200, json={"result": {}})
+
+    api, _ = _build(h)
+    result = await api.run("sc-42")
+    assert captured["method"] == "POST"
+    assert captured["path"].endswith("/scenario/v2/scenario/sc-42/run")
+    assert captured["body"] == {"is_active": True}
+    assert isinstance(result, dict)
+
+
+async def test_run_scenario_handles_empty_response():
+    """Sber может вернуть пустое тело — не должны падать."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    result = await api.run("sc-1")
+    assert isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
 # history (event log) — для voice-intents
 # ---------------------------------------------------------------------------
 

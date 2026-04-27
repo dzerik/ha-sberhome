@@ -191,46 +191,29 @@ class TestDeleteIntent:
 
 
 class TestTestIntent:
-    """Test now = fire HA event simulation (Sber API не даёт programmatic-run)."""
+    """Test now = реально запустить сценарий через POST /scenario/{id}/run.
+
+    Sber-side actions выполняются, scenario_widgets WS push прилетит в HA
+    автоматически и triggers sberhome_intent event через coordinator's
+    стандартный pipeline.
+    """
 
     @pytest.mark.asyncio
-    async def test_fires_ha_event_with_metadata(self):
+    async def test_calls_run_endpoint(self):
         service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
-        # hass.bus mock — чтобы тестировать что fire'ится правильный event.
-        coord.hass = MagicMock()
-        coord.hass.bus = MagicMock()
-        coord.hass.bus.async_fire = MagicMock()
+        coord.client.scenarios.run = AsyncMock(return_value={"ok": True})
 
         result = await service.test_intent("sc-1")
+        coord.client.scenarios.run.assert_awaited_once_with("sc-1")
         assert result["ok"] is True
-        assert result["simulated"] is True
-
-        # HA event fired с правильным event type.
-        from custom_components.sberhome.coordinator import EVENT_SBERHOME_INTENT
-
-        coord.hass.bus.async_fire.assert_called_once()
-        call = coord.hass.bus.async_fire.call_args
-        assert call[0][0] == EVENT_SBERHOME_INTENT
-        data = call[0][1]
-        assert data["name"] == "Утро"
-        assert data["scenario_id"] == "sc-1"
-        assert data["simulated"] is True
-        assert "event_time" in data
-        assert data["type"] == "SUCCESS"
+        assert result["scenario_id"] == "sc-1"
+        assert result["name"] == "Утро"
 
     @pytest.mark.asyncio
-    async def test_does_not_call_sber_command_endpoint(self):
-        """Critical: НЕ дёргает Sber API — это симуляция, не real execute."""
-        service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
-        coord.hass = MagicMock()
-        coord.hass.bus = MagicMock()
-        coord.hass.bus.async_fire = MagicMock()
-
-        await service.test_intent("sc-1")
-        coord.client.scenarios.execute_command.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_missing_intent_raises(self):
-        service, _ = _build_service(list_response={})
+    async def test_missing_intent_raises_before_run(self):
+        service, coord = _build_service(list_response={})
+        coord.client.scenarios.run = AsyncMock()
         with pytest.raises(ValueError, match="not found"):
             await service.test_intent("missing")
+        # run НЕ должен быть вызван если intent не найден
+        coord.client.scenarios.run.assert_not_awaited()

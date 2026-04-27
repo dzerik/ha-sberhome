@@ -104,54 +104,31 @@ class IntentService:
         await self._coord.home_api._transport.delete(f"/scenario/v2/scenario/{scenario_id}")
 
     async def test_intent(self, scenario_id: str) -> dict[str, Any]:
-        """«Test now» — fire HA `sberhome_intent` event симулируя срабатывание.
+        """«Test now» — реально запустить сценарий через Sber API.
 
-        Sber API не предоставляет programmatic-run scenario:
-        - нет endpoint'а POST /scenario/v2/scenario/{id}/run;
-        - POST /scenario/v2/command (one-shot ScenarioCommandDto) имеет
-          strict-валидацию condition shape, который Sber не документирует
-          и не принимает наши попытки (HTTP 400 'wrong condition');
-        - PATCH /scenario/v2/scenario/{id}/active — это toggle is_active,
-          actions не запускает.
+        Endpoint `POST /scenario/v2/scenario/{id}/run` (то же что кнопка
+        «Запустить действие» в мобильном приложении Sber). Sber выполнит
+        actions (TTS / device_command / push) и запишет в event log →
+        scenario_widgets WS push прилетит в HA → coordinator dispatch'ит
+        sberhome_intent event автоматически.
 
-        Поэтому test = fire `sberhome_intent` HA event прямо из coordinator,
-        с metadata из spec'а. Это:
-        - Тестирует HA-side automation pipeline (что и нужно для проверки
-          твоих автоматизаций которые `trigger: event_type: sberhome_intent`).
-        - НЕ выполняет Sber-side actions (TTS / device_command). Реальный
-          end-to-end test остаётся «произнеси фразу в колонку».
-
-        UI должен показать: «Симулировано в HA. Чтобы проверить Sber-side
-        action — произнеси фразу `<phrase>` в колонку».
+        То есть нам НИЧЕГО fire'ить вручную не нужно — Sber-side
+        run триггерит наш стандартный pipeline.
         """
+        # Sanity check — intent существует.
         spec = await self.get_intent(scenario_id)
         if spec is None:
             raise ValueError(f"Intent {scenario_id} not found")
 
-        # Fire HA event с тем же payload, что бы прислал реальный
-        # scenario_widgets dispatcher. UI/automations не различат этот
-        # вызов от настоящего срабатывания (кроме поля `simulated`).
-        from datetime import UTC, datetime  # noqa: PLC0415
-
-        from ..coordinator import EVENT_SBERHOME_INTENT  # noqa: PLC0415
-
-        event_data = {
-            "name": (spec.name or "").strip(),
-            "scenario_id": spec.id,
-            "event_time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "type": "SUCCESS",
-            "account_id": None,
-            "simulated": True,  # маркер «не настоящее срабатывание»
-        }
-        self._coord.hass.bus.async_fire(EVENT_SBERHOME_INTENT, event_data)
+        result = await self._coord.client.scenarios.run(scenario_id)
         return {
             "ok": True,
-            "simulated": True,
-            "event": event_data,
+            "scenario_id": scenario_id,
+            "name": (spec.name or "").strip(),
+            "sber_response": result,
             "note": (
-                "HA-side event fired. Sber actions (TTS / device_command) "
-                "не выполняются — Sber API не предоставляет programmatic-run. "
-                "Чтобы проверить Sber-side — произнеси фразу в колонку."
+                "Sber-сценарий запущен. Через ~200 мс прилетит "
+                "scenario_widgets WS push → HA fire'ит sberhome_intent."
             ),
         }
 

@@ -80,6 +80,26 @@ class ScenarioAPI:
         resp = await self._transport.post("/scenario/v2/command", json=command)
         return _unwrap_dict(resp.json())
 
+    async def run(self, scenario_id: str) -> dict[str, Any]:
+        """`POST /scenario/v2/scenario/{id}/run` — запустить сценарий программно.
+
+        То же что кнопка «Запустить действие» в мобильном приложении Sber.
+        Body — `ScenarioBody{is_active: true}` (single optional field).
+
+        Используется HA-side для test_intent — реально выполнить Sber
+        actions (TTS / device_command / etc.) без необходимости
+        произносить фразу в колонку.
+        """
+        resp = await self._transport.post(
+            f"/scenario/v2/scenario/{scenario_id}/run",
+            json={"is_active": True},
+        )
+        # Ответ может быть пустым {} либо ResultDto-обёрнутым.
+        try:
+            return _unwrap_dict(resp.json())
+        except (ValueError, AttributeError):
+            return {"ok": True}
+
     async def fire_event(self, event: dict[str, Any]) -> dict[str, Any]:
         """Триггер события (для запуска сценариев извне)."""
         resp = await self._transport.post("/scenario/v2/event", json=event)
