@@ -104,6 +104,9 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     coord.discovery_info = {}
     coord._discover_last_poll_at = None
     coord._discover_disabled = True  # skip discovery poll in unit tests
+    coord.indicator_colors = None
+    coord._indicator_last_poll_at = None
+    coord._indicator_disabled = True  # skip indicator poll in unit tests
     return coord
 
 

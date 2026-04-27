@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from homeassistant.components.light import (
@@ -18,9 +19,13 @@ from homeassistant.components.light import (
     ColorMode,
     LightEntity,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .aiosber.dto import IndicatorColor
+from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import (
@@ -40,12 +45,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberLightEntity] = []
+    entities: list[LightEntity] = []
     for device_id, dto in coordinator.devices.items():
         category = resolve_category(dto.image_set_type)
         if category not in _LIGHT_CATEGORIES:
             continue
         entities.append(SberLightEntity(coordinator, device_id))
+    # Sber-wide LED indicator (HSV) — глобальная настройка кольца на
+    # колонках. Прикрепляется к virtual device "Sber Indicator". Пользователь
+    # может сменить цвет/яркость для статуса "online" из HA UI.
+    entities.append(SberIndicatorLight(coordinator))
     async_add_entities(entities)
 
 
@@ -158,3 +167,99 @@ class SberLightEntity(SberBaseEntity, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         bundle = build_light_command(self._config, self._device_id, is_on=False)
         await self._async_send_attrs(bundle)
+
+
+class SberIndicatorLight(CoordinatorEntity[SberHomeCoordinator], LightEntity):
+    """Sber-wide LED indicator color (HSV).
+
+    Источник данных: `IndicatorAPI.get()` через `coordinator.indicator_colors`.
+    Sber хранит несколько цветов одновременно (`current_colors[]`) — для
+    HA-light entity мы редактируем только первый, как «основной» цвет
+    индикатора.
+
+    Если IndicatorAPI отвалился (`coordinator._indicator_disabled`),
+    entity остаётся в реестре, но `available=False` пока не пройдёт
+    очередной успешный poll или manual refresh.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "LED indicator"
+    _attr_unique_id = "sberhome_indicator_color"
+    _attr_icon = "mdi:led-strip-variant"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_color_mode = ColorMode.HS
+    _attr_supported_color_modes = {ColorMode.HS}
+
+    def __init__(self, coordinator: SberHomeCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "indicator")},
+            "name": "Sber Indicator",
+            "manufacturer": "Sberdevices",
+            "model": "LED Indicator",
+            "entry_type": "service",
+        }
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.indicator_colors is not None and bool(
+            self.coordinator.indicator_colors.current_colors
+        )
+
+    def _primary_color(self) -> IndicatorColor | None:
+        ic = self.coordinator.indicator_colors
+        if ic is None or not ic.current_colors:
+            return None
+        return ic.current_colors[0]
+
+    @property
+    def is_on(self) -> bool | None:
+        color = self._primary_color()
+        if color is None:
+            return None
+        return color.brightness > 0
+
+    @property
+    def brightness(self) -> int | None:
+        color = self._primary_color()
+        if color is None:
+            return None
+        # Sber 0..100 → HA 0..255.
+        return min(255, max(0, math.ceil(color.brightness * 255 / 100)))
+
+    @property
+    def hs_color(self) -> tuple[float, float] | None:
+        color = self._primary_color()
+        if color is None:
+            return None
+        return (float(color.hue), float(color.saturation))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        current = self._primary_color()
+        if current is None:
+            return
+        hs = kwargs.get(ATTR_HS_COLOR)
+        brightness_ha = kwargs.get(ATTR_BRIGHTNESS)
+        new = IndicatorColor(
+            id=current.id,
+            hue=int(hs[0]) if hs else current.hue,
+            saturation=int(hs[1]) if hs else current.saturation,
+            brightness=(
+                min(100, max(1, math.ceil(brightness_ha * 100 / 255)))
+                if brightness_ha is not None
+                else (current.brightness or 100)
+            ),
+        )
+        await self.coordinator.async_set_indicator_color(new)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        current = self._primary_color()
+        if current is None:
+            return
+        new = IndicatorColor(
+            id=current.id,
+            hue=current.hue,
+            saturation=current.saturation,
+            brightness=0,
+        )
+        await self.coordinator.async_set_indicator_color(new)

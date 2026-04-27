@@ -31,7 +31,8 @@ from homeassistant.helpers.update_coordinator import (
 
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
-from .aiosber.api import DeviceAPI, InventoryAPI, ScenarioAPI
+from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
+from .aiosber.dto import IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
@@ -77,6 +78,11 @@ OTA_POLL_INTERVAL_SEC = 3600
 # sub-devices + статусы. Меняется при добавлении нового устройства,
 # что редко; раз в час достаточно для diagnostic visibility.
 DISCOVER_POLL_INTERVAL_SEC = 3600
+
+# /devices/indicator/values — настройки LED-индикатора колонок. Меняется
+# редко (только из приложения Sber пользователем); часовой poll даёт
+# свежие данные без нагрузки.
+INDICATOR_POLL_INTERVAL_SEC = 3600
 
 # Категории, которые рассматриваются как «хабы» — для них дёргается
 # /devices/{id}/discovery. Sber-speaker (SberBoom Home) выступает как
@@ -166,6 +172,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.discovery_info: dict[str, dict[str, Any]] = {}
         self._discover_last_poll_at: float | None = None
         self._discover_disabled: bool = False
+        # Sber-wide LED indicator colors — настройки кольца на колонках.
+        # Не per-device, а одна настройка на аккаунт (как в мобильном app).
+        self.indicator_colors: IndicatorColors | None = None
+        self._indicator_last_poll_at: float | None = None
+        self._indicator_disabled: bool = False
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -264,6 +275,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._maybe_poll_scenarios()
             await self._maybe_poll_ota()
             await self._maybe_poll_discovery()
+            await self._maybe_poll_indicator()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -546,6 +558,52 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._discover_disabled = True
         finally:
             self._discover_last_poll_at = now
+
+    # ------------------------------------------------------------------
+    # Sber LED indicator polling
+    # ------------------------------------------------------------------
+    def _indicator_api(self) -> IndicatorAPI:
+        return IndicatorAPI(self.home_api._transport)
+
+    async def _maybe_poll_indicator(self) -> None:
+        if self._indicator_disabled:
+            return
+        now = time.time()
+        if (
+            self._indicator_last_poll_at is not None
+            and now - self._indicator_last_poll_at < INDICATOR_POLL_INTERVAL_SEC
+        ):
+            return
+        try:
+            self.indicator_colors = await self._indicator_api().get()
+        except Exception:  # noqa: BLE001
+            LOGGER.debug(
+                "Indicator polling failed — disabling until manual refresh",
+                exc_info=True,
+            )
+            self._indicator_disabled = True
+        finally:
+            self._indicator_last_poll_at = now
+
+    async def async_set_indicator_color(self, color: IndicatorColor) -> None:
+        """Записать новый цвет индикатора + optimistic update."""
+        await self._indicator_api().set(color)
+        if self.indicator_colors is not None:
+            new_current = list(self.indicator_colors.current_colors)
+            # Заменяем по id если есть, иначе добавляем.
+            replaced = False
+            for idx, existing in enumerate(new_current):
+                if existing.id == color.id:
+                    new_current[idx] = color
+                    replaced = True
+                    break
+            if not replaced:
+                new_current.append(color)
+            self.indicator_colors = IndicatorColors(
+                default_colors=self.indicator_colors.default_colors,
+                current_colors=new_current,
+            )
+        self.async_set_updated_data(self.data or {})
 
     async def async_set_at_home(self, value: bool) -> None:
         """Записать переменную at_home + optimistic update."""

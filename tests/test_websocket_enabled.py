@@ -47,7 +47,7 @@ def hass():
 class TestToggleDeviceUnsupported:
     @pytest.mark.asyncio
     async def test_enable_unsupported_rejected(self, hass, connection):
-        coord = _coord_with(("dev-bad", "dt_boom_r2_dark_blue_s"))
+        coord = _coord_with(("dev-bad", "brand_new_alien_device"))
         with patch(
             "custom_components.sberhome.websocket_api.enabled.get_coordinator",
             return_value=coord,
@@ -79,7 +79,7 @@ class TestToggleDeviceUnsupported:
     @pytest.mark.asyncio
     async def test_disable_unsupported_still_allowed(self, hass, connection):
         """Отключение неподдерживаемого устройства разрешено — legacy cleanup."""
-        coord = _coord_with(("dev-bad", "dt_boom_r2_dark_blue_s"))
+        coord = _coord_with(("dev-bad", "brand_new_alien_device"))
         coord.enabled_device_ids = {"dev-bad"}
         with patch(
             "custom_components.sberhome.websocket_api.enabled.get_coordinator",
@@ -99,7 +99,7 @@ class TestSetEnabledUnsupported:
     async def test_batch_with_unsupported_rejected(self, hass, connection):
         coord = _coord_with(
             ("dev-light", "dt_bulb_e27_m"),
-            ("dev-bad", "dt_boom_r2_dark_blue_s"),
+            ("dev-bad", "brand_new_alien_device"),
         )
         with patch(
             "custom_components.sberhome.websocket_api.enabled.get_coordinator",

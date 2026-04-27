@@ -56,6 +56,11 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
     "scenario_button": (Platform.EVENT,),
     "intercom": (Platform.BINARY_SENSOR, Platform.BUTTON),
     "hub": (Platform.BINARY_SENSOR,),
+    # Sber-owned колонки/портал (SberBoom Home/Mini, SberPortal). Через
+    # Gateway REST доступны только hub/diag-атрибуты — media-control
+    # для своих колонок идёт через VPS и не наш scope. Здесь делаем
+    # минимум: онлайн/Zigbee/Matter readiness + LED-индикатор как light.
+    "sber_speaker": (Platform.BINARY_SENSOR, Platform.LIGHT, Platform.SELECT),
 }
 
 
@@ -194,6 +199,13 @@ IMAGE_TYPE_MAP: Final[dict[str, str]] = {
     "tv": "tv",
     "hub": "hub",
     "intercom": "intercom",
+    # Sber-owned колонки: dt_boom_*, dt_portal_*, dt_box_*, dt_satellite_*.
+    # Используется substring-match — покрывает варианты с цветовыми
+    # суффиксами (`dt_boom_r2_dark_blue_s` и т.п.).
+    "dt_boom": "sber_speaker",
+    "dt_portal": "sber_speaker",
+    "dt_box": "sber_speaker",
+    "dt_satellite": "sber_speaker",
 }
 
 

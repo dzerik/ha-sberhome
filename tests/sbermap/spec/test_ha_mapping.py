@@ -108,6 +108,20 @@ class TestResolveCategoryDtFormat:
         """
         assert resolve_category(image_set_type) == "scenario_button"
 
+    @pytest.mark.parametrize(
+        "image_set_type",
+        [
+            "dt_boom_r2_dark_blue_s",
+            "dt_boom_mini",
+            "dt_portal_v2",
+            "dt_box_top",
+            "dt_satellite_2024",
+        ],
+    )
+    def test_sber_speaker_variants_resolve(self, image_set_type):
+        """SberBoom/Portal/Box/Satellite → category sber_speaker."""
+        assert resolve_category(image_set_type) == "sber_speaker"
+
 
 class TestImageTypeMapInvariants:
     def test_all_categories_in_platforms_map(self):

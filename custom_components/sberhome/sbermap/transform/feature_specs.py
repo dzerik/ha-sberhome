@@ -92,6 +92,54 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         codec=BoolCodec(device_class=BinarySensorDeviceClass.CONNECTIVITY),
         entity_category=_DIAG,
     ),
+    # ---- Sber-speaker / hub diagnostic features ----
+    # Ready-флаги под Zigbee/Matter — true когда hub-bridge готов
+    # принимать пары новых устройств. У SberBoom Home — это часть
+    # подключения хаба к staros, у Sber-портала — Matter controller.
+    "zigbee_ready": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:zigbee",
+        categories=_cats("sber_speaker", "hub"),
+    ),
+    "matter_ready": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:matter",
+        categories=_cats("sber_speaker", "hub"),
+    ),
+    "staros_has_hub": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:hubspot",
+        categories=_cats("sber_speaker"),
+    ),
+    "sub_pairing": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:link-variant",
+        categories=_cats("sber_speaker", "hub"),
+    ),
+    "detector": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:radar",
+        categories=_cats("sber_speaker"),
+    ),
+    # Position enum — стерео-слот колонки (none/left/right) для Sber
+    # multi-room audio. Read-write через Sber приложение, мы readonly.
+    "position": FeatureSpec(
+        platform=Platform.SELECT,
+        codec=EnumCodec(),
+        entity_category=_DIAG,
+        icon="mdi:speaker-multiple",
+        categories=_cats("sber_speaker"),
+    ),
     # ---- Common diagnostic sensors (all categories) ----
     "battery_percentage": FeatureSpec(
         platform=Platform.SENSOR,

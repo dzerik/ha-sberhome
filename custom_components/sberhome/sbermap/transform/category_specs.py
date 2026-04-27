@@ -376,6 +376,15 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
     "intercom": CategorySpec(Platform.BINARY_SENSOR, frozenset(), device_class=None),
     # Scenario button — only events, no primary
     "scenario_button": CategorySpec(Platform.EVENT, frozenset()),
+    # Sber-owned колонка/портал — primary connectivity (online), плюс
+    # extras Zigbee/Matter/staros readiness + position select.
+    # LED-индикатор как light добавляется отдельной (не-sbermap) entity
+    # в light.py через IndicatorAPI.
+    "sber_speaker": CategorySpec(
+        Platform.BINARY_SENSOR,
+        frozenset({"online"}),
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    ),
 }
 
 
