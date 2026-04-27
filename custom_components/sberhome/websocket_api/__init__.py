@@ -28,6 +28,16 @@ from .commands import ws_clear_commands, ws_commands, ws_subscribe_commands
 from .devices import ws_device_detail, ws_get_devices, ws_refetch_device
 from .diagnose import ws_diagnose_device
 from .enabled import ws_set_device_area, ws_set_enabled, ws_toggle_device
+from .intents import (
+    ws_create_intent,
+    ws_delete_intent,
+    ws_devices_for_picker,
+    ws_get_intent,
+    ws_intent_schema,
+    ws_list_intents,
+    ws_test_intent,
+    ws_update_intent,
+)
 from .log import ws_clear_message_log, ws_message_log, ws_subscribe_messages
 from .pairing import (
     ws_get_wifi_credentials,
@@ -79,6 +89,14 @@ _COMMANDS = (
     ws_matter_complete,
     ws_matter_connect_controller,
     ws_matter_connect_device,
+    ws_list_intents,
+    ws_get_intent,
+    ws_intent_schema,
+    ws_create_intent,
+    ws_update_intent,
+    ws_delete_intent,
+    ws_test_intent,
+    ws_devices_for_picker,
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,
