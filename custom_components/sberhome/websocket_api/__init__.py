@@ -29,6 +29,16 @@ from .devices import ws_device_detail, ws_get_devices, ws_refetch_device
 from .diagnose import ws_diagnose_device
 from .enabled import ws_set_device_area, ws_set_enabled, ws_toggle_device
 from .log import ws_clear_message_log, ws_message_log, ws_subscribe_messages
+from .pairing import (
+    ws_get_wifi_credentials,
+    ws_list_matter_categories,
+    ws_matter_attestation,
+    ws_matter_complete,
+    ws_matter_connect_controller,
+    ws_matter_connect_device,
+    ws_matter_noc,
+    ws_start_pairing,
+)
 from .replay import ws_inject_ws_message, ws_replay_ws_message
 from .rooms import ws_get_rooms, ws_refresh_ota, ws_refresh_scenarios, ws_rename_room
 from .settings import ws_force_refresh, ws_get_settings, ws_update_settings
@@ -61,6 +71,14 @@ _COMMANDS = (
     ws_rename_room,
     ws_refresh_scenarios,
     ws_refresh_ota,
+    ws_get_wifi_credentials,
+    ws_list_matter_categories,
+    ws_start_pairing,
+    ws_matter_attestation,
+    ws_matter_noc,
+    ws_matter_complete,
+    ws_matter_connect_controller,
+    ws_matter_connect_device,
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,
