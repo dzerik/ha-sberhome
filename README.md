@@ -3,7 +3,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub Release](https://img.shields.io/github/v/release/dzerik/ha-sberhome)](https://github.com/dzerik/ha-sberhome/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-990+-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1058+-brightgreen)](tests/)
 [![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/validate.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/validate.yml)
 [![HA min](https://img.shields.io/badge/Home%20Assistant-2025.3%2B-blue)](https://www.home-assistant.io)
 
@@ -54,6 +54,12 @@ flowchart LR
 
 ## Возможности
 
+- **🎙️ Voice Intents UI** — bidirectional bridge с Sber-сценариями.
+  Создавай / редактируй / удаляй / запускай Sber-scenarios прямо из HA
+  UI (вкладка «Voice Intents»). Schema-driven extensible форма, picker
+  всех Sber-устройств без HA-enabled фильтра. Sber-сценарии фразой
+  пробрасываются в HA как `sberhome_intent` event для автоматизаций.
+  Подробности в секции [«Что нового в 4.x»](#что-нового-в-4x--examples).
 - **29 категорий устройств** — полное покрытие Sber Gateway API
   (свет, розетки, реле, датчики темп/влажности/протечки/двери/движения/
   дыма/газа, шторы, ворота, клапаны, все HVAC, увлажнители, очистители,
@@ -118,7 +124,7 @@ flowchart LR
 - **Diagnostics** — полный отчёт с редакцией токенов.
 - **Локализация** — русский, английский, казахский, белорусский,
   узбекский.
-- **976 тестов** — unit + HA-integration (pytest +
+- **1058 тестов** — unit + HA-integration (pytest +
   pytest-homeassistant-custom-component + respx).
 
 ## Поддерживаемые устройства (полный список)
@@ -162,17 +168,59 @@ Zigbee/Matter readiness + position select + LED-индикатор.
 
 ## Что нового в 4.x — examples
 
-### 🎙️ Voice intents — голосовые команды Sber → HA автоматизации
+### 🎙️ Voice intents — bidirectional bridge с Sber-сценариями
 
-Sber-сценарии любого типа (TTS, push-нотификация, command device, что
-угодно) ловятся в HA через event bus как `sberhome_intent`. Никаких
-виртуальных кнопок-посредников: подписаны на `scenario_widgets`
-WebSocket топик, на каждый push дёргаем `/scenario/v2/event` и
-fire'им HA event.
+Главная фича 4.x: **двустороннее управление Sber-сценариями из HA + ловля
+голосовых команд через Sber-колонку как HA event'ы**. Не нужно мобильное
+приложение «Салют!» для типичных сценариев — вся работа из вкладки
+«Voice Intents» в SberHome panel.
+
+#### Что умеет
+
+- **Создавать / редактировать / удалять Sber-сценарии прямо из HA UI.**
+  Schema-driven форма: имя + список фраз (chips) + actions
+  (TTS / device_command / push / HA-event-only).
+- **Запустить сценарий по кнопке** (▶ Test) — реальный программный run
+  через `POST /scenario/v2/scenario/{id}/run` (то же что кнопка
+  «Запустить действие» в Sber-приложении). Колонка озвучит TTS,
+  выполнит device-команду, и т.п.
+- **Ловить срабатывания** через `sberhome_intent` HA event — для любого
+  Sber-сценария (включая созданные руками в мобилке). Без виртуальных
+  кнопок-посредников: подписан на `scenario_widgets` WS-топик,
+  получает push при каждом срабатывании, дёргает `/scenario/v2/event`
+  для metadata, fire'ит HA event.
+- **Picker колонок не ограничен HA enabled-set**. При выборе устройства
+  для TTS-action виден весь Sber-side list (даже колонки не подключённые
+  в HA через picker) — Sber выполнит сценарий в облаке, HA-import не
+  нужен.
+- **Live `last_fired_at`**. В UI видно когда последний раз сценарий
+  сработал, обновляется real-time через event-bus subscription.
+- **Forward-compat для незнакомых Sber-actions** (новые task types,
+  RegimeCommand и т.п.) — UI помечает «sber-only» и сохраняет
+  raw_extras при update без потерь.
+
+#### Где найти в HA UI
+
+```
+HA → SberHome (sidebar) → вкладка Voice Intents
+┌────────────────────────────────────────────────────────────┐
+│ Воice Intents                          [+ Новый intent]    │
+├────────────────────────────────────────────────────────────┤
+│ Утренний кофе                          🔥 2 мин назад      │
+│ «утренний кофе», «сделай кофе»                             │
+│ tts                          [▶ Test] [✎] [🗑]             │
+├────────────────────────────────────────────────────────────┤
+│ Холодно                                ── Sber-only ──     │
+│ «Холодно»                                                  │
+│ trigger_notify              [▶ Test] [✎] [🗑]              │
+└────────────────────────────────────────────────────────────┘
+```
+
+#### Use-case: голосовая команда → HA автоматизация
 
 ```yaml
 # automations.yaml — сценарий «Маркер один» создан в Sber-приложении
-# (любые actions: TTS, push, ничего, что угодно)
+# или через нашу UI-вкладку (с любыми actions: TTS, push, ничего)
 automation:
   - alias: HA reacts to Sber voice intent
     trigger:
@@ -187,8 +235,85 @@ automation:
           title: Voice intent caught
 ```
 
-Payload event'а: `{name, scenario_id, event_time, type, account_id}`.
+Payload event'а: `{name, scenario_id, event_time, type, account_id, simulated}`.
+
+`simulated: true` маркирует HA-side test-симуляции — реальные срабатывания
+от голоса колонки имеют `simulated: false` (или поле отсутствует).
+
 Latency end-to-end (произнесение фразы → trigger в HA): **~300-500 мс**.
+
+#### Use-case: HA-автоматизация → колонка озвучивает текст
+
+Нет прямого «say arbitrary text» REST-API в Sber Gateway, но есть
+работающий путь через named-сценарий:
+
+1. В UI вкладке **Voice Intents** создаёшь intent например «уведомление
+   о температуре»: action = TTS «Включаю обогрев», device = SberBoom Home.
+2. В HA-автоматизации триггеришь Sber-сценарий через `sberhome.run_scenario`
+   service (запускает через REST). Колонка озвучит фразу.
+
+```yaml
+automation:
+  - alias: Heater on when cold
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.living_room_temp
+        below: 18
+    action:
+      # Запустить Sber-сценарий «Включаю обогрев» (создан в UI)
+      - service: button.press
+        target:
+          entity_id: button.sber_scenarios_vklyucayu_obogrev
+      - service: switch.turn_on
+        target:
+          entity_id: switch.heater
+```
+
+#### WS-эндпоинты (для custom panel/cards)
+
+```javascript
+// Список intent'ов
+await hass.callWS({ type: "sberhome/intents/list" });
+
+// Schema для динамической UI-формы (action types + fields)
+await hass.callWS({ type: "sberhome/intents/schema" });
+
+// Picker устройств (без HA-enabled фильтра)
+await hass.callWS({
+  type: "sberhome/intents/devices_for_picker",
+  category: "sber_speaker"
+});
+
+// Create / update / delete / get / test
+await hass.callWS({
+  type: "sberhome/intents/create",
+  spec: {
+    name: "Утренний кофе",
+    phrases: ["утренний кофе", "сделай кофе"],
+    actions: [{ type: "tts", data: {
+      phrase: "Запускаю!", device_ids: ["d7l4..."]
+    }}]
+  }
+});
+await hass.callWS({
+  type: "sberhome/intents/test",
+  intent_id: "sc-1"
+});
+```
+
+#### Расширяемость (для разработчиков)
+
+Backend `intents/registry.py` использует ActionRegistry pattern — добавить
+новый action_type = одна запись + 2 функции (encode/decode). UI получит
+новую option автоматически через `intents/schema`. Добавить новый
+field type в форме (например `slider`, `color_picker`) = ~20 строк JS
+в `_renderInputForType` в `sberhome-intent-modal.js`.
+
+Forward-compat: незнакомые поля Sber wire-формата сохраняются в
+`IntentSpec.raw_extras` и мерджатся обратно при update. Sber может
+добавить новое поле — наш код не упадёт. Пользователь создал в мобилке
+сценарий с экзотическим action типом — UI пометит как «complex/read-only»,
+raw сохраняется и не теряется.
 
 ### Sber-сценарии как HA buttons
 
@@ -383,6 +508,48 @@ number, select, event, button, vacuum, **update**.
 `coordinator.client` — публичная точка входа во все Sber-API из любого
 HA-кода (платформы, WS-эндпоинты, кастомные панели). Под капотом —
 один `SberClient` instance, lazy-built поверх shared `HttpTransport`.
+
+### `custom_components/sberhome/intents/` — Voice Intents subsystem (4.x)
+
+Layered architecture для bidirectional bridge с Sber-сценариями:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  UI: sberhome-intents-view + sberhome-intent-modal   │  Lit + schema-driven
+└──────────────────────────────────────────────────────┘
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  WS endpoints — sberhome/intents/{list,get,create,    │  websocket_api/intents.py
+│  update,delete,test,schema,devices_for_picker}        │
+└──────────────────────────────────────────────────────┘
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  IntentService — high-level CRUD + last_fired_at     │  intents/service.py
+└──────────────────────────────────────────────────────┘
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  IntentEncoder — IntentSpec ↔ Sber wire JSON         │  intents/encoder.py
+│  с forward-compat raw_extras для unknown полей        │
+└──────────────────────────────────────────────────────┘
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  ActionRegistry — extensibility hub                  │  intents/registry.py
+│  + IntentSpec / IntentAction / FieldSpec             │  intents/spec.py
+└──────────────────────────────────────────────────────┘
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  ScenarioAPI (aiosber) — REST endpoints              │  aiosber/api/scenarios.py
+└──────────────────────────────────────────────────────┘
+```
+
+Добавить новый action_type (например IFTTT-webhook): одна запись в
+ACTION_TYPES + 2 функции (encode/decode), UI получит option автоматически.
+
+Дispatcher для ловли срабатываний: `coordinator._on_ws_scenario_widgets`
+подписан на WS-топик `scenario_widgets`, при `UPDATE_WIDGETS` push
+дёргает `/scenario/v2/event` (history endpoint), фильтрует по
+`event_time > cursor`, fire'ит `sberhome_intent` HA event для каждого
+нового события.
 
 
 ## См. также

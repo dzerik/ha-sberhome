@@ -1,5 +1,124 @@
 # Changelog
 
+## [4.4.0] — 2026-04-27
+
+### Added
+
+- **`ScenarioAPI.run(scenario_id)`** — programmatic-run сценария через
+  `POST /scenario/v2/scenario/{id}/run` (то же что кнопка «Запустить
+  действие» в мобильном приложении Sber). Найдено через тщательный
+  decompile-поиск (ScenarioGatewayImpl.runScenario).
+- `IntentService.test_intent` теперь использует `client.scenarios.run()` —
+  «Test now» в UI реально запускает Sber-side actions (TTS / device_command),
+  через ~200 мс scenario_widgets WS push прилетает в HA и triggers
+  `sberhome_intent` event автоматически (без ручного fire).
+
+### Notes
+
+В прошлых v4.2.x пробовали `POST /scenario/v2/command` (one-shot
+ScenarioCommandDto-shaped) — Sber strict-валидирует condition shape,
+точная schema не выводится. Endpoint `/run` проще: единственное
+optional поле, реально запускает actions сценария.
+
+## [4.3.2] — 2026-04-27
+
+### Fixed
+
+- **Modal сохраняет правки через internal `_draft`.** В v4.3.0 modal
+  делал `this.intent = {...this.intent, ...}` в onChange handlers, но
+  `intent` — это **prop** от parent. На любом re-render parent (например
+  когда `hass` обновляется в HA — каждые ~1 сек!) Lit re-bind'ил
+  `.intent=${this._editingIntent}` обратно, затирая модальные правки.
+  Visible как «модалка постоянно сбрасывает все набранное».
+- Modal копирует prop в private `_draft` через `willUpdate` ровно один
+  раз при mount, дальше работает только с `_draft`.
+- Defense-in-depth: parent intents-view skip'ает scenario_widgets
+  event-driven refresh пока `_editingIntent != null`.
+
+## [4.3.1] — 2026-04-27
+
+### Added
+
+- **Версия интеграции в шапке panel'а** (`SberHome v4.3.1` справа от
+  заголовка). Версия читается из manifest.json (best-effort, кэшируется
+  на module load), отдаётся через `sberhome/get_status` response.
+  Упрощает диагностику когда пользователь репортит баг.
+
+## [4.3.0] — 2026-04-27
+
+### Added (Phase 11a.2: Voice Intents UI)
+
+- **Новая вкладка «Voice Intents»** в SberHome panel.
+- `sberhome-intents-view.js` — список intents с filter/search,
+  last_fired_at column, бейджи (disabled / sber-only / fired ago).
+  Live-update last_fired_at через event-bus subscription.
+- `sberhome-intent-modal.js` — schema-driven create/edit форма:
+  имя + phrases как chips (Enter → add) + enabled toggle + список
+  actions со schema-driven полями.
+- `sberhome-device-picker-field` — отдельный компонент device picker'а,
+  дёргает `sberhome/intents/devices_for_picker`. **Возвращает все
+  Sber-side устройства независимо от HA `enabled_device_ids`** —
+  пользователь может выбрать колонку для TTS-action не подключая её в HA.
+- Schema-driven форма: action_types через `intents/schema`, для
+  каждого action рендерится свой набор полей из FieldSpec'ов.
+  Добавили новый action_type на бэке — UI отрисует автоматически.
+  Поддержанные FieldSpec types: text, number, bool, enum, multitext,
+  device_picker.
+
+## [4.2.2] — 2026-04-27
+
+### Fixed
+
+- `test_intent` через `POST /scenario/v2/command` падал с HTTP 400
+  'wrong condition' независимо от формы condition. Workaround: fires HA
+  `sberhome_intent` event с `simulated: true` без Sber-side execute.
+  Окончательный fix в 4.4.0 через найденный `/run` endpoint.
+
+## [4.2.1] — 2026-04-27
+
+### Fixed
+
+- `test_intent` через `POST /scenario/v2/command` падал с HTTP 400
+  «invalid CreateCommandRequest.Name» — endpoint требует ScenarioCommandDto
+  (name + tasks + condition), не {scenario_id: ...}. Промежуточная
+  версия.
+
+## [4.2.0] — 2026-04-27
+
+### Added (Phase 11a.1: Voice Intents Backend)
+
+Extensible backend для UI-managed Sber-сценариев:
+
+- **`intents/spec.py`** — IntentSpec, IntentAction, FieldSpec
+  dataclasses. Forward-compat: незнакомые Sber-поля сохраняются в
+  `raw_extras` и мерджатся обратно при update.
+- **`intents/registry.py`** — ActionRegistry pattern: 4 встроенных
+  action_type (tts / device_command / trigger_notify / ha_event_only).
+  Добавить новый = одна запись + 2 функции (encode/decode).
+- **`intents/encoder.py`** — IntentSpec ↔ Sber `ScenarioDto` wire.
+  Decoder парсит известные actions через registry, незнакомые
+  оборачивает как `IntentAction(unknown=true)` сохраняя raw payload.
+- **`intents/service.py`** — high-level CRUD над
+  `coordinator.client.scenarios`, last_fired_at populated из event log.
+- **8 WS endpoints**: `sberhome/intents/{list, get, create, update,
+  delete, test, schema, devices_for_picker}`.
+
+### Tests
+
+65 новых: 13 spec / 15 registry / 11 encoder / 10 service / 16 websocket.
+Live fixtures от probe Sber Gateway response.
+
+## [4.1.1] — 2026-04-27
+
+### Fixed
+
+- Subscribe to `SCENARIO_WIDGETS` WS topic on handshake. В v4.1.0
+  router.on(...) был зарегистрирован, но WebSocketClient по умолчанию
+  подписывает только на `(DEVICE_STATE, DEVMAN_EVENT, GROUP_STATE)`.
+  Sber-сервер не рассылает UPDATE_WIDGETS не-subscribed клиентам,
+  поэтому voice-intent dispatcher никогда не срабатывал. Live-test
+  после v4.1.0 deploy подтвердил баг.
+
 ## [4.1.0] — 2026-04-27
 
 ### Added
