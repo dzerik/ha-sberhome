@@ -30,7 +30,7 @@ from .diagnose import ws_diagnose_device
 from .enabled import ws_set_device_area, ws_set_enabled, ws_toggle_device
 from .log import ws_clear_message_log, ws_message_log, ws_subscribe_messages
 from .replay import ws_inject_ws_message, ws_replay_ws_message
-from .rooms import ws_get_rooms
+from .rooms import ws_get_rooms, ws_refresh_ota, ws_refresh_scenarios, ws_rename_room
 from .settings import ws_force_refresh, ws_get_settings, ws_update_settings
 from .state_diffs import (
     ws_clear_state_diffs,
@@ -58,6 +58,9 @@ _COMMANDS = (
     ws_clear_message_log,
     ws_subscribe_messages,
     ws_get_rooms,
+    ws_rename_room,
+    ws_refresh_scenarios,
+    ws_refresh_ota,
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,
