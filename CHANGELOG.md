@@ -1,14 +1,15 @@
 # Changelog
 
-## [4.4.1] — 2026-04-27
+## [4.4.2] — 2026-04-27
 
 ### Fixed
 
-- **GitHub Release re-publish для HACS visibility.** v4.4.0 release застрял
-  в индексе GitHub после delete/recreate-операций — публичная страница
-  releases и `/releases` API list возвращали пусто, из-за чего HACS видел
-  только v3.14.7. v4.4.1 — clean re-publish: новый tag, новый release с
-  нуля. Никаких code-изменений, только version bump.
+- **GitHub Release re-publish для HACS visibility.** v4.4.0 и v4.4.1 release
+  застряли в индексе GitHub orphaned (страница releases показывала "There
+  aren't any releases here", `/releases` API list возвращал пусто) после
+  серии delete/recreate-операций над v4.4.0. v4.4.2 — clean re-publish:
+  старые broken tags+releases удалены, новый tag v4.4.2 от свежего commit'а.
+  Содержимое идентично v4.4.0 (Voice Intents Phase 11 + полный 4.x цикл).
 
 ## [4.4.0] — 2026-04-27
 
