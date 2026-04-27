@@ -31,7 +31,7 @@ from homeassistant.helpers.update_coordinator import (
 
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
-from .aiosber.api import ScenarioAPI
+from .aiosber.api import InventoryAPI, ScenarioAPI
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
@@ -67,6 +67,11 @@ SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
 # at_home чаще, но HA-side switch.set_at_home делает optimistic update,
 # так что чтение нужно только для side-effect detection.
 SCENARIO_POLL_INTERVAL_SEC = 300
+
+# Polling cadence для /inventory/ota-upgrades — реже чем сценарии:
+# OTA-релизы выходят редко (раз в недели), но проверка раз в час даёт
+# приемлемый latency показывая «доступное обновление» в HA UI.
+OTA_POLL_INTERVAL_SEC = 3600
 
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
@@ -139,6 +144,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Best-effort флаг: ScenarioAPI отвалился — больше не пытаемся
         # пока ошибка возникает регулярно (избегаем шум в логах).
         self._scenarios_disabled: bool = False
+        # OTA upgrades: device_id → upgrade_info dict из /inventory/ota-upgrades.
+        # Используется UpdateEntity per-device. Pull cadence см.
+        # OTA_POLL_INTERVAL_SEC.
+        self.ota_upgrades: dict[str, Any] = {}
+        self._ota_last_poll_at: float | None = None
+        self._ota_disabled: bool = False
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -235,6 +246,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # (SCENARIO_POLL_INTERVAL_SEC), чтобы не нагружать API на
             # каждый device tick. Best-effort: ошибка не валит refresh.
             await self._maybe_poll_scenarios()
+            await self._maybe_poll_ota()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -433,6 +445,42 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # body {"scenario_id": ...}. Точный shape варьируется; здесь
         # используем минимальный вариант, который наблюдается в обмене.
         await api.execute_command({"scenario_id": scenario_id})
+
+    # ------------------------------------------------------------------
+    # OTA polling
+    # ------------------------------------------------------------------
+    def _inventory_api(self) -> InventoryAPI:
+        return InventoryAPI(self.home_api._transport)
+
+    async def _maybe_poll_ota(self) -> None:
+        if self._ota_disabled:
+            return
+        now = time.time()
+        if (
+            self._ota_last_poll_at is not None
+            and now - self._ota_last_poll_at < OTA_POLL_INTERVAL_SEC
+        ):
+            return
+        try:
+            self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
+        except Exception:  # noqa: BLE001 — best-effort
+            LOGGER.debug(
+                "OTA polling failed — disabling until manual refresh",
+                exc_info=True,
+            )
+            self._ota_disabled = True
+        finally:
+            self._ota_last_poll_at = now
+
+    async def async_refresh_ota(self) -> None:
+        """Manual refresh — UI button.
+
+        Сбрасывает _ota_disabled и форсит свежий запрос.
+        """
+        self._ota_disabled = False
+        self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
+        self._ota_last_poll_at = time.time()
+        self.async_set_updated_data(self.data or {})
 
     async def async_set_at_home(self, value: bool) -> None:
         """Записать переменную at_home + optimistic update."""

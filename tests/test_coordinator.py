@@ -98,6 +98,9 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     coord.at_home = None
     coord._scenarios_last_poll_at = None
     coord._scenarios_disabled = True  # skip scenario poll in unit tests
+    coord.ota_upgrades = {}
+    coord._ota_last_poll_at = None
+    coord._ota_disabled = True  # skip OTA poll in unit tests
     return coord
 
 
