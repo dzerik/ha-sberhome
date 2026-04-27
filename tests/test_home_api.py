@@ -163,9 +163,7 @@ async def test_update_devices_cache_fetches_enums_once() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         sber = _make_sber(http=http)
-        store = InMemoryTokenStore(
-            initial=CompanionTokens(access_token="C", expires_in=3600)
-        )
+        store = InMemoryTokenStore(initial=CompanionTokens(access_token="C", expires_in=3600))
         home = HomeAPI(sber, http=http, token_store=store)
         await home.update_devices_cache()
         await home.update_devices_cache()
@@ -199,9 +197,7 @@ async def test_enum_fetch_failure_does_not_break_cache_refresh() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         sber = _make_sber(http=http)
-        store = InMemoryTokenStore(
-            initial=CompanionTokens(access_token="C", expires_in=3600)
-        )
+        store = InMemoryTokenStore(initial=CompanionTokens(access_token="C", expires_in=3600))
         home = HomeAPI(sber, http=http, token_store=store)
         await home.update_devices_cache()  # не должен пробросить
         assert home.get_cached_enums() == {}
@@ -236,9 +232,7 @@ async def test_enum_fetch_normalizes_dict_with_objects() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         sber = _make_sber(http=http)
-        store = InMemoryTokenStore(
-            initial=CompanionTokens(access_token="C", expires_in=3600)
-        )
+        store = InMemoryTokenStore(initial=CompanionTokens(access_token="C", expires_in=3600))
         home = HomeAPI(sber, http=http, token_store=store)
         await home.update_devices_cache()
         # Объекты без value/id попадают в кэш через name (последний fallback).

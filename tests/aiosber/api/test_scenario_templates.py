@@ -58,9 +58,7 @@ async def test_list_short_extracts_templates_field():
     """Возможный shape: `{templates: [...]}`."""
 
     def h(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"result": {"templates": [{"id": "x"}], "version": 2}}
-        )
+        return httpx.Response(200, json={"result": {"templates": [{"id": "x"}], "version": 2}})
 
     api, _ = _build(h)
     assert await api.list_short() == [{"id": "x"}]

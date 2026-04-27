@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
-from homeassistant.const import Platform
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData
@@ -21,11 +26,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberSbermapBinarySensor] = []
+    entities: list[BinarySensorEntity] = []
     for device_id, ha_entities in coordinator.entities.items():
         for ent in ha_entities:
             if ent.platform is Platform.BINARY_SENSOR:
                 entities.append(SberSbermapBinarySensor(coordinator, device_id, ent))
+    # Sber-wide "at_home" — глобальная переменная, читаемая через
+    # /scenario/v2/home/variable/at_home. Прикрепляется к virtual
+    # device-group "Sber Scenarios" (тот же что для scenario buttons).
+    entities.append(SberAtHomeBinarySensor(coordinator))
     async_add_entities(entities)
 
 
@@ -65,3 +74,40 @@ class SberSbermapBinarySensor(SberBaseEntity, BinarySensorEntity):
         if ent.state == "off":
             return False
         return None
+
+
+class SberAtHomeBinarySensor(CoordinatorEntity[SberHomeCoordinator], BinarySensorEntity):
+    """Read-only mirror Sber-переменной at_home (присутствие в доме).
+
+    Запись доступна через `switch.sber_at_home` (см. switch.py) — он
+    шлёт `set_at_home` через ScenarioAPI. Sensor нужен для использования
+    в HA-автоматизациях как trigger / condition с понятной семантикой
+    `binary_sensor` device_class=presence.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.PRESENCE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:home-account"
+    _attr_name = "At home"
+    _attr_unique_id = "sberhome_at_home_sensor"
+
+    def __init__(self, coordinator: SberHomeCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "scenarios")},
+            "name": "Sber Scenarios",
+            "manufacturer": "Sberdevices",
+            "model": "Cloud Scenarios",
+            "entry_type": "service",
+        }
+
+    @property
+    def available(self) -> bool:
+        # None — переменная не настроена (никто не сетил at_home в Sber);
+        # show entity but unavailable, не валим сами.
+        return self.coordinator.at_home is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.at_home

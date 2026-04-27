@@ -130,6 +130,4 @@ class TestSetEnabledUnsupported:
                 {"id": 5, "device_ids": ["dev-light", "dev-button"]},
             )
         connection.send_error.assert_not_called()
-        coord.async_set_enabled_device_ids.assert_awaited_once_with(
-            ["dev-light", "dev-button"]
-        )
+        coord.async_set_enabled_device_ids.assert_awaited_once_with(["dev-light", "dev-button"])

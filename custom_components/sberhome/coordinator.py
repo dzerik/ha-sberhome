@@ -31,7 +31,9 @@ from homeassistant.helpers.update_coordinator import (
 
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
+from .aiosber.api import ScenarioAPI
 from .aiosber.dto.device import DeviceDto
+from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
 from .api import HomeAPI, SberAPI
 from .command_tracker import CommandTracker
@@ -59,6 +61,12 @@ from .state_diff import DiffCollector
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
 # в `async_added_to_hass`, fire HA event bus при получении.
 SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
+
+# Интервал между poll'ами /scenario/v2/scenario + /scenario/v2/home/variable/at_home.
+# 5 минут — список сценариев меняется редко (CRUD руками пользователя),
+# at_home чаще, но HA-side switch.set_at_home делает optimistic update,
+# так что чтение нужно только для side-effect detection.
+SCENARIO_POLL_INTERVAL_SEC = 300
 
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
@@ -121,6 +129,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # no correlation id, so this is how we detect when a command
         # was accepted-by-HTTP but not-applied-by-device.
         self.command_tracker = CommandTracker(maxlen=200, command_timeout=10.0)
+        # Sber scenarios + at_home variable. Поллятся раз в N tick'ов
+        # (см. _SCENARIO_POLL_INTERVAL_SEC ниже) — отдельно от device tree,
+        # чтобы не нагружать API: список меняется редко (CRUD руками
+        # пользователя), и быстрая реактивность здесь не нужна.
+        self.scenarios: list[ScenarioDto] = []
+        self.at_home: bool | None = None
+        self._scenarios_last_poll_at: float | None = None
+        # Best-effort флаг: ScenarioAPI отвалился — больше не пытаемся
+        # пока ошибка возникает регулярно (избегаем шум в логах).
+        self._scenarios_disabled: bool = False
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -213,6 +231,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # удалим запись из device_registry — иначе на странице конфигурации
             # интеграции накапливаются "призраки".
             self._prune_stale_devices()
+            # Sber scenarios + at_home — отдельный poll-cadence
+            # (SCENARIO_POLL_INTERVAL_SEC), чтобы не нагружать API на
+            # каждый device tick. Best-effort: ошибка не валит refresh.
+            await self._maybe_poll_scenarios()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -348,6 +370,77 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 LOGGER.info("Pruned stale device %s from registry", dev_reg_id)
         except Exception:  # noqa: BLE001 — best-effort, не ломаем refresh
             LOGGER.debug("Stale device pruning failed (ignored)", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Sber scenarios + at_home variable
+    # ------------------------------------------------------------------
+    def _scenario_api(self) -> ScenarioAPI:
+        """Build ScenarioAPI поверх HomeAPI._transport (lazy / каждый tick).
+
+        Делаем по требованию, чтобы не держать ссылку — HomeAPI сам
+        управляет жизненным циклом transport (закрывает в aclose).
+        """
+        return ScenarioAPI(self.home_api._transport)
+
+    async def _maybe_poll_scenarios(self) -> None:
+        """Throttled poll сценариев + at_home переменной.
+
+        Не дёргает API чаще чем раз в SCENARIO_POLL_INTERVAL_SEC секунд.
+        При первой ошибке ставит `_scenarios_disabled=True` — больше не
+        пытаемся пока пользователь не сделает manual refresh (тогда
+        флаг сбрасывается через `async_refresh_scenarios`).
+        """
+        if self._scenarios_disabled:
+            return
+        now = time.time()
+        if (
+            self._scenarios_last_poll_at is not None
+            and now - self._scenarios_last_poll_at < SCENARIO_POLL_INTERVAL_SEC
+        ):
+            return
+        try:
+            await self._refresh_scenarios()
+        except Exception:  # noqa: BLE001 — best-effort
+            LOGGER.debug(
+                "Scenario polling failed — disabling until manual refresh",
+                exc_info=True,
+            )
+            self._scenarios_disabled = True
+        finally:
+            self._scenarios_last_poll_at = now
+
+    async def _refresh_scenarios(self) -> None:
+        api = self._scenario_api()
+        scenarios = await api.list()
+        try:
+            at_home = await api.get_at_home()
+        except Exception:  # noqa: BLE001 — at_home может быть не настроен у пользователя
+            at_home = None
+        self.scenarios = scenarios
+        self.at_home = at_home
+
+    async def async_refresh_scenarios(self) -> None:
+        """Manual refresh из UI — сбрасывает _scenarios_disabled flag."""
+        self._scenarios_disabled = False
+        await self._refresh_scenarios()
+        self._scenarios_last_poll_at = time.time()
+        self.async_set_updated_data(self.data or {})
+
+    async def async_execute_scenario(self, scenario_id: str) -> None:
+        """Запустить Sber-сценарий по id (HA button.press)."""
+        api = self._scenario_api()
+        # Sber API: команда выполнения сценария — через `/command` с
+        # body {"scenario_id": ...}. Точный shape варьируется; здесь
+        # используем минимальный вариант, который наблюдается в обмене.
+        await api.execute_command({"scenario_id": scenario_id})
+
+    async def async_set_at_home(self, value: bool) -> None:
+        """Записать переменную at_home + optimistic update."""
+        api = self._scenario_api()
+        await api.set_at_home(value)
+        # Optimistic — следующий poll подтвердит.
+        self.at_home = value
+        self.async_set_updated_data(self.data or {})
 
     def rebuild_caches_and_notify(self) -> None:
         """Публичный hook для entities после optimistic patch.

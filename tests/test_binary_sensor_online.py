@@ -56,8 +56,14 @@ class TestAsyncSetupEntryOnline:
         entry.runtime_data = coordinator
         captured: list = []
         await async_setup_entry(MagicMock(), entry, captured.extend)
-        assert len(captured) == 1
-        assert captured[0]._attr_device_class is BinarySensorDeviceClass.CONNECTIVITY
+        # 1 hub-CONNECTIVITY + 1 at_home (всегда добавляется как
+        # global Sber-wide sensor).
+        connectivity = [
+            e
+            for e in captured
+            if getattr(e, "_attr_device_class", None) is BinarySensorDeviceClass.CONNECTIVITY
+        ]
+        assert len(connectivity) == 1
 
     @pytest.mark.asyncio
     async def test_non_hub_no_online_sensor(self, mock_coordinator_with_entities):

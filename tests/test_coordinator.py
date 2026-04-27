@@ -84,6 +84,20 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     coord.ws_message_count = 0
     coord._ws_log = deque(maxlen=100)
     coord._ws_log_subscribers = []
+    # Phase 4 (DevTools) — collectors are real objects so observe_*
+    # calls don't blow up; mock would need spec'd interfaces.
+    from custom_components.sberhome.command_tracker import CommandTracker
+    from custom_components.sberhome.schema_validator import ValidationCollector
+    from custom_components.sberhome.state_diff import DiffCollector
+
+    coord.diff_collector = DiffCollector(maxlen=10)
+    coord.command_tracker = CommandTracker(maxlen=10, command_timeout=10.0)
+    coord.validation_collector = ValidationCollector(maxlen=10)
+    # Sber scenarios + at_home (PR-feat/extended-api-coverage).
+    coord.scenarios = []
+    coord.at_home = None
+    coord._scenarios_last_poll_at = None
+    coord._scenarios_disabled = True  # skip scenario poll in unit tests
     return coord
 
 
