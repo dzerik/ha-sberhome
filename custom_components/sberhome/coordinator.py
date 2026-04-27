@@ -536,9 +536,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     info = await api.discover(dev_id)
                 except Exception:  # noqa: BLE001
-                    LOGGER.debug(
-                        "Discovery failed for %s — skipping", dev_id, exc_info=True
-                    )
+                    LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
                     continue
                 if isinstance(info, dict):
                     new_info[dev_id] = info

@@ -13,7 +13,6 @@ from custom_components.sberhome.coordinator import (
 )
 from custom_components.sberhome.sensor import SberHubSubdeviceCount
 
-
 # ---------------------------------------------------------------------------
 # SberHubSubdeviceCount — извлечение counter'а из разных shapes
 # ---------------------------------------------------------------------------
