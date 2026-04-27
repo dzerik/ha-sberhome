@@ -3,12 +3,16 @@
 Платформа полностью обслуживается через `coordinator.entities` —
 готовый кэш `HaEntityData` из `sbermap`. Никакой ad-hoc логики:
 все scaling/units/device_class определены в `sbermap.transform.sber_to_ha`.
+
+Дополнительно добавляется `SberHubSubdeviceCount` для устройств-хабов
+(определяются через `coordinator._hub_device_ids()`) — diagnostic sensor
+со счётчиком связанных sub-устройств из `/devices/{id}/discovery`.
 """
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import Platform
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -23,11 +27,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberSbermapSensor] = []
+    entities: list[SensorEntity] = []
     for device_id, ha_entities in coordinator.entities.items():
         for ent in ha_entities:
             if ent.platform is Platform.SENSOR:
                 entities.append(SberSbermapSensor(coordinator, device_id, ent))
+    # Diagnostic: для каждого hub-устройства — sub-device counter из
+    # discovery. Создаются всегда, даже если discovery ещё не успел
+    # отработать; до первого poll отдают None (unavailable в HA UI).
+    for device_id in coordinator._hub_device_ids():
+        entities.append(SberHubSubdeviceCount(coordinator, device_id))
     async_add_entities(entities)
 
 
@@ -69,3 +78,40 @@ class SberSbermapSensor(SberBaseEntity, SensorEntity):
         if ent is None:
             return None
         return ent.state
+
+
+class SberHubSubdeviceCount(SberBaseEntity, SensorEntity):
+    """Diagnostic counter — сколько sub-устройств видит хаб через discovery.
+
+    Источник данных: `coordinator.discovery_info[device_id]` — dict из
+    `/devices/{id}/discovery`. Sber возвращает разные shapes для разных
+    типов хабов; здесь поддерживается несколько распространённых форм:
+    список под ключом `devices`, под `sub_devices`, или просто `count`.
+    Если ничего не распарсили — sensor показывает None (unavailable).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Sub-device count"
+    _attr_icon = "mdi:hubspot"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: SberHomeCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, "subdevice_count")
+
+    @property
+    def native_value(self) -> int | None:
+        info = self.coordinator.discovery_info.get(self._device_id)
+        if not isinstance(info, dict):
+            return None
+        for key in ("devices", "sub_devices", "children"):
+            value = info.get(key)
+            if isinstance(value, list):
+                return len(value)
+        if isinstance(info.get("count"), int):
+            return info["count"]
+        return None

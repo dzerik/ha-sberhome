@@ -101,6 +101,9 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     coord.ota_upgrades = {}
     coord._ota_last_poll_at = None
     coord._ota_disabled = True  # skip OTA poll in unit tests
+    coord.discovery_info = {}
+    coord._discover_last_poll_at = None
+    coord._discover_disabled = True  # skip discovery poll in unit tests
     return coord
 
 

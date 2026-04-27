@@ -31,7 +31,7 @@ from homeassistant.helpers.update_coordinator import (
 
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
-from .aiosber.api import InventoryAPI, ScenarioAPI
+from .aiosber.api import DeviceAPI, InventoryAPI, ScenarioAPI
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
@@ -72,6 +72,16 @@ SCENARIO_POLL_INTERVAL_SEC = 300
 # OTA-релизы выходят редко (раз в недели), но проверка раз в час даёт
 # приемлемый latency показывая «доступное обновление» в HA UI.
 OTA_POLL_INTERVAL_SEC = 3600
+
+# /devices/{id}/discovery — для bridges/hubs возвращает список paired
+# sub-devices + статусы. Меняется при добавлении нового устройства,
+# что редко; раз в час достаточно для diagnostic visibility.
+DISCOVER_POLL_INTERVAL_SEC = 3600
+
+# Категории, которые рассматриваются как «хабы» — для них дёргается
+# /devices/{id}/discovery. Sber-speaker (SberBoom Home) выступает как
+# Zigbee+Matter hub, intercom иногда несёт sub-streams.
+HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
 
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
@@ -150,6 +160,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.ota_upgrades: dict[str, Any] = {}
         self._ota_last_poll_at: float | None = None
         self._ota_disabled: bool = False
+        # /devices/{id}/discovery results: device_id → discovery dict.
+        # Зайдём только для hub-устройств (см. HUB_CATEGORIES).
+        # Diagnostic-only, exposed via sensor platform для visibility.
+        self.discovery_info: dict[str, dict[str, Any]] = {}
+        self._discover_last_poll_at: float | None = None
+        self._discover_disabled: bool = False
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -247,6 +263,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # каждый device tick. Best-effort: ошибка не валит refresh.
             await self._maybe_poll_scenarios()
             await self._maybe_poll_ota()
+            await self._maybe_poll_discovery()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -481,6 +498,56 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
         self._ota_last_poll_at = time.time()
         self.async_set_updated_data(self.data or {})
+
+    # ------------------------------------------------------------------
+    # Hub discovery polling
+    # ------------------------------------------------------------------
+    def _device_api(self) -> DeviceAPI:
+        return DeviceAPI(self.home_api._transport)
+
+    def _hub_device_ids(self) -> list[str]:
+        """Список device_id, для которых стоит дёргать /discovery.
+
+        Отбирается по sbermap-resolve_category. Включает только
+        категории из HUB_CATEGORIES.
+        """
+        from .sbermap import resolve_category
+
+        result: list[str] = []
+        for dev_id, dto in self.state_cache.get_all_devices().items():
+            cat = resolve_category(dto.image_set_type)
+            if cat in HUB_CATEGORIES:
+                result.append(dev_id)
+        return result
+
+    async def _maybe_poll_discovery(self) -> None:
+        if self._discover_disabled:
+            return
+        now = time.time()
+        if (
+            self._discover_last_poll_at is not None
+            and now - self._discover_last_poll_at < DISCOVER_POLL_INTERVAL_SEC
+        ):
+            return
+        api = self._device_api()
+        new_info: dict[str, dict[str, Any]] = {}
+        try:
+            for dev_id in self._hub_device_ids():
+                try:
+                    info = await api.discover(dev_id)
+                except Exception:  # noqa: BLE001
+                    LOGGER.debug(
+                        "Discovery failed for %s — skipping", dev_id, exc_info=True
+                    )
+                    continue
+                if isinstance(info, dict):
+                    new_info[dev_id] = info
+            self.discovery_info = new_info
+        except Exception:  # noqa: BLE001 — defence in depth
+            LOGGER.debug("Discovery polling outer failure", exc_info=True)
+            self._discover_disabled = True
+        finally:
+            self._discover_last_poll_at = now
 
     async def async_set_at_home(self, value: bool) -> None:
         """Записать переменную at_home + optimistic update."""
