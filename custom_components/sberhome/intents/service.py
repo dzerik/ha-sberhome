@@ -104,8 +104,71 @@ class IntentService:
         await self._coord.home_api._transport.delete(f"/scenario/v2/scenario/{scenario_id}")
 
     async def test_intent(self, scenario_id: str) -> dict[str, Any]:
-        """Запустить сценарий программно (как «нажми кнопку Test» в UI)."""
-        return await self._coord.client.scenarios.execute_command({"scenario_id": scenario_id})
+        """«Test now» — выполнить actions сценария one-shot.
+
+        Sber API НЕ предоставляет programmatic-run scenario by id —
+        нет endpoint'а вроде POST /scenario/v2/scenario/{id}/run.
+        Сценарий запускается только своими триггерами (phrase / time /
+        device-condition).
+
+        Workaround: вытаскиваем actions из spec'а, encode'им в tasks,
+        и шлём через POST /scenario/v2/command — это **создаёт одноразовый
+        command** с теми же tasks. Эффект для пользователя идентичный
+        (TTS произнесётся, device state поменяется), но это not-the-same
+        как реальное срабатывание сценария:
+
+        - НЕ попадает в `/scenario/v2/event` log (мы не увидим
+          `sberhome_intent` HA event при тесте через UI кнопку).
+        - НЕ запускает phrase-condition matching — мы выполняем
+          сами actions, минуя trigger.
+
+        Endpoint требует body shape ScenarioCommandDto (name, tasks,
+        condition) — name>=1 char, condition должна быть валидной но
+        может быть «никогда не срабатывающим» phrase trigger'ом.
+        """
+        # Получаем актуальный spec — нужен для encoded tasks.
+        spec = await self.get_intent(scenario_id)
+        if spec is None:
+            raise ValueError(f"Intent {scenario_id} not found")
+
+        # Encode actions в Sber-tasks через тот же encoder, что и create/update.
+        from .registry import get_action
+
+        tasks: list[dict[str, Any]] = []
+        for action in spec.actions:
+            if action.unknown:
+                raw = action.data.get("raw")
+                if isinstance(raw, dict):
+                    tasks.append(raw)
+                continue
+            reg = get_action(action.type)
+            if reg is not None:
+                tasks.extend(reg.encode(action.data))
+
+        if not tasks:
+            # Нечего исполнять (ha_event_only сценарий) — просто возвращаем
+            # success без side-effect'а. UI может фейк-показать что Sber
+            # event fire'нулся.
+            return {
+                "ok": True,
+                "executed_tasks": 0,
+                "note": "ha_event_only — nothing to execute on Sber side",
+            }
+
+        # Body для POST /scenario/v2/command.
+        # condition обязателен — используем dummy phrase которая никогда
+        # не сработает (Sber хранит, но не parse'ит для one-shot command).
+        # name>=1 char (Sber требует, иначе HTTP 400).
+        name = (spec.name or "Test").strip() or "Test"
+        body = {
+            "name": f"[HA test] {name}"[:128],
+            "tasks": tasks,
+            "condition": {
+                "type": "PHRASES",
+                "phrases_data": {"phrases": ["__ha_test_never_match__"]},
+            },
+        }
+        return await self._coord.client.scenarios.execute_command(body)
 
     # ------------------------------------------------------------------
     # Helpers

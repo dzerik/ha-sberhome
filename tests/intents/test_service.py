@@ -192,8 +192,43 @@ class TestDeleteIntent:
 
 class TestTestIntent:
     @pytest.mark.asyncio
-    async def test_calls_execute_command(self):
-        service, coord = _build_service()
+    async def test_builds_command_body_with_encoded_tasks(self):
+        """Test now: загружаем spec, encode'им actions, шлём как
+        одноразовый command с required Sber fields (name + tasks + condition)."""
+        service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
         result = await service.test_intent("sc-1")
         assert result == {"ok": True}
-        coord.client.scenarios.execute_command.assert_awaited_once_with({"scenario_id": "sc-1"})
+        coord.client.scenarios.execute_command.assert_awaited_once()
+        body = coord.client.scenarios.execute_command.await_args[0][0]
+        # Required Sber fields:
+        assert body["name"].startswith("[HA test]")
+        assert isinstance(body["tasks"], list)
+        assert len(body["tasks"]) == 1
+        assert body["tasks"][0]["type"] == "PRONOUNCE_COMMAND"
+        assert body["condition"]["type"] == "PHRASES"
+
+    @pytest.mark.asyncio
+    async def test_ha_event_only_returns_no_op(self):
+        """ha_event_only sceно — нечего исполнять в Sber, no-op."""
+        scenario = {
+            "id": "sc-empty",
+            "name": "Empty",
+            "is_active": True,
+            "steps": [
+                {
+                    "tasks": [],
+                    "condition": {"type": "PHRASES", "phrases_data": {"phrases": ["x"]}},
+                }
+            ],
+        }
+        service, coord = _build_service(list_response={"result": scenario})
+        result = await service.test_intent("sc-empty")
+        assert result["executed_tasks"] == 0
+        # execute_command не должен быть вызван — нечего исполнять.
+        coord.client.scenarios.execute_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_missing_intent_raises(self):
+        service, _ = _build_service(list_response={})
+        with pytest.raises(ValueError, match="not found"):
+            await service.test_intent("missing")
