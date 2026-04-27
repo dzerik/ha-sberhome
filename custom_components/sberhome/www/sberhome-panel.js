@@ -145,7 +145,14 @@ class SberHomePanel extends LitElement {
         height: var(--header-height, 56px);
         box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.1));
       }
-      .header h1 { margin: 0; font-size: 20px; flex: 1; }
+      .header h1 {
+        margin: 0; font-size: 20px; flex: 1;
+        display: flex; align-items: baseline; gap: 8px;
+      }
+      .header .version {
+        font-size: 12px; opacity: 0.65; font-weight: normal;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+      }
       .refresh-btn {
         background: rgba(255, 255, 255, 0.15);
         color: inherit;
@@ -194,7 +201,12 @@ class SberHomePanel extends LitElement {
     const tabs = ["Devices", "Voice Intents", "Monitor", "Debug", "Settings"];
     return html`
       <div class="header">
-        <h1>SberHome</h1>
+        <h1>
+          SberHome
+          ${this._status?.version
+            ? html`<span class="version">v${this._status.version}</span>`
+            : ""}
+        </h1>
         <button
           class="refresh-btn"
           @click=${this._forceRefresh}

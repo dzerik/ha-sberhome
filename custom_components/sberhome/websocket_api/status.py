@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -9,6 +11,20 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from ._common import get_config_entry, get_coordinator
+
+
+def _read_integration_version() -> str | None:
+    """Прочитать version из manifest.json — для отображения в UI шапке."""
+    try:
+        manifest_path = Path(__file__).resolve().parent.parent / "manifest.json"
+        with manifest_path.open() as f:
+            return json.load(f).get("version")
+    except Exception:  # noqa: BLE001 — best-effort
+        return None
+
+
+# Кэшируем — manifest не меняется во время runtime.
+_VERSION = _read_integration_version()
 
 
 @websocket_api.websocket_command({vol.Required("type"): "sberhome/get_status"})
@@ -37,6 +53,7 @@ def ws_get_status(
         {
             "entry_id": entry.entry_id,
             "title": entry.title,
+            "version": _VERSION,
             "devices_total": len(coord.devices),
             "devices_enabled": (
                 len(coord.enabled_device_ids)
