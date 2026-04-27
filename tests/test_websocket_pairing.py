@@ -33,8 +33,8 @@ def hass():
 
 def _coord_with_api(api: MagicMock) -> MagicMock:
     coord = MagicMock()
-    coord.home_api = MagicMock()
-    coord.home_api._transport = MagicMock()
+    coord.client = MagicMock()
+    coord.client.pairing = api
     return coord
 
 
@@ -45,8 +45,8 @@ def _patches(coord: MagicMock, api: MagicMock):
             return_value=coord,
         ),
         patch(
-            "custom_components.sberhome.websocket_api.pairing.PairingAPI",
-            return_value=api,
+            "custom_components.sberhome.websocket_api.pairing.get_coordinator",
+            return_value=coord,
         ),
     )
 

@@ -23,7 +23,13 @@ from ._common import get_coordinator
 
 
 def _api(coord) -> PairingAPI:
-    return PairingAPI(coord.home_api._transport)
+    """Use SberClient facade — единая точка входа во все Sber API.
+
+    Раньше строили PairingAPI напрямую поверх transport; теперь идём
+    через coordinator.client.pairing, как требует CLAUDE.md (фасад
+    SberClient — public entry point для 80% задач).
+    """
+    return coord.client.pairing
 
 
 @websocket_api.websocket_command({vol.Required("type"): "sberhome/pairing/wifi_credentials"})

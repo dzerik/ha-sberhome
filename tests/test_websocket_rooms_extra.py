@@ -28,8 +28,9 @@ def hass():
 
 def _coord() -> MagicMock:
     coord = MagicMock()
-    coord.home_api = MagicMock()
-    coord.home_api._transport = MagicMock()
+    coord.client = MagicMock()
+    coord.client.groups = MagicMock()
+    coord.client.groups.rename = AsyncMock()
     coord.async_request_refresh = AsyncMock()
     coord.async_refresh_scenarios = AsyncMock()
     coord.async_refresh_ota = AsyncMock()
@@ -48,41 +49,26 @@ class TestRenameRoom:
     @pytest.mark.asyncio
     async def test_rename_calls_group_api_and_refreshes(self, hass, connection):
         coord = _coord()
-        api = MagicMock()
-        api.rename = AsyncMock()
-        with (
-            patch(
-                "custom_components.sberhome.websocket_api.rooms.get_coordinator",
-                return_value=coord,
-            ),
-            patch(
-                "custom_components.sberhome.websocket_api.rooms.GroupAPI",
-                return_value=api,
-            ),
+        with patch(
+            "custom_components.sberhome.websocket_api.rooms.get_coordinator",
+            return_value=coord,
         ):
             await ws_rename_room.__wrapped__(
                 hass,
                 connection,
                 {"id": 1, "room_id": "g-1", "name": "Гостиная"},
             )
-        api.rename.assert_awaited_once_with("g-1", "Гостиная")
+        coord.client.groups.rename.assert_awaited_once_with("g-1", "Гостиная")
         coord.async_request_refresh.assert_awaited_once()
         connection.send_error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_rename_returns_error_on_api_failure(self, hass, connection):
         coord = _coord()
-        api = MagicMock()
-        api.rename = AsyncMock(side_effect=RuntimeError("403"))
-        with (
-            patch(
-                "custom_components.sberhome.websocket_api.rooms.get_coordinator",
-                return_value=coord,
-            ),
-            patch(
-                "custom_components.sberhome.websocket_api.rooms.GroupAPI",
-                return_value=api,
-            ),
+        coord.client.groups.rename.side_effect = RuntimeError("403")
+        with patch(
+            "custom_components.sberhome.websocket_api.rooms.get_coordinator",
+            return_value=coord,
         ):
             await ws_rename_room.__wrapped__(
                 hass, connection, {"id": 2, "room_id": "g-1", "name": "X"}

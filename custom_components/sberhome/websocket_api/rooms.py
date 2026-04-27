@@ -8,7 +8,6 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from ..aiosber.api import GroupAPI
 from ._common import get_coordinator
 
 
@@ -76,9 +75,8 @@ async def ws_rename_room(
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
-    api = GroupAPI(coord.home_api._transport)
     try:
-        await api.rename(msg["room_id"], msg["name"])
+        await coord.client.groups.rename(msg["room_id"], msg["name"])
     except Exception as err:  # noqa: BLE001 — surface to UI
         connection.send_error(msg["id"], "rename_failed", str(err))
         return

@@ -30,7 +30,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from ._ws_adapter import make_aiohttp_factory
-from .aiosber import SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
+from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
 from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
 from .aiosber.dto import IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
@@ -177,6 +177,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.indicator_colors: IndicatorColors | None = None
         self._indicator_last_poll_at: float | None = None
         self._indicator_disabled: bool = False
+        # SberClient — lazily-built фасад поверх home_api._transport.
+        # Закрывает архитектурный долг (CLAUDE.md, парадигма пункт 6:
+        # «один публичный фасад SberClient для 80% задач») без ломающего
+        # рефакторинга HomeAPI. Все internal API-factories (_device_api,
+        # _inventory_api, ...) теперь делегируют сюда.
+        self._client: SberClient | None = None
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -197,6 +203,22 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def auth_manager(self):
         """AuthManager for token info (panel status)."""
         return self.home_api._auth
+
+    @property
+    def client(self) -> SberClient:
+        """SberClient facade — lazily построен поверх home_api._transport.
+
+        Это **public entry point** для всех новых Sber-API вызовов в
+        coordinator/WS endpoints (`coordinator.client.devices.list()`,
+        `coordinator.client.scenarios.execute_command(...)` и т.п.).
+
+        Lifecycle: SberClient НЕ владеет transport — closing'ом transport
+        управляет home_api.aclose(). Поэтому coordinator.client.aclose()
+        НЕ зовём — закрытие через `home_api.aclose()` в async_shutdown.
+        """
+        if self._client is None:
+            self._client = SberClient(transport=self.home_api._transport)
+        return self._client
 
     @property
     def enum_dictionary(self) -> dict[str, list[str]]:
@@ -416,12 +438,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Sber scenarios + at_home variable
     # ------------------------------------------------------------------
     def _scenario_api(self) -> ScenarioAPI:
-        """Build ScenarioAPI поверх HomeAPI._transport (lazy / каждый tick).
-
-        Делаем по требованию, чтобы не держать ссылку — HomeAPI сам
-        управляет жизненным циклом transport (закрывает в aclose).
-        """
-        return ScenarioAPI(self.home_api._transport)
+        """Shortcut к SberClient.scenarios."""
+        return self.client.scenarios
 
     async def _maybe_poll_scenarios(self) -> None:
         """Throttled poll сценариев + at_home переменной.
@@ -479,7 +497,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # OTA polling
     # ------------------------------------------------------------------
     def _inventory_api(self) -> InventoryAPI:
-        return InventoryAPI(self.home_api._transport)
+        return self.client.inventory
 
     async def _maybe_poll_ota(self) -> None:
         if self._ota_disabled:
@@ -515,7 +533,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Hub discovery polling
     # ------------------------------------------------------------------
     def _device_api(self) -> DeviceAPI:
-        return DeviceAPI(self.home_api._transport)
+        return self.client.devices
 
     def _hub_device_ids(self) -> list[str]:
         """Список device_id, для которых стоит дёргать /discovery.
@@ -563,7 +581,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Sber LED indicator polling
     # ------------------------------------------------------------------
     def _indicator_api(self) -> IndicatorAPI:
-        return IndicatorAPI(self.home_api._transport)
+        return self.client.indicator
 
     async def _maybe_poll_indicator(self) -> None:
         if self._indicator_disabled:
