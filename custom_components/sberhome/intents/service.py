@@ -104,71 +104,56 @@ class IntentService:
         await self._coord.home_api._transport.delete(f"/scenario/v2/scenario/{scenario_id}")
 
     async def test_intent(self, scenario_id: str) -> dict[str, Any]:
-        """«Test now» — выполнить actions сценария one-shot.
+        """«Test now» — fire HA `sberhome_intent` event симулируя срабатывание.
 
-        Sber API НЕ предоставляет programmatic-run scenario by id —
-        нет endpoint'а вроде POST /scenario/v2/scenario/{id}/run.
-        Сценарий запускается только своими триггерами (phrase / time /
-        device-condition).
+        Sber API не предоставляет programmatic-run scenario:
+        - нет endpoint'а POST /scenario/v2/scenario/{id}/run;
+        - POST /scenario/v2/command (one-shot ScenarioCommandDto) имеет
+          strict-валидацию condition shape, который Sber не документирует
+          и не принимает наши попытки (HTTP 400 'wrong condition');
+        - PATCH /scenario/v2/scenario/{id}/active — это toggle is_active,
+          actions не запускает.
 
-        Workaround: вытаскиваем actions из spec'а, encode'им в tasks,
-        и шлём через POST /scenario/v2/command — это **создаёт одноразовый
-        command** с теми же tasks. Эффект для пользователя идентичный
-        (TTS произнесётся, device state поменяется), но это not-the-same
-        как реальное срабатывание сценария:
+        Поэтому test = fire `sberhome_intent` HA event прямо из coordinator,
+        с metadata из spec'а. Это:
+        - Тестирует HA-side automation pipeline (что и нужно для проверки
+          твоих автоматизаций которые `trigger: event_type: sberhome_intent`).
+        - НЕ выполняет Sber-side actions (TTS / device_command). Реальный
+          end-to-end test остаётся «произнеси фразу в колонку».
 
-        - НЕ попадает в `/scenario/v2/event` log (мы не увидим
-          `sberhome_intent` HA event при тесте через UI кнопку).
-        - НЕ запускает phrase-condition matching — мы выполняем
-          сами actions, минуя trigger.
-
-        Endpoint требует body shape ScenarioCommandDto (name, tasks,
-        condition) — name>=1 char, condition должна быть валидной но
-        может быть «никогда не срабатывающим» phrase trigger'ом.
+        UI должен показать: «Симулировано в HA. Чтобы проверить Sber-side
+        action — произнеси фразу `<phrase>` в колонку».
         """
-        # Получаем актуальный spec — нужен для encoded tasks.
         spec = await self.get_intent(scenario_id)
         if spec is None:
             raise ValueError(f"Intent {scenario_id} not found")
 
-        # Encode actions в Sber-tasks через тот же encoder, что и create/update.
-        from .registry import get_action
+        # Fire HA event с тем же payload, что бы прислал реальный
+        # scenario_widgets dispatcher. UI/automations не различат этот
+        # вызов от настоящего срабатывания (кроме поля `simulated`).
+        from datetime import UTC, datetime  # noqa: PLC0415
 
-        tasks: list[dict[str, Any]] = []
-        for action in spec.actions:
-            if action.unknown:
-                raw = action.data.get("raw")
-                if isinstance(raw, dict):
-                    tasks.append(raw)
-                continue
-            reg = get_action(action.type)
-            if reg is not None:
-                tasks.extend(reg.encode(action.data))
+        from ..coordinator import EVENT_SBERHOME_INTENT  # noqa: PLC0415
 
-        if not tasks:
-            # Нечего исполнять (ha_event_only сценарий) — просто возвращаем
-            # success без side-effect'а. UI может фейк-показать что Sber
-            # event fire'нулся.
-            return {
-                "ok": True,
-                "executed_tasks": 0,
-                "note": "ha_event_only — nothing to execute on Sber side",
-            }
-
-        # Body для POST /scenario/v2/command.
-        # condition обязателен — используем dummy phrase которая никогда
-        # не сработает (Sber хранит, но не parse'ит для one-shot command).
-        # name>=1 char (Sber требует, иначе HTTP 400).
-        name = (spec.name or "Test").strip() or "Test"
-        body = {
-            "name": f"[HA test] {name}"[:128],
-            "tasks": tasks,
-            "condition": {
-                "type": "PHRASES",
-                "phrases_data": {"phrases": ["__ha_test_never_match__"]},
-            },
+        event_data = {
+            "name": (spec.name or "").strip(),
+            "scenario_id": spec.id,
+            "event_time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "type": "SUCCESS",
+            "account_id": None,
+            "simulated": True,  # маркер «не настоящее срабатывание»
         }
-        return await self._coord.client.scenarios.execute_command(body)
+        self._coord.hass.bus.async_fire(EVENT_SBERHOME_INTENT, event_data)
+        return {
+            "ok": True,
+            "simulated": True,
+            "event": event_data,
+            "note": (
+                "HA-side event fired. Sber actions (TTS / device_command) "
+                "не выполняются — Sber API не предоставляет programmatic-run. "
+                "Чтобы проверить Sber-side — произнеси фразу в колонку."
+            ),
+        }
 
     # ------------------------------------------------------------------
     # Helpers

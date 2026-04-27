@@ -191,40 +191,42 @@ class TestDeleteIntent:
 
 
 class TestTestIntent:
-    @pytest.mark.asyncio
-    async def test_builds_command_body_with_encoded_tasks(self):
-        """Test now: загружаем spec, encode'им actions, шлём как
-        одноразовый command с required Sber fields (name + tasks + condition)."""
-        service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
-        result = await service.test_intent("sc-1")
-        assert result == {"ok": True}
-        coord.client.scenarios.execute_command.assert_awaited_once()
-        body = coord.client.scenarios.execute_command.await_args[0][0]
-        # Required Sber fields:
-        assert body["name"].startswith("[HA test]")
-        assert isinstance(body["tasks"], list)
-        assert len(body["tasks"]) == 1
-        assert body["tasks"][0]["type"] == "PRONOUNCE_COMMAND"
-        assert body["condition"]["type"] == "PHRASES"
+    """Test now = fire HA event simulation (Sber API не даёт programmatic-run)."""
 
     @pytest.mark.asyncio
-    async def test_ha_event_only_returns_no_op(self):
-        """ha_event_only sceно — нечего исполнять в Sber, no-op."""
-        scenario = {
-            "id": "sc-empty",
-            "name": "Empty",
-            "is_active": True,
-            "steps": [
-                {
-                    "tasks": [],
-                    "condition": {"type": "PHRASES", "phrases_data": {"phrases": ["x"]}},
-                }
-            ],
-        }
-        service, coord = _build_service(list_response={"result": scenario})
-        result = await service.test_intent("sc-empty")
-        assert result["executed_tasks"] == 0
-        # execute_command не должен быть вызван — нечего исполнять.
+    async def test_fires_ha_event_with_metadata(self):
+        service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
+        # hass.bus mock — чтобы тестировать что fire'ится правильный event.
+        coord.hass = MagicMock()
+        coord.hass.bus = MagicMock()
+        coord.hass.bus.async_fire = MagicMock()
+
+        result = await service.test_intent("sc-1")
+        assert result["ok"] is True
+        assert result["simulated"] is True
+
+        # HA event fired с правильным event type.
+        from custom_components.sberhome.coordinator import EVENT_SBERHOME_INTENT
+
+        coord.hass.bus.async_fire.assert_called_once()
+        call = coord.hass.bus.async_fire.call_args
+        assert call[0][0] == EVENT_SBERHOME_INTENT
+        data = call[0][1]
+        assert data["name"] == "Утро"
+        assert data["scenario_id"] == "sc-1"
+        assert data["simulated"] is True
+        assert "event_time" in data
+        assert data["type"] == "SUCCESS"
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_sber_command_endpoint(self):
+        """Critical: НЕ дёргает Sber API — это симуляция, не real execute."""
+        service, coord = _build_service(list_response={"result": SAMPLE_SCENARIO})
+        coord.hass = MagicMock()
+        coord.hass.bus = MagicMock()
+        coord.hass.bus.async_fire = MagicMock()
+
+        await service.test_intent("sc-1")
         coord.client.scenarios.execute_command.assert_not_awaited()
 
     @pytest.mark.asyncio
