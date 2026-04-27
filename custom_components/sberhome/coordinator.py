@@ -801,10 +801,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }:
                 router.on(topic, self._on_ws_other_topic)
 
+        # Subscriptions к Sber WS — этот список передаётся серверу при
+        # handshake. Сценарии-голосовые работают только если SCENARIO_WIDGETS
+        # включён (Sber пушит UPDATE_WIDGETS только subscribed клиентам).
         self._ws_client = WebSocketClient(
             auth=auth,
             callback=router,
             factory=factory,
+            topics=("DEVICE_STATE", "DEVMAN_EVENT", "GROUP_STATE", "SCENARIO_WIDGETS"),
         )
         try:
             await self._ws_client.run()
