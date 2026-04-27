@@ -1,6 +1,6 @@
 [project]
 name = "ha-sberhome"
-version = "3.14.8"
+version = "3.15.0"
 description = "Home Assistant integration for Sber smart home (Салют)"
 requires-python = ">=3.12"
 license = {text = "MIT"}

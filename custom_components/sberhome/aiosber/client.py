@@ -35,7 +35,16 @@ from typing import Any
 
 import httpx
 
-from .api import DeviceAPI, GroupAPI, IndicatorAPI, PairingAPI, ScenarioAPI
+from .api import (
+    DeviceAPI,
+    GroupAPI,
+    IndicatorAPI,
+    InventoryAPI,
+    LightEffectsAPI,
+    PairingAPI,
+    ScenarioAPI,
+    ScenarioTemplatesAPI,
+)
 from .auth import (
     AuthManager,
     CompanionTokens,
@@ -70,6 +79,9 @@ class SberClient:
         self._scenarios = ScenarioAPI(transport)
         self._pairing = PairingAPI(transport)
         self._indicator = IndicatorAPI(transport)
+        self._inventory = InventoryAPI(transport)
+        self._effects = LightEffectsAPI(transport)
+        self._scenario_templates = ScenarioTemplatesAPI(transport)
         # Service layer (high-level, typed, with state cache)
         self._state = StateCache()
         self._device_service = DeviceService(self._devices, self._state)
@@ -96,6 +108,21 @@ class SberClient:
     @property
     def indicator(self) -> IndicatorAPI:
         return self._indicator
+
+    @property
+    def inventory(self) -> InventoryAPI:
+        """OTA / inventory metadata (`/inventory/*`)."""
+        return self._inventory
+
+    @property
+    def effects(self) -> LightEffectsAPI:
+        """Light effects catalog (`/light/effects`)."""
+        return self._effects
+
+    @property
+    def scenario_templates(self) -> ScenarioTemplatesAPI:
+        """Scenario templates catalog (`/scenario-templates/*`)."""
+        return self._scenario_templates
 
     @property
     def transport(self) -> HttpTransport:
