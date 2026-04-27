@@ -302,6 +302,7 @@ class SberHomeDeviceModal extends LitElement {
   _renderConnection(raw) {
     const summary = this._deviceSummary || {};
     const isEnabled = !!summary.enabled;
+    const unsupported = !summary.category;
     const areas = this._areas;
     const currentAreaName = isEnabled && summary.ha_area_id
       ? (this.hass.areas?.[summary.ha_area_id]?.name || summary.ha_area_id)
@@ -323,7 +324,26 @@ class SberHomeDeviceModal extends LitElement {
             : ""}
         </div>
 
-        ${!isEnabled
+        ${!isEnabled && unsupported
+          ? html`
+              <div class="section">
+                <div class="section-header"><h3>Устройство не поддерживается</h3></div>
+                <p class="muted">
+                  Категория устройства <code>${summary.image_set_type || "—"}</code>
+                  пока не распознаётся интеграцией, поэтому подключение к
+                  Home Assistant недоступно — соответствующих entity для него
+                  не создастся. Если считаешь, что устройство должно работать,
+                  приложи этот <b>raw payload</b> к issue в репозитории
+                  интеграции.
+                </p>
+                <div style="margin-top:16px">
+                  <button class="btn-primary" disabled>
+                    Подключение недоступно
+                  </button>
+                </div>
+              </div>
+            `
+          : !isEnabled
           ? html`
               <div class="section">
                 <div class="section-header"><h3>Подключить в Home Assistant</h3></div>

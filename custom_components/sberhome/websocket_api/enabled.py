@@ -9,7 +9,25 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
+from ..sbermap import resolve_category
 from ._common import find_ha_device, get_coordinator
+
+
+def _unsupported_device_ids(coord, device_ids) -> list[str]:
+    """Return device_ids из списка, которые не имеют Sber-категории.
+
+    Устройства с unknown category не создают ни одной HA entity (см.
+    `map_device_to_entities` → empty list), поэтому их enable — шум без
+    эффекта. Блокируем, чтобы пользователь не ловил "0 entities" сюрприз.
+    """
+    bad: list[str] = []
+    for dev_id in device_ids:
+        dto = coord.devices.get(dev_id)
+        if dto is None:
+            continue
+        if resolve_category(dto.image_set_type) is None:
+            bad.append(dev_id)
+    return bad
 
 
 @websocket_api.websocket_command(
@@ -28,6 +46,14 @@ async def ws_set_enabled(
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+    bad = _unsupported_device_ids(coord, msg["device_ids"])
+    if bad:
+        connection.send_error(
+            msg["id"],
+            "unsupported_category",
+            f"Unsupported device category, cannot enable: {', '.join(bad)}",
+        )
         return
     await coord.async_set_enabled_device_ids(msg["device_ids"])
     connection.send_result(
@@ -53,6 +79,13 @@ async def ws_toggle_device(
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+    if msg["enabled"] and _unsupported_device_ids(coord, [msg["device_id"]]):
+        connection.send_error(
+            msg["id"],
+            "unsupported_category",
+            "Unsupported device category — cannot connect to Home Assistant",
+        )
         return
     current = coord.enabled_device_ids
     if current is None:

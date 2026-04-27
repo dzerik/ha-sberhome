@@ -34,6 +34,7 @@ class TestScenarioButton:
     def test_event_types(self, button1):
         assert "click" in button1._attr_event_types
         assert "double_click" in button1._attr_event_types
+        assert "long_press" in button1._attr_event_types
 
 
 class TestAsyncSetupEntry:

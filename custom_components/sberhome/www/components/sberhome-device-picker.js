@@ -187,6 +187,12 @@ class SberHomeDevicePicker extends LitElement {
         color: #fff;
         opacity: 0.8;
       }
+      .badge.unsupported {
+        background: var(--warning-color, #f5a623);
+        color: #fff;
+        opacity: 0.9;
+      }
+      tr.unsupported-row td:not(.icon-cell) { opacity: 0.55; }
     `;
   }
 
@@ -255,12 +261,23 @@ class SberHomeDevicePicker extends LitElement {
                 </tr>
               </thead>
               <tbody>
-                ${list.map(
-                  (d) => html`
+                ${list.map((d) => {
+                  const unsupported = !d.category;
+                  const rowClasses = [
+                    "row-clickable",
+                    d.enabled ? "" : "disabled-row",
+                    unsupported ? "unsupported-row" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  const rowTitle = unsupported
+                    ? "Категория устройства не поддерживается интеграцией"
+                    : "Клик — настройка подключения и пространства";
+                  return html`
                     <tr
-                      class="row-clickable ${d.enabled ? "" : "disabled-row"}"
+                      class=${rowClasses}
                       @click=${() => this._openDetail(d.device_id)}
-                      title="Клик — настройка подключения и пространства"
+                      title=${rowTitle}
                     >
                       <td class="icon-cell">${this._renderDeviceIcon(d)}</td>
                       <td>
@@ -277,13 +294,15 @@ class SberHomeDevicePicker extends LitElement {
                         </span>
                       </td>
                       <td>
-                        ${d.enabled
-                          ? html`<span class="badge room">${d.entity_count} entities</span>`
-                          : html`<span class="badge off">отключено</span>`}
+                        ${unsupported
+                          ? html`<span class="badge unsupported">не поддерживается</span>`
+                          : d.enabled
+                            ? html`<span class="badge room">${d.entity_count} entities</span>`
+                            : html`<span class="badge off">отключено</span>`}
                       </td>
                     </tr>
-                  `
-                )}
+                  `;
+                })}
               </tbody>
             </table>
           `}

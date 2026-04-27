@@ -163,9 +163,12 @@ IMAGE_TYPE_MAP: Final[dict[str, str]] = {
     "sensor_smoke": "sensor_smoke",
     "dt_sensor_gas": "sensor_gas",
     "sensor_gas": "sensor_gas",
-    # Scenario
+    # Scenario — `cat_button` покрывает варианты `cat_button_m`/`_s`/`_l`,
+    # используемые Сбером для виртуальных c2c-кнопок (Эмуляция присутствия,
+    # триггер-кнопки сценариев из мобильного приложения).
     "scenario_button": "scenario_button",
     "button_scenario": "scenario_button",
+    "cat_button": "scenario_button",
     # Covers — более специфичные paterns идут первыми, чтобы `dt_curtain`
     # матчился как `curtain`, а не потенциально как что-то ещё.
     "dt_curtain": "curtain",

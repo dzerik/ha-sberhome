@@ -448,14 +448,14 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
     "button_event": FeatureSpec(
         platform=Platform.EVENT,
         codec=EnumCodec(),
-        event_types=("click", "double_click"),
+        event_types=("click", "double_click", "long_press"),
         categories=_cats("scenario_button"),
     ),
     **{
         f"button_{i}_event": FeatureSpec(
             platform=Platform.EVENT,
             codec=EnumCodec(),
-            event_types=("click", "double_click"),
+            event_types=("click", "double_click", "long_press"),
             categories=_cats("scenario_button"),
         )
         for i in range(1, 11)
@@ -464,7 +464,7 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         f"button_{pos}_event": FeatureSpec(
             platform=Platform.EVENT,
             codec=EnumCodec(),
-            event_types=("click", "double_click"),
+            event_types=("click", "double_click", "long_press"),
             categories=_cats("scenario_button"),
         )
         for pos in ("left", "right", "top_left", "top_right", "bottom_left", "bottom_right")

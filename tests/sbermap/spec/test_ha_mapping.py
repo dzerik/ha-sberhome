@@ -95,6 +95,19 @@ class TestResolveCategoryDtFormat:
         """`bulb` как подстрока — fallback для любых будущих вариаций."""
         assert resolve_category("smart_bulb_v2") == "light"
 
+    @pytest.mark.parametrize(
+        "image_set_type",
+        ["cat_button_m", "cat_button_s", "cat_button_l"],
+    )
+    def test_virtual_cat_button_resolves_to_scenario_button(self, image_set_type):
+        """`cat_button_*` — виртуальная c2c-кнопка (напр. Эмуляция присутствия).
+
+        Сбер использует такой image_set_type для scenario-buttons, которые
+        триггерят сценарии из мобильного приложения. Раньше они попадали
+        в `resolve_category` → None и игнорировались.
+        """
+        assert resolve_category(image_set_type) == "scenario_button"
+
 
 class TestImageTypeMapInvariants:
     def test_all_categories_in_platforms_map(self):
