@@ -192,3 +192,88 @@ async def test_sber_client_scenarios_property():
     assert isinstance(client.scenarios, ScenarioAPI)
     async with client:
         await client.scenarios.list()
+
+
+# ---------------------------------------------------------------------------
+# history (event log) — для voice-intents
+# ---------------------------------------------------------------------------
+
+
+async def test_history_returns_events_dto():
+    """Sber отвечает {events: [...], pagination: {...}} БЕЗ result-обёртки."""
+    payload = {
+        "events": [
+            {
+                "id": "e1",
+                "event_time": "2026-04-27T12:44:49.430277Z",
+                "object_id": "sc-1",
+                "object_type": "SCENARIO",
+                "name": "Маркер один",
+                "type": "SUCCESS",
+            },
+            {
+                "id": "e2",
+                "event_time": "2026-04-27T12:44:18.922428Z",
+                "object_id": "sc-1",
+                "object_type": "SCENARIO",
+                "name": "Маркер один",
+                "type": "SUCCESS",
+            },
+        ],
+        "pagination": {"limit": "5", "offset": "0", "has_next": True},
+    }
+
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.path.endswith("/scenario/v2/event")
+        # query params попадают в URL
+        assert req.url.params["home_id"] == "home-1"
+        assert req.url.params["pagination.offset"] == "0"
+        assert req.url.params["pagination.limit"] == "5"
+        return httpx.Response(200, json=payload)
+
+    api, _ = _build(h)
+    events = await api.history("home-1", limit=5)
+    assert len(events) == 2
+    assert events[0].name == "Маркер один"
+    assert events[0].object_id == "sc-1"
+    assert events[0].type == "SUCCESS"
+
+
+async def test_history_handles_result_wrapper():
+    """Backward-compat: если Sber начнёт оборачивать в result."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"events": [{"id": "x", "name": "Y"}]}})
+
+    api, _ = _build(h)
+    events = await api.history("home-1")
+    assert events[0].name == "Y"
+
+
+async def test_history_empty_events():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"events": [], "pagination": {}})
+
+    api, _ = _build(h)
+    assert await api.history("home-1") == []
+
+
+async def test_history_garbled_payload_returns_empty():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"oops": "no events here"})
+
+    api, _ = _build(h)
+    assert await api.history("home-1") == []
+
+
+async def test_history_filters_non_dict_event_items():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"events": [{"id": "ok"}, "garbage", 42, None]},
+        )
+
+    api, _ = _build(h)
+    events = await api.history("home-1")
+    assert len(events) == 1
+    assert events[0].id == "ok"

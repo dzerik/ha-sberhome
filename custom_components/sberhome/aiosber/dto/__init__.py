@@ -119,7 +119,7 @@ from .feature import (
 from .group import GroupStateDto
 from .home import HomeChangeVariableDto
 from .ota import OtaUpdateInfoDto
-from .scenario import ScenarioDto, ScenarioWidgetDto
+from .scenario import ScenarioDto, ScenarioEventDto, ScenarioWidgetDto
 from .state import (
     DesiredDeviceStateDto,
     DesiredGroupStateDto,
@@ -180,6 +180,7 @@ __all__ = [
     "OtaUpdateInfoDto",
     # scenario
     "ScenarioDto",
+    "ScenarioEventDto",
     "ScenarioWidgetDto",
     # transfer
     "HomeTransferBaseDto",

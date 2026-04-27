@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..dto.scenario import ScenarioDto
+from ..dto.scenario import ScenarioDto, ScenarioEventDto
 from ..transport import HttpTransport
 
 
@@ -106,6 +106,42 @@ class ScenarioAPI:
         resp = await self._transport.get("/scenario/v2/scenario/form")
         return _unwrap_dict(resp.json())
 
+    # ----- history (event log) -----
+    async def history(
+        self,
+        home_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> list[ScenarioEventDto]:
+        """`GET /scenario/v2/event` — журнал срабатываний сценариев.
+
+        Используется HA-coordinator'ом для catch'а голосовых команд:
+        при `scenario_widgets.UPDATE_WIDGETS` push'е через WS — делается
+        запрос с `offset=0&limit=N`, новые события (по `event_time`)
+        конвертируются в `sberhome_intent` HA event'ы.
+
+        Args:
+            home_id: id Sber-дома (см. координатор `home_id` discovery).
+            offset / limit: пагинация (limit≤200 эмпирически).
+
+        Returns:
+            Список `ScenarioEventDto`, отсортированный сервером по
+            `event_time desc` (свежие сначала).
+        """
+        params = {
+            "home_id": home_id,
+            "pagination.offset": str(offset),
+            "pagination.limit": str(limit),
+        }
+        resp = await self._transport.get("/scenario/v2/event", params=params)
+        payload = resp.json()
+        # Sber возвращает {"events": [...], "pagination": {...}} — НЕ
+        # обёрнуто в "result" (см. live response). Поддержим оба варианта
+        # на случай drift'а.
+        events = _extract_events(payload)
+        return [dto for raw in events if (dto := ScenarioEventDto.from_dict(raw)) is not None]
+
 
 # ----- helpers -----
 def _unwrap_dict(payload: Any) -> dict[str, Any]:
@@ -122,6 +158,22 @@ def _unwrap_list(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return payload
     raise ValueError(f"Expected list, got {type(payload).__name__}")
+
+
+def _extract_events(payload: Any) -> list[dict[str, Any]]:
+    """Достать `events[]` из ответа /scenario/v2/event.
+
+    Sber возвращает goly `{"events": [...], "pagination": {...}}` без
+    `result`-обёртки (live observation). На случай server-side drift'а
+    поддерживаем и обёрнутый вариант.
+    """
+    if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
+        payload = payload["result"]
+    if isinstance(payload, dict):
+        events = payload.get("events")
+        if isinstance(events, list):
+            return [e for e in events if isinstance(e, dict)]
+    return []
 
 
 __all__ = ["ScenarioAPI"]

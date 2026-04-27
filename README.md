@@ -3,7 +3,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub Release](https://img.shields.io/github/v/release/dzerik/ha-sberhome)](https://github.com/dzerik/ha-sberhome/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-976+-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-990+-brightgreen)](tests/)
 [![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/validate.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/validate.yml)
 [![HA min](https://img.shields.io/badge/Home%20Assistant-2025.3%2B-blue)](https://www.home-assistant.io)
 
@@ -161,6 +161,34 @@ click/double_click/long_press для до 10 кнопок и directional-вар�
 Zigbee/Matter readiness + position select + LED-индикатор.
 
 ## Что нового в 4.x — examples
+
+### 🎙️ Voice intents — голосовые команды Sber → HA автоматизации
+
+Sber-сценарии любого типа (TTS, push-нотификация, command device, что
+угодно) ловятся в HA через event bus как `sberhome_intent`. Никаких
+виртуальных кнопок-посредников: подписаны на `scenario_widgets`
+WebSocket топик, на каждый push дёргаем `/scenario/v2/event` и
+fire'им HA event.
+
+```yaml
+# automations.yaml — сценарий «Маркер один» создан в Sber-приложении
+# (любые actions: TTS, push, ничего, что угодно)
+automation:
+  - alias: HA reacts to Sber voice intent
+    trigger:
+      - platform: event
+        event_type: sberhome_intent
+        event_data:
+          name: "Маркер один"
+    action:
+      - service: notify.persistent_notification
+        data:
+          message: "Sber-сценарий «{{ trigger.event.data.name }}» сработал!"
+          title: Voice intent caught
+```
+
+Payload event'а: `{name, scenario_id, event_time, type, account_id}`.
+Latency end-to-end (произнесение фразы → trigger в HA): **~300-500 мс**.
 
 ### Sber-сценарии как HA buttons
 

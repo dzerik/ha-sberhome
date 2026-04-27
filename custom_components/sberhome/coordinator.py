@@ -34,7 +34,7 @@ from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRoute
 from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
 from .aiosber.dto import IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
-from .aiosber.dto.scenario import ScenarioDto
+from .aiosber.dto.scenario import ScenarioDto, ScenarioEventDto
 from .aiosber.dto.union import UnionDto
 from .api import HomeAPI, SberAPI
 from .command_tracker import CommandTracker
@@ -62,6 +62,22 @@ from .state_diff import DiffCollector
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
 # в `async_added_to_hass`, fire HA event bus при получении.
 SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
+
+# HA Event bus name для voice-intents (Phase 10). Срабатывает на каждый
+# Sber-сценарий (любого типа), который выполнился. Payload:
+# {scenario_id, name, event_time, type, account_id}.
+EVENT_SBERHOME_INTENT = f"{DOMAIN}_intent"
+
+# Limit для GET /scenario/v2/event при WS-триггере — берём последние N
+# события и фильтруем уже обработанные. 10 более чем достаточно: между
+# scenario_widgets WS push и нашим fetch'ом редко кто успевает накидать
+# больше 1-2 новых.
+INTENT_FETCH_LIMIT = 10
+
+# Cooldown между intent fetch'ами — guard от scenario_widgets-флуда
+# (Sber дублирует UPDATE_WIDGETS push'ы парами). 1 sec достаточно
+# чтобы погасить duplicate, но не пропустить быстрые повторные команды.
+INTENT_DISPATCH_COOLDOWN_SEC = 1.0
 
 # Интервал между poll'ами /scenario/v2/scenario + /scenario/v2/home/variable/at_home.
 # 5 минут — список сценариев меняется редко (CRUD руками пользователя),
@@ -183,6 +199,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # рефакторинга HomeAPI. Все internal API-factories (_device_api,
         # _inventory_api, ...) теперь делегируют сюда.
         self._client: SberClient | None = None
+        # Voice-intent dispatcher state (Phase 10).
+        # Хранит ISO-8601 `event_time` последнего обработанного scenario
+        # event'а — нужен для dedup'а: scenario_widgets WS push приходит
+        # парами (×2) на каждое срабатывание, плюс при `_on_ws_scenario_widgets`
+        # мы получаем последние N событий (limit=10), некоторые из которых
+        # уже обработаны.
+        self._last_intent_event_time: str | None = None
+        # Concurrency: WS пушит UPDATE_WIDGETS дважды подряд за <100ms,
+        # одна history-fetch достаточна. Lock держим на время fetch'а.
+        self._intent_dispatch_lock = asyncio.Lock()
 
     @property
     def devices(self) -> dict[str, DeviceDto]:
@@ -756,13 +782,23 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         router.on(Topic.DEVICE_STATE, self._on_ws_device_state)
         router.on(Topic.DEVMAN_EVENT, self._on_ws_devman_event)
         router.on(Topic.GROUP_STATE, self._on_ws_group_state)
+        # Phase 10: voice-intent dispatch — Sber пушит UPDATE_WIDGETS
+        # каждый раз когда любой scenario срабатывает (включая голосовые).
+        # Handler делает throttled fetch /scenario/v2/event и fire'ит
+        # sberhome_intent HA event для каждого нового события.
+        router.on(Topic.SCENARIO_WIDGETS, self._on_ws_scenario_widgets)
         # Всепоглощающий handler — логирует ВСЕ остальные topic'и, которые
-        # не имеют специальной обработки (OTA, SCENARIO_WIDGETS,
-        # LAUNCHER_WIDGETS, SCENARIO_HOME_CHANGE_VARIABLE, HOME_TRANSFER).
+        # не имеют специальной обработки (OTA, LAUNCHER_WIDGETS,
+        # SCENARIO_HOME_CHANGE_VARIABLE, HOME_TRANSFER).
         # Пользователь видит их в панели, может скопировать JSON для
         # багрепорта, и мы не теряем новые типы сообщений с обновлением Sber API.
         for topic in Topic:
-            if topic not in {Topic.DEVICE_STATE, Topic.DEVMAN_EVENT, Topic.GROUP_STATE}:
+            if topic not in {
+                Topic.DEVICE_STATE,
+                Topic.DEVMAN_EVENT,
+                Topic.GROUP_STATE,
+                Topic.SCENARIO_WIDGETS,
+            }:
                 router.on(topic, self._on_ws_other_topic)
 
         self._ws_client = WebSocketClient(
@@ -979,10 +1015,111 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Group changes can affect room↔device mapping — trigger full refresh.
         self.hass.async_create_task(self.async_request_refresh())
 
+    async def _on_ws_scenario_widgets(self, msg: SocketMessageDto) -> None:
+        """Phase 10: voice-intent dispatcher.
+
+        Sber пушит ``scenario_widgets.UPDATE_WIDGETS`` каждый раз когда
+        какой-либо сценарий срабатывает (включая голосовые), парами по
+        ~100ms. Payload минимальный (`{"type": "UPDATE_WIDGETS"}`) — без
+        scenario_id, нужно резолвить через event log.
+
+        Алгоритм:
+        1. Запись raw в panel ws_log (как и для остальных topic'ов).
+        2. Через `asyncio.Lock` гарантируем что параллельные fetch'и не
+           гоняются (duplicate WS push'ы порождают единственный fetch).
+        3. ``GET /scenario/v2/event?home_id=X&limit=N`` — последние события.
+        4. Фильтруем `event_time > self._last_intent_event_time`.
+        5. На каждый новый — fire `EVENT_SBERHOME_INTENT` HA event с
+           ``{name, scenario_id, event_time, type, account_id}``.
+        6. Обновляем `last_intent_event_time` на самый свежий.
+        """
+        topic_name = msg.topic.value if msg.topic else "scenario_widgets"
+        try:
+            payload = msg.to_dict()
+        except Exception:  # noqa: BLE001
+            payload = {"error": "serialization_failed"}
+        self._record_ws_message(
+            topic=topic_name,
+            device_id=msg.target_device_id,
+            payload=payload,
+        )
+
+        # Best-effort: home_id из state_cache. Если его ещё нет
+        # (первый refresh не прошёл) — skip dispatch, прилетит снова.
+        home = self.state_cache.get_home()
+        if home is None or not home.id:
+            LOGGER.debug(
+                "scenario_widgets push, but home_id not yet known — skipping intent dispatch"
+            )
+            return
+
+        if self._intent_dispatch_lock.locked():
+            # Дублирующий push (вторая половина пары) — fetch уже идёт.
+            return
+
+        async with self._intent_dispatch_lock:
+            try:
+                events = await self.client.scenarios.history(home.id, limit=INTENT_FETCH_LIMIT)
+            except Exception:  # noqa: BLE001
+                LOGGER.debug("Failed to fetch scenario history", exc_info=True)
+                return
+
+            new_events = self._select_new_intent_events(events)
+            if not new_events:
+                return
+
+            for event in new_events:
+                self._fire_intent_event(event)
+
+            # Обновляем cursor на максимальный event_time, чтобы следующий
+            # fetch не повторял эти же.
+            latest = max(
+                (e.event_time for e in new_events if e.event_time),
+                default=self._last_intent_event_time,
+            )
+            self._last_intent_event_time = latest
+            # Cooldown — guard от повторного fetch'а в follow-up push'е.
+            await asyncio.sleep(INTENT_DISPATCH_COOLDOWN_SEC)
+
+    def _select_new_intent_events(self, events: list[ScenarioEventDto]) -> list[ScenarioEventDto]:
+        """Отфильтровать события, чьё ``event_time`` строго больше
+        ранее обработанного cursor'а.
+
+        Sber возвращает события отсортированными по `event_time desc`.
+        При первом срабатывании (cursor=None) берём только самое свежее
+        (limit=1) — иначе на старте integration'а fire'ится весь
+        history.
+        """
+        if self._last_intent_event_time is None:
+            # Первый запуск — берём только последнее, маркируем cursor.
+            if not events:
+                return []
+            head = events[0]
+            self._last_intent_event_time = head.event_time
+            return [head]
+        return [e for e in events if e.event_time and e.event_time > self._last_intent_event_time]
+
+    def _fire_intent_event(self, event: ScenarioEventDto) -> None:
+        """Fire ``EVENT_SBERHOME_INTENT`` в HA event bus.
+
+        Payload готовится минимальным — только то, что нужно для
+        автоматизации-trigger'а (`name`, `scenario_id`). Полные `data`
+        и `meta` доступны но reduced — чтобы YAML-trigger был чистым.
+        """
+        data = {
+            "name": (event.name or "").strip(),
+            "scenario_id": event.object_id,
+            "event_time": event.event_time,
+            "type": event.type,
+            "account_id": event.account_id,
+        }
+        LOGGER.debug("Firing %s with data=%s", EVENT_SBERHOME_INTENT, data)
+        self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, data)
+
     async def _on_ws_other_topic(self, msg: SocketMessageDto) -> None:
         """Логирование для topic'ов без специальной обработки.
 
-        Покрывает INVENTORY_OTA, SCENARIO_WIDGETS, SCENARIO_HOME_CHANGE_VARIABLE,
+        Покрывает INVENTORY_OTA, SCENARIO_HOME_CHANGE_VARIABLE,
         LAUNCHER_WIDGETS, HOME_TRANSFER. В панели пользователь видит, что
         эти события вообще приходят — для исследования Sber API поведения.
         """

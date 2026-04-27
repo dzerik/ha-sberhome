@@ -1,5 +1,41 @@
 # Changelog
 
+## [4.1.0] — 2026-04-27
+
+### Added
+
+- **🎙️ Voice intents — голосовые команды Sber как HA-trigger'ы.**
+  Каждый Sber-сценарий любого типа (TTS, push-нотификация, device
+  command, что угодно), который сработал — fire'ит `sberhome_intent`
+  HA event с `{name, scenario_id, event_time, type, account_id}`.
+  Реализация через scenario_widgets WS топик + polling
+  /scenario/v2/event endpoint'а, БЕЗ виртуальных кнопок-посредников.
+  Latency ~300-500 мс end-to-end. См. README → «Voice intents»
+  для готового automation snippet'а.
+- `aiosber.dto.ScenarioEventDto` — типизированная обёртка над
+  scenario history event log.
+- `ScenarioAPI.history(home_id, *, offset, limit)` — `GET
+  /scenario/v2/event` endpoint.
+- `coordinator._on_ws_scenario_widgets` handler с throttling
+  (`asyncio.Lock` + `INTENT_DISPATCH_COOLDOWN_SEC=1.0` для подавления
+  duplicate WS push'ей которые Sber всегда шлёт парами ×2).
+- Cursor-based dedup через `_last_intent_event_time`: на первом
+  запуске берётся только самое свежее событие (иначе fire'ится весь
+  history), дальше — все с `event_time > cursor`.
+
+### Changed
+
+- Coordinator больше не подписывает `Topic.SCENARIO_WIDGETS` на
+  catch-all `_on_ws_other_topic` — у него теперь свой handler.
+
+### Tests
+
+- 14 новых тестов: 5 на `ScenarioAPI.history` (live shape +
+  result-wrapper compat + garbled payload + filter non-dict items),
+  9 на dispatcher (dedup на первом запуске, cursor-фильтр, payload
+  shape, lock-based dedup duplicate push'ей, history-failure
+  resilience, no-home_id skip).
+
 ## [4.0.0] — 2026-04-27
 
 Major release: расширение API-coverage и новые HA-сущности поверх ранее
