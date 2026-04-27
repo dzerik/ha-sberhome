@@ -42,11 +42,15 @@ class SberHomeIntentsView extends LitElement {
     this._fetchAll();
     // Live-обновление last_fired_at: подписываемся на sberhome_intent
     // event-bus, чтобы по факту срабатывания фразы видеть свежий timestamp.
+    // НО только когда модалка не открыта — иначе fetch'и сбрасывают
+    // intent prop в parent → modal pre-fills из stale data (уже починено
+    // через _draft, но shod refresh shouldn't trigger anyway).
     this._unsubIntentEvent = null;
     if (this.hass?.connection) {
       this.hass.connection
         .subscribeEvents((evt) => {
-          // Refresh listing — last_fired_at populated сервером.
+          // Skip refresh пока модалка открыта — пользователь редактирует.
+          if (this._editingIntent) return;
           this._fetchAll();
         }, "sberhome_intent")
         .then((unsub) => {

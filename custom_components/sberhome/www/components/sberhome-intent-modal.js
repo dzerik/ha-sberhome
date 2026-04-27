@@ -12,8 +12,9 @@ class SberHomeIntentModal extends LitElement {
   static get properties() {
     return {
       hass: { type: Object },
-      intent: { type: Object },
+      intent: { type: Object },     // initial value от parent — read-once
       isNew: { type: Boolean },
+      _draft: { type: Object },     // local state — что юзер реально редактирует
       _schema: { type: Array },
       _saving: { type: Boolean },
       _error: { type: String },
@@ -25,6 +26,7 @@ class SberHomeIntentModal extends LitElement {
     super();
     this.intent = null;
     this.isNew = false;
+    this._draft = null;
     this._schema = [];
     this._saving = false;
     this._error = "";
@@ -34,6 +36,16 @@ class SberHomeIntentModal extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._loadSchema();
+  }
+
+  willUpdate(changed) {
+    // Initial copy intent prop → _draft ровно один раз при mount.
+    // ВАЖНО: дальше parent может пересылать тот же или другой intent на
+    // каждом re-render (например когда hass обновляется в HA), но мы
+    // НЕ перезатираем _draft — иначе пользовательские правки исчезают.
+    if (changed.has("intent") && this.intent && !this._draft) {
+      this._draft = JSON.parse(JSON.stringify(this.intent));
+    }
   }
 
   async _loadSchema() {
@@ -58,27 +70,27 @@ class SberHomeIntentModal extends LitElement {
   }
 
   _onNameChange(e) {
-    this.intent = { ...this.intent, name: e.target.value };
+    this._draft = { ...this._draft, name: e.target.value };
   }
 
   _onAddPhrase() {
     const phrase = (this._phraseInput || "").trim();
     if (!phrase) return;
-    if ((this.intent.phrases || []).includes(phrase)) {
+    if ((this._draft.phrases || []).includes(phrase)) {
       this._phraseInput = "";
       return;
     }
-    this.intent = {
-      ...this.intent,
-      phrases: [...(this.intent.phrases || []), phrase],
+    this._draft = {
+      ...this._draft,
+      phrases: [...(this._draft.phrases || []), phrase],
     };
     this._phraseInput = "";
   }
 
   _onRemovePhrase(p) {
-    this.intent = {
-      ...this.intent,
-      phrases: this.intent.phrases.filter((x) => x !== p),
+    this._draft = {
+      ...this._draft,
+      phrases: this._draft.phrases.filter((x) => x !== p),
     };
   }
 
@@ -96,51 +108,51 @@ class SberHomeIntentModal extends LitElement {
       if (f.default !== undefined) defaultData[f.key] = f.default;
       else if (f.multiple) defaultData[f.key] = [];
     });
-    const newActions = this.intent.actions.map((a, i) =>
+    const newActions = this._draft.actions.map((a, i) =>
       i === idx ? { type: newType, data: defaultData, unknown: false } : a
     );
-    this.intent = { ...this.intent, actions: newActions };
+    this._draft = { ...this._draft, actions: newActions };
   }
 
   _onActionFieldChange(idx, fieldKey, value) {
-    const newActions = this.intent.actions.map((a, i) =>
+    const newActions = this._draft.actions.map((a, i) =>
       i === idx ? { ...a, data: { ...a.data, [fieldKey]: value } } : a
     );
-    this.intent = { ...this.intent, actions: newActions };
+    this._draft = { ...this._draft, actions: newActions };
   }
 
   _onAddAction() {
-    this.intent = {
-      ...this.intent,
+    this._draft = {
+      ...this._draft,
       actions: [
-        ...(this.intent.actions || []),
+        ...(this._draft.actions || []),
         { type: "ha_event_only", data: {} },
       ],
     };
   }
 
   _onRemoveAction(idx) {
-    this.intent = {
-      ...this.intent,
-      actions: this.intent.actions.filter((_, i) => i !== idx),
+    this._draft = {
+      ...this._draft,
+      actions: this._draft.actions.filter((_, i) => i !== idx),
     };
   }
 
   _onEnabledToggle(e) {
-    this.intent = { ...this.intent, enabled: e.target.checked };
+    this._draft = { ...this._draft, enabled: e.target.checked };
   }
 
   _validate() {
-    if (!(this.intent.name || "").trim()) {
+    if (!(this._draft.name || "").trim()) {
       return "Имя intent'а не может быть пустым";
     }
-    if (!(this.intent.phrases || []).length) {
+    if (!(this._draft.phrases || []).length) {
       return "Нужна хотя бы одна голосовая фраза";
     }
-    if (!(this.intent.actions || []).length) {
+    if (!(this._draft.actions || []).length) {
       return "Добавь хотя бы одно действие (ha_event_only тоже подходит)";
     }
-    for (const action of this.intent.actions) {
+    for (const action of this._draft.actions) {
       if (action.unknown) continue;
       const reg = this._schema.find((s) => s.type === action.type);
       if (!reg) continue;
@@ -168,13 +180,13 @@ class SberHomeIntentModal extends LitElement {
       if (this.isNew) {
         await this.hass.callWS({
           type: "sberhome/intents/create",
-          spec: this.intent,
+          spec: this._draft,
         });
       } else {
         await this.hass.callWS({
           type: "sberhome/intents/update",
-          intent_id: this.intent.id,
-          spec: this.intent,
+          intent_id: this._draft.id,
+          spec: this._draft,
         });
       }
       this.dispatchEvent(
@@ -325,8 +337,8 @@ class SberHomeIntentModal extends LitElement {
   }
 
   render() {
-    if (!this.intent) return html``;
-    const readOnly = !this.isNew && !this.intent.is_ha_managed;
+    if (!this._draft) return html``;
+    const readOnly = !this.isNew && !this._draft.is_ha_managed;
 
     return html`
       <div class="backdrop" @click=${this._onBackdropClick}></div>
@@ -335,7 +347,7 @@ class SberHomeIntentModal extends LitElement {
           <h2>
             ${this.isNew
               ? "Новый voice intent"
-              : `Редактирование: ${this.intent.name || "(без имени)"}`}
+              : `Редактирование: ${this._draft.name || "(без имени)"}`}
           </h2>
           <button class="close-btn" @click=${this._close}>×</button>
         </div>
@@ -357,7 +369,7 @@ class SberHomeIntentModal extends LitElement {
           <input
             type="text"
             placeholder="Например: Утренний кофе"
-            .value=${this.intent.name || ""}
+            .value=${this._draft.name || ""}
             @input=${this._onNameChange}
           />
         </div>
@@ -375,10 +387,10 @@ class SberHomeIntentModal extends LitElement {
             />
             <button class="btn" @click=${this._onAddPhrase}>+</button>
           </div>
-          ${(this.intent.phrases || []).length
+          ${(this._draft.phrases || []).length
             ? html`
                 <div class="chips">
-                  ${this.intent.phrases.map(
+                  ${this._draft.phrases.map(
                     (p) => html`
                       <span class="chip">
                         ${p}
@@ -398,7 +410,7 @@ class SberHomeIntentModal extends LitElement {
           <input
             type="checkbox"
             id="enabled"
-            .checked=${this.intent.enabled !== false}
+            .checked=${this._draft.enabled !== false}
             @change=${this._onEnabledToggle}
           />
           <label for="enabled" style="margin: 0;">Активен в Sber</label>
@@ -408,7 +420,7 @@ class SberHomeIntentModal extends LitElement {
         <div class="field">
           <label>Действия</label>
           <div class="actions-section">
-            ${(this.intent.actions || []).map((action, idx) =>
+            ${(this._draft.actions || []).map((action, idx) =>
               this._renderAction(action, idx, readOnly)
             )}
             ${!readOnly
@@ -466,7 +478,7 @@ class SberHomeIntentModal extends LitElement {
               `
             )}
           </select>
-          ${!parentReadOnly && this.intent.actions.length > 1
+          ${!parentReadOnly && this._draft.actions.length > 1
             ? html`
                 <button
                   class="btn"
