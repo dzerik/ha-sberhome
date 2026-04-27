@@ -20,6 +20,8 @@ await Promise.all([
   import(`./components/sberhome-debug-view.js${_q}`),
   import(`./components/sberhome-device-modal.js${_q}`),
   import(`./components/sberhome-settings.js${_q}`),
+  import(`./components/sberhome-intents-view.js${_q}`),
+  import(`./components/sberhome-intent-modal.js${_q}`),
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
@@ -189,7 +191,7 @@ class SberHomePanel extends LitElement {
   }
 
   render() {
-    const tabs = ["Devices", "Monitor", "Debug", "Settings"];
+    const tabs = ["Devices", "Voice Intents", "Monitor", "Debug", "Settings"];
     return html`
       <div class="header">
         <h1>SberHome</h1>
@@ -222,12 +224,15 @@ class SberHomePanel extends LitElement {
             .devices=${this._devices}>
           </sberhome-device-picker>` : ""}
         ${this._tab === 1 ? html`
+          <sberhome-intents-view .hass=${this.hass}>
+          </sberhome-intents-view>` : ""}
+        ${this._tab === 2 ? html`
           <sberhome-monitor-view .hass=${this.hass} .status=${this._status}>
           </sberhome-monitor-view>` : ""}
-        ${this._tab === 2 ? html`
+        ${this._tab === 3 ? html`
           <sberhome-debug-view .hass=${this.hass} .devices=${this._devices}>
           </sberhome-debug-view>` : ""}
-        ${this._tab === 3 ? html`
+        ${this._tab === 4 ? html`
           <sberhome-settings .hass=${this.hass}></sberhome-settings>` : ""}
       </div>
       <sberhome-toast></sberhome-toast>
