@@ -46,7 +46,12 @@ from .aiosber.exceptions import (
 )
 from .aiosber.transport import HttpTransport, SslContextProvider
 from .const import DOMAIN, LOGGER
-from .exceptions import SberApiError, SberAuthError, SberConnectionError
+from .exceptions import (
+    SberApiError,
+    SberAuthError,
+    SberConnectionError,
+    SberSmartHomeError,
+)
 from .utils import extract_devices
 
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -74,6 +79,29 @@ async def async_init_ssl(hass) -> ssl.SSLContext:
         provider = SslContextProvider()
         hass.data[_SSL_PROVIDER_KEY] = provider
     return await provider.get()
+
+
+def _extract_enum_values(raw: Any) -> list[str]:
+    """Достать enum-список из разнообразных shapes от Sber.
+
+    Sber `/devices/enums` непоследователен: один атрибут — голый list,
+    другой — `{"values": [...]}`, третий — list объектов
+    `[{"value": "x", "name": "..."}]`. Нормализуем во flat list[str],
+    отбрасывая мусор.
+    """
+    if isinstance(raw, list):
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                value = item.get("value") or item.get("id") or item.get("name")
+                if isinstance(value, str):
+                    out.append(value)
+        return out
+    if isinstance(raw, dict) and isinstance(raw.get("values"), list):
+        return _extract_enum_values(raw["values"])
+    return []
 
 
 def _normalize_legacy_token(token: dict) -> dict:
@@ -213,6 +241,12 @@ class HomeAPI:
         self._transport = HttpTransport(http=self._http, auth=self._auth)
         self._cached_devices: dict = {}
         self._cached_tree: UnionTreeDto | None = None
+        # /devices/enums — справочник enum-значений атрибутов.
+        # Один раз при первом успешном refresh кэшируем; используется как
+        # fallback-источник opt-in для select.options там, где
+        # device.attributes[].enum_values пусто (Sber иногда возвращает
+        # тип ENUM без values, ожидая что клиент возьмёт их из словаря).
+        self._cached_enums: dict[str, list[str]] = {}
 
     async def get_auth_manager(self) -> AuthManager:
         """Доступ к AuthManager для WS handshake (`coordinator._run_ws`).
@@ -249,6 +283,42 @@ class HomeAPI:
         self._cached_devices = extract_devices(raw_tree)
         # Параллельно парсим typed tree для StateCache.
         self._cached_tree = UnionTreeDto.from_dict(raw_tree)
+        # При первом успешном refresh — подтянуть /devices/enums.
+        # Best-effort: если endpoint отвалится, не валим polling.
+        if not self._cached_enums:
+            try:
+                await self._fetch_enums()
+            except SberSmartHomeError:
+                LOGGER.debug("Failed to fetch /devices/enums (ignored)", exc_info=True)
+
+    async def _fetch_enums(self) -> None:
+        """GET /devices/enums → нормализованный dict[attr_key → list[value]].
+
+        Sber возвращает разные shapes (`{"result": {"enum_key": ["v1", "v2"]}}`
+        либо вложенно через `{"values": [...]}`); нормализуем в плоский
+        dict, чтобы потребитель не разбирал shape сам.
+        """
+        data = await self._request("GET", "/devices/enums")
+        payload = data.get("result", data)
+        normalized: dict[str, list[str]] = {}
+        if isinstance(payload, dict):
+            for key, raw in payload.items():
+                values = _extract_enum_values(raw)
+                if values:
+                    normalized[str(key)] = values
+        self._cached_enums = normalized
+
+    def get_cached_enums(self) -> dict[str, list[str]]:
+        """Возвращает нормализованный enum-словарь (пустой если ещё не подтянут)."""
+        return self._cached_enums
+
+    def get_enum_values(self, attribute_key: str) -> list[str]:
+        """Удобный shortcut: список enum-значений для конкретного attribute_key.
+
+        Returns:
+            пустой list если attribute_key не в кэше.
+        """
+        return list(self._cached_enums.get(attribute_key, ()))
 
     def get_cached_tree(self) -> UnionTreeDto | None:
         """Typed дерево групп — для StateCache."""

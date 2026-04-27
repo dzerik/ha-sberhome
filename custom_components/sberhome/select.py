@@ -42,7 +42,13 @@ class SberSbermapSelect(SberBaseEntity, SelectEntity):
         super().__init__(coordinator, device_id, suffix)
         self._ha_unique_id = ha_entity.unique_id
         self._state_key = ha_entity.state_attribute_key or ""
-        self._attr_options = list(ha_entity.options or ())
+        options = list(ha_entity.options or ())
+        # Fallback: если spec не дал options (Sber иногда отдаёт ENUM
+        # без enum_values), берём их из кэша /devices/enums по
+        # attribute_key. Кэш заполняется однократно при первом refresh.
+        if not options and self._state_key:
+            options = coordinator.enum_values_for(self._state_key)
+        self._attr_options = options
         if ha_entity.entity_category is not None:
             self._attr_entity_category = ha_entity.entity_category
         if ha_entity.icon is not None:

@@ -118,3 +118,130 @@ async def test_sber_api_owns_http_when_flag_set() -> None:
     await sber.aclose()
 
     assert http.is_closed
+
+
+# ---------------------------------------------------------------------------
+# /devices/enums кэш
+# ---------------------------------------------------------------------------
+
+
+def _mock_handler(routes: dict[str, dict]):
+    """Build a MockTransport handler dispatching by URL path suffix."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        for suffix, payload in routes.items():
+            if req.url.path.endswith(suffix):
+                return httpx.Response(200, json=payload)
+        return httpx.Response(404, json={"error": "no route"})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_update_devices_cache_fetches_enums_once() -> None:
+    """update_devices_cache подтягивает /devices/enums при первом refresh
+    и не дёргает endpoint повторно при следующих refresh — это справочник,
+    а не live state."""
+    enums_calls = 0
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal enums_calls
+        if req.url.path.endswith("/device_groups/tree"):
+            return httpx.Response(200, json={"result": {"devices": [], "children": []}})
+        if req.url.path.endswith("/devices/enums"):
+            enums_calls += 1
+            return httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "vacuum_cleaner_status": ["docked", "cleaning", "idle"],
+                        "hvac_work_mode": {"values": ["auto", "cool", "heat"]},
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        sber = _make_sber(http=http)
+        store = InMemoryTokenStore(
+            initial=CompanionTokens(access_token="C", expires_in=3600)
+        )
+        home = HomeAPI(sber, http=http, token_store=store)
+        await home.update_devices_cache()
+        await home.update_devices_cache()
+        assert enums_calls == 1
+        assert home.get_enum_values("vacuum_cleaner_status") == [
+            "docked",
+            "cleaning",
+            "idle",
+        ]
+        assert home.get_enum_values("hvac_work_mode") == ["auto", "cool", "heat"]
+        # Unknown key — пустой list, не KeyError.
+        assert home.get_enum_values("nonexistent") == []
+        await home.aclose()
+        await sber.aclose()
+
+
+@pytest.mark.asyncio
+async def test_enum_fetch_failure_does_not_break_cache_refresh() -> None:
+    """Если /devices/enums недоступен (500/404) — НЕ валим polling.
+    Кэш остаётся пустым, при следующем успешном refresh попытаемся снова."""
+    enums_calls = 0
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal enums_calls
+        if req.url.path.endswith("/device_groups/tree"):
+            return httpx.Response(200, json={"result": {"devices": [], "children": []}})
+        if req.url.path.endswith("/devices/enums"):
+            enums_calls += 1
+            return httpx.Response(500, json={"error": "boom"})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        sber = _make_sber(http=http)
+        store = InMemoryTokenStore(
+            initial=CompanionTokens(access_token="C", expires_in=3600)
+        )
+        home = HomeAPI(sber, http=http, token_store=store)
+        await home.update_devices_cache()  # не должен пробросить
+        assert home.get_cached_enums() == {}
+        # Так как кэш пуст — повторно попытаемся при следующем refresh.
+        await home.update_devices_cache()
+        assert enums_calls == 2
+        await home.aclose()
+        await sber.aclose()
+
+
+@pytest.mark.asyncio
+async def test_enum_fetch_normalizes_dict_with_objects() -> None:
+    """Для list[dict] с полями value/id/name берём первое непустое."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/device_groups/tree"):
+            return httpx.Response(200, json={"result": {"devices": [], "children": []}})
+        if req.url.path.endswith("/devices/enums"):
+            return httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "fan_mode": [
+                            {"value": "low", "name": "Low"},
+                            {"value": "high", "name": "High"},
+                            {"name": "Garbled — no value"},
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        sber = _make_sber(http=http)
+        store = InMemoryTokenStore(
+            initial=CompanionTokens(access_token="C", expires_in=3600)
+        )
+        home = HomeAPI(sber, http=http, token_store=store)
+        await home.update_devices_cache()
+        # Объекты без value/id попадают в кэш через name (последний fallback).
+        assert home.get_enum_values("fan_mode") == ["low", "high", "Garbled — no value"]
+        await home.aclose()
+        await sber.aclose()

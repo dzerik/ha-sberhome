@@ -142,6 +142,21 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """AuthManager for token info (panel status)."""
         return self.home_api._auth
 
+    @property
+    def enum_dictionary(self) -> dict[str, list[str]]:
+        """Sber enum reference (`/devices/enums`).
+
+        Подтягивается best-effort при первом успешном refresh; пуст
+        пока что-то не вернулось. Используется как fallback-источник для
+        select.options там, где `device.attributes[].enum_values` пуст
+        (Sber не всегда инлайнит enum в DTO).
+        """
+        return self.home_api.get_cached_enums()
+
+    def enum_values_for(self, attribute_key: str) -> list[str]:
+        """Shortcut: список enum-значений для конкретного attribute_key."""
+        return self.home_api.get_enum_values(attribute_key)
+
     async def _async_setup(self) -> None:
         """Perform initial setup on first coordinator refresh."""
         LOGGER.debug("Coordinator initial setup complete")
