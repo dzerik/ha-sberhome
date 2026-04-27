@@ -3,7 +3,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub Release](https://img.shields.io/github/v/release/dzerik/ha-sberhome)](https://github.com/dzerik/ha-sberhome/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-862+-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-976+-brightgreen)](tests/)
 [![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/validate.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/validate.yml)
 [![HA min](https://img.shields.io/badge/Home%20Assistant-2025.3%2B-blue)](https://www.home-assistant.io)
 
@@ -54,21 +54,50 @@ flowchart LR
 
 ## Возможности
 
-- **28 категорий устройств** — полное покрытие Sber Gateway API
+- **29 категорий устройств** — полное покрытие Sber Gateway API
   (свет, розетки, реле, датчики темп/влажности/протечки/двери/движения/
   дыма/газа, шторы, ворота, клапаны, все HVAC, увлажнители, очистители,
-  чайники, пылесосы, ТВ, сценарные кнопки, домофоны, хабы).
+  чайники, пылесосы, ТВ, сценарные кнопки, домофоны, хабы, **колонки
+  SberBoom/Portal/Box/Satellite**).
+- **Sber Cloud Scenarios → HA buttons** — каждый твой Sber-сценарий
+  (`/scenario/v2/scenario`) появляется как `button` entity. Нажми в
+  HA → выполняется в облаке Сбера. Идеально для интеграции в HA-
+  автоматизации триггеров от датчиков HA, которых нет в Sber.
+- **At-home presence** — `binary_sensor.sber_at_home` зеркалит
+  глобальную переменную `at_home` из Sber-облака; парный
+  `switch.sber_at_home` пишет обратно. Используй как `condition` или
+  `trigger` в HA-автоматизациях («когда пришёл домой»).
+- **Sber LED indicator** — `light.sber_indicator_color` (HSV) управляет
+  цветом и яркостью LED-кольца на колонках Сбера через `IndicatorAPI`.
+- **Per-device firmware updates** — `update.<device>_firmware` per
+  устройству показывает доступную версию прошивки из
+  `/inventory/ota-upgrades` рядом с installed (sw_version). Когда
+  Sber публикует обновление — золотой колокольчик в шапке HA.
+  Установка управляется Sber-облаком (HA-side install не реализован).
+- **Hub diagnostics** — для SberBoom Home / SberPortal / intercom
+  координатор раз в час дёргает `/devices/{id}/discovery` и
+  экспонирует `sensor.<hub>_subdevice_count` — сколько связанных
+  через хаб устройств.
 - **Opt-in picker** — устройства не создаются в HA автоматически; вы
-  выбираете нужные во встроенной панели.
+  выбираете нужные во встроенной панели. Неподдерживаемые категории
+  визуально приглушаются с бейджем «не поддерживается» и не
+  включаются (server-side guard).
 - **Real-time WebSocket push** — изменение состояния датчика в Сбер
   → мгновенно в HA (обычно <2 сек).
 - **Adaptive polling** — когда WS активен, REST-опрос раз в 10 минут
   (только для discovery новых устройств и ренеймов); при обрыве WS
   возвращается к пользовательскому интервалу (default 30 сек).
+- **Multi-cadence background polling** — сценарии каждые 5 минут,
+  OTA / discovery / indicator каждый час (отдельно от device tree,
+  чтобы не нагружать API). Best-effort: ошибка в одном potoke не
+  валит остальные.
 - **Опционные Zigbee-датчики** — реле/лампочки подтягивают
   Zigbee-сенсоры производителя (батарея, сигнал, tamper, alarm_mute).
 - **Intercom-кнопки** `button.intercom_unlock` /
   `button.intercom_reject_call` — управление домофоном из HA.
+- **Pairing WS surface** — 8 WS-команд поверх `PairingAPI` (Wi-Fi /
+  Zigbee / Matter handshake) для будущего custom-panel «Add device»
+  wizard. Полноценный config_flow UI пока не реализован, surface готов.
 - **Встроенная панель DevTools** (вкладка Monitor в сайдбаре):
   - **State Diffs** — дельта `reported_state` вместо
     полного payload'а, чтобы увидеть что именно поменялось.
@@ -89,7 +118,7 @@ flowchart LR
 - **Diagnostics** — полный отчёт с редакцией токенов.
 - **Локализация** — русский, английский, казахский, белорусский,
   узбекский.
-- **862 теста** — unit + HA-integration (pytest +
+- **976 тестов** — unit + HA-integration (pytest +
   pytest-homeassistant-custom-component + respx).
 
 ## Поддерживаемые устройства (полный список)
@@ -123,8 +152,136 @@ aromatization, water level/low diagnostics.
 custom_key/direction/channel IR-style services).
 
 **Другое** — сценарные выключатели (`scenario_button`, события
-click/double_click для до 10 кнопок и directional-вариантов),
-домофоны (`intercom`), хабы (`hub`).
+click/double_click/long_press для до 10 кнопок и directional-вариантов
++ виртуальные c2c-кнопки `cat_button_*` типа «Эмуляция присутствия»),
+домофоны (`intercom`), хабы (`hub`), колонки/портал
+(`sber_speaker` — SberBoom Home/Mini, SberPortal, SberBox, SberSatellite).
+Через REST у Sber-владельных колонок media-control недоступен (это
+архитектурный лимит Gateway), но мы экспонируем connectivity +
+Zigbee/Matter readiness + position select + LED-индикатор.
+
+## Что нового в 4.x — examples
+
+### Sber-сценарии как HA buttons
+
+Каждый сценарий из мобильного приложения «Салют!» появляется в HA как
+button под virtual-устройством **«Sber Scenarios»**:
+
+```yaml
+# Пример automation: запустить Sber-сценарий «Уход из дома»,
+# когда HA-датчик подтвердил отсутствие
+automation:
+  - alias: Sber Goodbye on HA away
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.someone_home
+        to: "off"
+        for: "00:05:00"
+    action:
+      - service: button.press
+        target:
+          entity_id: button.sber_scenarios_uhod_iz_doma
+```
+
+### At-home presence как HA condition / trigger
+
+```yaml
+# Пример: включаем свет в коридоре только если at_home == true
+automation:
+  - alias: Hallway light when at home
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.hallway_motion
+        to: "on"
+    condition:
+      - condition: state
+        entity_id: binary_sensor.sber_at_home
+        state: "on"
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.hallway
+
+# Зеркальный поток: устанавливаем at_home из HA
+automation:
+  - alias: Set Sber at_home when arriving
+    trigger:
+      - platform: state
+        entity_id: device_tracker.my_phone
+        to: "home"
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.sber_at_home
+```
+
+### LED-индикатор колонок из HA
+
+```yaml
+# Пример: окрасить кольцо на колонке в красный когда сработал датчик дыма
+automation:
+  - alias: Red ring on smoke alarm
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.kitchen_smoke
+        to: "on"
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.sber_indicator_color
+        data:
+          hs_color: [0, 100]
+          brightness: 255
+```
+
+### Firmware updates как HA notifications
+
+`update.<device>_firmware` per устройству **выключен по умолчанию** в
+registry — слишком много шума, если включать всем 50 датчикам. Включи
+вручную для тех устройств, прошивку которых хочешь tracked:
+
+> **Settings → Devices & services → SberHome → нажми устройство →**
+> «+1 hidden entity» → toggle `Firmware`.
+
+Когда в Sber появляется обновление — HA отрисует золотой колокольчик в
+шапке. Сама установка — через мобильное приложение Сбер (server-side
+rollout, HA-side install не реализован).
+
+### Hub sub-device counter
+
+Для SberBoom Home / SberPortal / intercom создаётся диагностический
+`sensor.<hub>_subdevice_count` — сколько устройств связано через этот
+хаб. Полезно для проверки «всё ли видит хаб после рестарта» (Zigbee
+драйверы иногда забывают peer'ов).
+
+### WebSocket API для custom Lit-cards / panel-extensions
+
+Все API-домены `aiosber` доступны через `coordinator.client`:
+
+```javascript
+// В custom panel или HACS-карте
+const rooms = await hass.callWS({ type: "sberhome/get_rooms" });
+await hass.callWS({
+  type: "sberhome/rename_room",
+  room_id: "g-1",
+  name: "Гостиная",
+});
+
+// Pairing flow surface (для будущего Add-device wizard)
+const creds = await hass.callWS({
+  type: "sberhome/pairing/wifi_credentials",
+});
+await hass.callWS({
+  type: "sberhome/pairing/start",
+  pairing_type: "wifi",
+  image_set_type: "dt_bulb_e27_m",
+  timeout: 60,
+});
+
+// Manual refresh после временной сетевой ошибки
+await hass.callWS({ type: "sberhome/refresh_scenarios" });
+await hass.callWS({ type: "sberhome/refresh_ota" });
+```
 
 ## Установка
 
@@ -181,17 +338,23 @@ async def main():
   auto-refresh.
 - **`transport/`** — HTTP (httpx + retry + headers), WebSocket
   (reconnect + dispatch), lazy SSL.
-- **`api/`** — `DeviceAPI`, `GroupAPI`, `ScenarioAPI`, `PairingAPI`
-  (Matter), `IndicatorAPI`.
+- **`api/`** — 8 endpoint-доменов: `DeviceAPI`, `GroupAPI`,
+  `ScenarioAPI`, `PairingAPI` (Matter), `IndicatorAPI`,
+  `InventoryAPI` (OTA), `LightEffectsAPI`, `ScenarioTemplatesAPI`.
+  Все доступны через единый фасад `SberClient`.
 - **`dto/`** — 30+ dataclass'ов + 47 enum'ов.
 
 CLI-примеры в `examples/list_devices.py`, `set_color.py`, `ws_listen.py`.
 
 ### `custom_components/sberhome/` — HA-адаптер
 
-Тонкий слой поверх `aiosber/`. Платформы: light, switch, sensor,
+Тонкий слой поверх `aiosber/`. **15 платформ**: light, switch, sensor,
 binary_sensor, climate, cover, fan, humidifier, media_player,
-number, select, event, button, vacuum.
+number, select, event, button, vacuum, **update**.
+
+`coordinator.client` — публичная точка входа во все Sber-API из любого
+HA-кода (платформы, WS-эндпоинты, кастомные панели). Под капотом —
+один `SberClient` instance, lazy-built поверх shared `HttpTransport`.
 
 
 ## См. также

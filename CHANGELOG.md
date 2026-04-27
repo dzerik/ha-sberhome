@@ -1,5 +1,80 @@
 # Changelog
 
+## [4.0.0] — 2026-04-27
+
+Major release: расширение API-coverage и новые HA-сущности поверх ранее
+реализованных, но неиспользуемых aiosber-доменов. 9 фаз в одном бранче,
+104 новых теста (872 → 976), все зелёные.
+
+### Added
+
+- **Sber Cloud Scenarios → HA buttons**. Каждый сценарий из мобильного
+  приложения «Салют!» появляется как button в virtual-устройстве
+  «Sber Scenarios». Press → `ScenarioAPI.execute_command(scenario_id)`.
+- **At-home presence**:
+  - `binary_sensor.sber_at_home` (presence device class) зеркалит
+    глобальную переменную `at_home` из Sber-облака.
+  - `switch.sber_at_home` пишет обратно через `ScenarioAPI.set_at_home`
+    с optimistic update.
+- **Sber LED indicator light**: `light.sber_indicator_color` (HSV)
+  управляет цветом и яркостью кольца на колонках через `IndicatorAPI`.
+- **Per-device firmware updates**: `update.<device>_firmware` per
+  устройству (registry-disabled by default, включается вручную).
+  Источник — `/inventory/ota-upgrades` через новый `InventoryAPI`.
+- **Hub sub-device counter**: `sensor.<hub>_subdevice_count` для
+  SberBoom Home / SberPortal / intercom. Источник —
+  `/devices/{id}/discovery`.
+- **Sber-speaker категория** (`dt_boom_*` / `dt_portal_*` / `dt_box_*`
+  / `dt_satellite_*`): primary connectivity binary sensor + diagnostic
+  `zigbee_ready`/`matter_ready`/`staros_has_hub`/`sub_pairing`/`detector`
+  + `select.position`. Раньше эти устройства попадали в «не
+  поддерживается».
+- **`scenario_button` / cat_button_m**: виртуальные c2c-кнопки типа
+  «Эмуляция присутствия» теперь распознаются и создают `event` entity
+  с `click`/`double_click`/`long_press`.
+- **`select.options` fallback** через `/devices/enums` cache: если
+  Sber вернул ENUM-атрибут без enum_values inline, options
+  подтягиваются из закешированного справочника. Чинит «голые»
+  dropdowns у некоторых c2c-устройств.
+- **3 новых aiosber API-домена**:
+  - `InventoryAPI` — `/inventory/{ota-upgrades,tokens,otp}`.
+  - `LightEffectsAPI` — `/light/effects`.
+  - `ScenarioTemplatesAPI` — `/scenario-templates/*`.
+- **8 новых WS-эндпоинтов для panel/custom cards**:
+  - `sberhome/rename_room` — GroupAPI.rename + force tree refresh.
+  - `sberhome/refresh_scenarios` — manual reset `_scenarios_disabled`.
+  - `sberhome/refresh_ota` — manual reset `_ota_disabled`.
+  - `sberhome/pairing/wifi_credentials` — bootstrap SSID + temp pwd.
+  - `sberhome/pairing/matter_categories` — каталог Matter.
+  - `sberhome/pairing/start` — `POST /devices/pairing`.
+  - `sberhome/pairing/matter_{attestation,noc,complete,
+    connect_controller,connect_device}` — Matter handshake chain.
+
+### Changed
+
+- **`coordinator.client`** — публичный SberClient facade lazy-built
+  поверх `home_api._transport`. Закрывает архитектурный долг (CLAUDE.md,
+  парадигма пункт 6: «один публичный фасад SberClient»). Все internal
+  API-factories (`_scenario_api`, `_inventory_api`, `_device_api`,
+  `_indicator_api`) и WS-эндпоинты (rooms, pairing) теперь делегируют
+  через `coordinator.client.<domain>`.
+- **Multi-cadence background polling**: scenarios каждые 5 минут,
+  OTA / discovery / indicator каждый час. Best-effort: ошибка в одном
+  потоке не валит остальные, выставляет `_*_disabled` flag и снимает
+  его после manual refresh.
+- **`scenario_button` event_types**: добавлен `long_press` (был
+  только `click`/`double_click`, реальные устройства отдают и третий).
+- **UI panel**: устройства с unknown category показываются с бейджем
+  «не поддерживается» (оранжевый), включить нельзя (server-side
+  guard в `ws_toggle_device` + `ws_set_enabled`).
+
+### Architecture
+
+- **15 HA-платформ** (было 14): добавлен `Platform.UPDATE`.
+- **8 aiosber API-доменов** (было 5): + Inventory, LightEffects,
+  ScenarioTemplates.
+- **976 тестов** (было 872): +104 unit + integration.
+
 ## [3.14.7] — 2026-04-24
 
 ### Fixed
