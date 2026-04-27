@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.4.1] — 2026-04-27
+
+### Fixed
+
+- **GitHub Release re-publish для HACS visibility.** v4.4.0 release застрял
+  в индексе GitHub после delete/recreate-операций — публичная страница
+  releases и `/releases` API list возвращали пусто, из-за чего HACS видел
+  только v3.14.7. v4.4.1 — clean re-publish: новый tag, новый release с
+  нуля. Никаких code-изменений, только version bump.
+
 ## [4.4.0] — 2026-04-27
 
 ### Added
