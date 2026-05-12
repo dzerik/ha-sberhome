@@ -147,6 +147,7 @@ async def ws_debug_raw_tree(
                     **summary,
                     "payload_size_bytes": payload_size,
                     "sample": _first_sample(payload),
+                    "compact_nodes": _compact_nodes(payload),
                 }
             )
         except Exception as err:  # noqa: BLE001
@@ -159,6 +160,61 @@ async def ws_debug_raw_tree(
             )
 
     connection.send_result(msg["id"], {"results": results})
+
+
+def _compact_nodes(payload: Any) -> list[dict[str, Any]]:
+    """Только id/name/parent_id/group_type для каждого узла — компактно.
+
+    Для list endpoints (/device_groups?group_type=...) это даст полную картину
+    rooms/groups без многомегабайтных images-словарей. Для tree-endpoint —
+    плоский список всех узлов tree.
+    """
+    nodes: list[dict[str, Any]] = []
+    _collect_compact(payload, nodes)
+    return nodes[:200]
+
+
+def _collect_compact(payload: Any, out: list[dict[str, Any]]) -> None:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("result"), (dict, list)):
+            _collect_compact(payload["result"], out)
+        # Union node (HOME/ROOM/GROUP).
+        group = payload.get("group") or payload.get("union")
+        node = group if isinstance(group, dict) else (
+            payload if payload.get("group_type") else None
+        )
+        if isinstance(node, dict):
+            out.append(
+                {
+                    "kind": "union",
+                    "id": node.get("id"),
+                    "name": node.get("name"),
+                    "group_type": node.get("group_type"),
+                    "parent_id": node.get("parent_id"),
+                }
+            )
+        # Device node.
+        if isinstance(payload.get("device_info"), dict) and not payload.get("group_type"):
+            out.append(
+                {
+                    "kind": "device",
+                    "id": payload.get("id"),
+                    "name": (
+                        payload.get("name", {}).get("name")
+                        if isinstance(payload.get("name"), dict)
+                        else payload.get("name")
+                    ),
+                    "parent_id": payload.get("parent_id"),
+                    "group_ids": payload.get("group_ids"),
+                }
+            )
+        for child in payload.get("children") or []:
+            _collect_compact(child, out)
+        for dev in payload.get("devices") or []:
+            _collect_compact(dev, out)
+    elif isinstance(payload, list):
+        for item in payload:
+            _collect_compact(item, out)
 
 
 def _summarize_payload(payload: Any) -> dict[str, Any]:
