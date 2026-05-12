@@ -1,15 +1,5 @@
 # Changelog
 
-## [4.7.1] — 2026-05-12
-
-### Added
-
-- **`sberhome/debug/raw_tree` WS endpoint** — diagnostic-only, возвращает
-  raw payload `/device_groups/tree` от Sber + подсчёт HOME-узлов.
-  Используется из DevTools для отладки multi-home проблем. UI его не
-  зовёт. Помогает понять: Sber API не отдаёт второй дом, или мы его
-  не парсим.
-
 ## [4.7.0] — 2026-05-12
 
 ### Added — Multi-home для intents/scenarios

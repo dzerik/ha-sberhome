@@ -77,6 +77,19 @@ def ws_get_rooms(
     )
 
 
+_HOME_PROBE_ENDPOINTS: tuple[str, ...] = (
+    "/device_groups/tree",
+    "/device_groups/",
+    "/device_groups/?type=HOME",
+    "/device_groups/?group_type=HOME",
+    "/homes",
+    "/home/list",
+    "/houses",
+    "/user/homes",
+    "/v1/homes",
+)
+
+
 @websocket_api.websocket_command({vol.Required("type"): "sberhome/debug/raw_tree"})
 @websocket_api.async_response
 async def ws_debug_raw_tree(
@@ -84,35 +97,81 @@ async def ws_debug_raw_tree(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Diagnostic: вернуть raw payload `/device_groups/tree` от Sber.
+    """Diagnostic: пробует несколько candidate-endpoints Sber API и
+    возвращает для каждого количество HOME-узлов + sample raw payload.
 
-    Используется для отладки multi-home/parsing-вопросов. UI его не зовёт
-    в нормальной работе — только из DevTools при отладке.
+    Используется для разбора multi-home: исходный `/device_groups/tree`
+    отдаёт только дефолтный дом. Возможно есть другой endpoint, который
+    возвращает все HOME-узлы юзера — проверяем кандидатов.
+
+    UI его не зовёт в нормальной работе — только из DevTools при отладке.
     """
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
-    try:
-        transport = coord.client.devices._transport  # type: ignore[attr-defined]
-        resp = await transport.get("/device_groups/tree")
-        payload = resp.json()
-    except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "fetch_failed", str(err))
-        return
-    # Анализ: посчитаем сколько HOME-узлов видно в payload.
-    home_count = _count_homes_in_raw(payload)
-    top_level_keys = (
-        sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__
-    )
-    connection.send_result(
-        msg["id"],
-        {
-            "home_count": home_count,
-            "top_level_keys": top_level_keys,
-            "raw": payload,
-        },
-    )
+
+    transport = coord.client.devices._transport  # type: ignore[attr-defined]
+    results: list[dict[str, Any]] = []
+    for url in _HOME_PROBE_ENDPOINTS:
+        try:
+            resp = await transport.get(url)
+            payload = resp.json()
+            home_count = _count_homes_in_raw(payload)
+            home_names = _list_home_names(payload)
+            top_level_keys = (
+                sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__
+            )
+            # Сохраняем payload только если он мал (плоский список)
+            # — full tree слишком большой и не нужен в diagnostic-сводке.
+            payload_size = len(str(payload))
+            results.append(
+                {
+                    "url": url,
+                    "status": "ok",
+                    "home_count": home_count,
+                    "home_names": home_names,
+                    "top_level_keys": top_level_keys,
+                    "payload_size_bytes": payload_size,
+                    "raw": payload if payload_size < 50000 else None,
+                }
+            )
+        except Exception as err:  # noqa: BLE001
+            results.append(
+                {
+                    "url": url,
+                    "status": "error",
+                    "error": str(err)[:200],
+                }
+            )
+
+    connection.send_result(msg["id"], {"results": results})
+
+
+def _list_home_names(payload: Any) -> list[str]:
+    """Рекурсивно собрать имена всех HOME-узлов в payload."""
+    out: list[str] = []
+    _walk_collect_homes(payload, out)
+    return out
+
+
+def _walk_collect_homes(payload: Any, out: list[str]) -> None:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("result"), (dict, list)):
+            _walk_collect_homes(payload["result"], out)
+        group = payload.get("group") or payload.get("union")
+        if isinstance(group, dict) and group.get("group_type") == "HOME":
+            name = group.get("name") or group.get("id") or "<unnamed>"
+            out.append(str(name))
+        # Сама группа может быть HOME (для плоского списка).
+        if payload.get("group_type") == "HOME":
+            name = payload.get("name") or payload.get("id") or "<unnamed>"
+            out.append(str(name))
+        for child in payload.get("children") or []:
+            _walk_collect_homes(child, out)
+    elif isinstance(payload, list):
+        for item in payload:
+            _walk_collect_homes(item, out)
 
 
 def _count_homes_in_raw(payload: Any) -> int:
