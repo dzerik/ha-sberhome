@@ -17,6 +17,10 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TOKEN = "token"  # SberID token (OAuth2 access/refresh/id triplet)
 CONF_ENABLED_DEVICE_IDS = "enabled_device_ids"  # opt-in device picker
 
+# Метод авторизации (см. aiosber.const.AUTH_METHOD_SBERID / AUTH_METHOD_CSAFRONT).
+# Default отсутствует — legacy entries без этого ключа считаются SberID.
+CONF_AUTH_METHOD = "auth_method"
+
 AUTH_ENDPOINT = "https://online.sberbank.ru/CSAFront/oidc/authorize.do"
 TOKEN_ENDPOINT = "https://online.sberbank.ru:4431/CSAFront/api/service/oidc/v3/token"
 COMPANION_URL = "https://companion.devices.sberbank.ru/v13/smarthome/token"

@@ -2,23 +2,49 @@
   "config": {
     "step": {
       "user": {
+        "title": "Connect to SberHome",
+        "description": "Choose how to authorize with Sber smart home.",
+        "menu_options": {
+          "sberid": "Sber ID (browser, recommended)",
+          "sms": "Phone number + SMS code (beta)"
+        }
+      },
+      "sberid": {
         "title": "Authorize via Sber ID"
+      },
+      "sms_phone": {
+        "title": "Sign in via SMS (beta)",
+        "description": "Enter the phone number registered with Sber Home. Format: {example_phone}. We'll send a one-time SMS code.",
+        "data": {
+          "phone": "Phone number"
+        }
+      },
+      "sms_otp": {
+        "title": "Enter the SMS code",
+        "description": "We sent a one-time code to {phone}.",
+        "data": {
+          "otp": "SMS code"
+        }
       },
       "reauth_confirm": {
         "title": "Reauthenticate",
-        "description": "The SberHome authorization token has expired. Please sign in again via Sber ID."
+        "description": "The SberHome authorization token has expired. Please sign in again ({method})."
       }
     },
     "abort": {
       "invalid_auth": "Invalid authentication",
       "already_configured": "Device is already configured",
       "reauth_successful": "Reauthentication successful",
-      "wrong_account": "Signed in with a different Sber ID account than the original config entry. Sign in again with the correct account."
+      "wrong_account": "Signed in with a different Sber account than the original config entry. Sign in again with the correct account.",
+      "cannot_connect": "Could not reach Sber servers. Check the connection and try again."
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "invalid_phone": "Invalid phone number. Use international format like 78001234567.",
+      "send_otp_failed": "Could not send the SMS code. Verify the number and try again later.",
+      "invalid_otp": "The SMS code is wrong or expired. Request a new one if needed."
     },
     "create_entry": {
       "default": "Authorization successful. **No devices were imported automatically** — open the SberHome panel in the sidebar (or go to [/sberhome](/sberhome)) and pick which devices you want in Home Assistant. Until then the integration is connected but exposes no entities."

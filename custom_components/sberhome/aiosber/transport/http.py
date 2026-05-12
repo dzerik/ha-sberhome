@@ -21,7 +21,7 @@ from typing import Any, Final
 
 import httpx
 
-from ..auth.manager import AuthManager
+from ..auth.store import AuthManagerProtocol
 from ..const import DEFAULT_USER_AGENT, GATEWAY_BASE_URL
 from ..exceptions import (
     ApiError,
@@ -47,7 +47,7 @@ class HttpTransport:
     def __init__(
         self,
         http: httpx.AsyncClient,
-        auth: AuthManager,
+        auth: AuthManagerProtocol,
         *,
         base_url: str = GATEWAY_BASE_URL,
         user_agent: str = DEFAULT_USER_AGENT,

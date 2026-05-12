@@ -10,8 +10,9 @@ from custom_components.sberhome.auth_state import pending_auth_flows
 from custom_components.sberhome.config_flow import (
     ConfigFlow,
     SberHomeOptionsFlow,
+    _normalize_phone,
 )
-from custom_components.sberhome.const import CONF_SCAN_INTERVAL
+from custom_components.sberhome.const import CONF_AUTH_METHOD, CONF_SCAN_INTERVAL
 
 
 def _make_flow_with_source(source: str = "user") -> ConfigFlow:
@@ -23,8 +24,27 @@ def _make_flow_with_source(source: str = "user") -> ConfigFlow:
 
 
 @pytest.mark.asyncio
-async def test_step_user_starts_external_flow():
-    """Test that async_step_user registers views and returns external step."""
+async def test_step_user_shows_menu():
+    """async_step_user показывает menu выбора метода (PR v5.1.0)."""
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    flow.flow_id = "test-flow-id"
+
+    def mock_show_menu(**kwargs):
+        return {"type": "menu", **kwargs}
+
+    flow.async_show_menu = mock_show_menu
+
+    result = await flow.async_step_user(user_input=None)
+    assert result["type"] == "menu"
+    assert result["step_id"] == "user"
+    assert "sberid" in result["menu_options"]
+    assert "sms" in result["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_step_sberid_starts_external_flow():
+    """async_step_sberid запускает существующий PKCE flow."""
     flow = ConfigFlow()
     flow.hass = MagicMock()
     flow.hass.http = MagicMock()
@@ -42,7 +62,7 @@ async def test_step_user_starts_external_flow():
 
         flow.async_external_step = mock_external_step
 
-        result = await flow.async_step_user(user_input=None)
+        result = await flow.async_step_sberid(user_input=None)
 
     assert result["type"] == "external"
     assert "auth/sberhome" in result["url"]
@@ -50,13 +70,12 @@ async def test_step_user_starts_external_flow():
     assert flow.hass.http.register_view.call_count == 2
     assert "test-flow-id" in pending_auth_flows
 
-    # Cleanup
     pending_auth_flows.pop("test-flow-id", None)
 
 
 @pytest.mark.asyncio
-async def test_step_user_completes_external():
-    """Test that async_step_user with user_input completes external step."""
+async def test_step_sberid_completes_external():
+    """async_step_sberid с user_input завершает external_step."""
     flow = ConfigFlow()
     flow.hass = MagicMock()
     flow._client = AsyncMock()
@@ -69,7 +88,7 @@ async def test_step_user_completes_external():
 
     flow.async_external_step_done = mock_external_step_done
 
-    result = await flow.async_step_user(user_input={})
+    result = await flow.async_step_sberid(user_input={})
     assert called_with["next_step_id"] == "finish"
 
 
@@ -138,8 +157,11 @@ async def test_step_finish_cleans_up_pending():
 @pytest.mark.asyncio
 async def test_step_reauth_shows_confirm_form():
     """Test that async_step_reauth shows reauth_confirm form."""
-    flow = ConfigFlow()
+    flow = _make_flow_with_source("reauth")
     flow.hass = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.data = {"token": {}}
+    flow._get_reauth_entry = MagicMock(return_value=mock_entry)
 
     def mock_show_form(**kwargs):
         return {"type": "form", **kwargs}
@@ -154,12 +176,16 @@ async def test_step_reauth_shows_confirm_form():
 @pytest.mark.asyncio
 async def test_step_reauth_confirm_starts_external_auth():
     """Test that reauth_confirm with user_input starts external OAuth flow."""
-    flow = ConfigFlow()
+    flow = _make_flow_with_source("reauth")
     flow.hass = MagicMock()
     flow.hass.http = MagicMock()
     flow.hass.data = {}
     flow.hass.async_add_executor_job = AsyncMock(side_effect=lambda fn, *a: fn(*a))
     flow.flow_id = "reauth-flow-id"
+    # entry.data без auth_method ⇒ дефолт SberID flow
+    mock_entry = MagicMock()
+    mock_entry.data = {"token": {}}
+    flow._get_reauth_entry = MagicMock(return_value=mock_entry)
 
     with patch("custom_components.sberhome.config_flow.SberAPI") as mock_sber_cls:
         mock_sber_cls.return_value.create_authorization_url.return_value = (
@@ -177,7 +203,6 @@ async def test_step_reauth_confirm_starts_external_auth():
     assert result["step_id"] == "reauth_authorize"
     assert "reauth-flow-id" in pending_auth_flows
 
-    # Cleanup
     pending_auth_flows.pop("reauth-flow-id", None)
 
 
@@ -394,3 +419,101 @@ async def test_step_finish_skips_unique_id_when_no_sub() -> None:
     flow.async_set_unique_id.assert_not_awaited()
     flow._abort_if_unique_id_configured.assert_not_called()
     flow.async_create_entry.assert_called_once()
+
+
+# --- CSAFront SMS-OTP flow (v5.1.0 beta) ---
+
+
+def test_normalize_phone_accepts_canonical():
+    assert _normalize_phone("78001234567") == "78001234567"
+
+
+def test_normalize_phone_converts_leading_8():
+    assert _normalize_phone("88001234567") == "78001234567"
+
+
+def test_normalize_phone_strips_formatting():
+    assert _normalize_phone("+7 (800) 123-45-67") == "78001234567"
+
+
+def test_normalize_phone_adds_country_code_for_10_digits():
+    assert _normalize_phone("8001234567") == "78001234567"
+
+
+def test_normalize_phone_returns_none_for_garbage():
+    assert _normalize_phone("hello") is None
+    assert _normalize_phone("") is None
+    assert _normalize_phone("123") is None
+
+
+@pytest.mark.asyncio
+async def test_sms_phone_step_shows_form_on_first_call():
+    """Без user_input — показываем форму phone."""
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    flow.async_show_form = MagicMock(return_value={"type": "form", "step_id": "sms_phone"})
+    result = await flow.async_step_sms_phone(user_input=None)
+    assert result["type"] == "form"
+    flow.async_show_form.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_sms_phone_step_rejects_garbage_phone():
+    """Невалидный phone → errors['phone']='invalid_phone'."""
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    captured: dict = {}
+
+    def mock_show_form(**kwargs):
+        captured.update(kwargs)
+        return {"type": "form", **kwargs}
+
+    flow.async_show_form = mock_show_form
+    await flow.async_step_sms_phone(user_input={"phone": "xxx"})
+    assert captured["errors"] == {"phone": "invalid_phone"}
+
+
+@pytest.mark.asyncio
+async def test_sms_otp_step_creates_entry_on_success():
+    """OTP correct → finalize создаёт entry с auth_method=csafront."""
+    flow = _make_flow_with_source("user")
+    flow.hass = MagicMock()
+    flow.hass.data = {}
+    flow.flow_id = "sms-test"
+
+    # mock уже было передано через phone-step
+    http_mock = AsyncMock()
+    flow._csafront_http = http_mock
+    flow._csafront_phone = "78001234567"
+    flow._csafront_pkce = MagicMock()
+    flow._csafront_ouid = "ouid-x"
+
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+
+    created: dict = {}
+
+    def mock_create_entry(**kwargs):
+        created.update(kwargs)
+        return {"type": "create_entry", **kwargs}
+
+    flow.async_create_entry = mock_create_entry
+
+    with (
+        patch("custom_components.sberhome.config_flow.verify_otp", AsyncMock(return_value="ac")),
+        patch(
+            "custom_components.sberhome.config_flow.exchange_authcode",
+            AsyncMock(return_value={"access_token": "ax", "refresh_token": "rx", "expires_in": 1800}),
+        ),
+        patch(
+            "custom_components.sberhome.config_flow.get_smart_home_token",
+            AsyncMock(return_value="sht"),
+        ),
+    ):
+        await flow.async_step_sms_otp(user_input={"otp": "1234"})
+
+    http_mock.aclose.assert_awaited_once()
+    assert flow._csafront_http is None
+    assert created["data"][CONF_AUTH_METHOD] == "csafront"
+    assert created["data"]["csafront_tokens"]["smart_home_token"] == "sht"
+    assert created["data"]["csafront_tokens"]["phone"] == "78001234567"

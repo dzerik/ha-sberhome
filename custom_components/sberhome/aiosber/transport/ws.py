@@ -35,7 +35,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import Protocol
 from urllib.parse import urlencode
 
-from ..auth.manager import AuthManager
+from ..auth.store import AuthManagerProtocol
 from ..const import (
     DEFAULT_WS_DEVICE_TYPE,
     DEFAULT_WS_TOPICS,
@@ -120,7 +120,7 @@ class WebSocketClient:
 
     def __init__(
         self,
-        auth: AuthManager,
+        auth: AuthManagerProtocol,
         callback: MessageCallback,
         *,
         factory: WebSocketFactory = default_websockets_factory,

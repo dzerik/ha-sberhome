@@ -17,11 +17,17 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 
-from ._ha_token_store import HATokenStore
-from .aiosber.auth import AuthManager
+from ._ha_token_store import HACsafrontTokenStore, HATokenStore
+from .aiosber.auth import (
+    AuthManager,
+    AuthManagerProtocol,
+    CsafrontAuthManager,
+    CsafrontTokens,
+)
+from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID
 from .aiosber.transport import HttpTransport
 from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
-from .const import CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
+from .const import CONF_AUTH_METHOD, CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
 from .websocket_api import async_setup_websocket_api
@@ -67,17 +73,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     ssl_ctx = await async_init_ssl(hass)
     http = httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
 
-    sber = SberAPI(token=entry.data[CONF_TOKEN], http=http)
-    store = HATokenStore(hass, entry)
-    # Ротированные SberID токены персистятся в entry.data, чтобы выживать
-    # рестарт HA: refresh_token у Sber одноразовый, и без save_sberid
-    # после первой ротации токен в entry.data становится невалиден.
-    auth = AuthManager(
-        http=http,
-        store=store,
-        sberid_tokens=sber.sberid_tokens,
-        on_sberid_refreshed=store.save_sberid,
-    )
+    # SberAPI инстанс нужен для config_flow PKCE-обновления (reauth) и
+    # для legacy SberID flow. Для CSAFront flow SberID-токенов нет —
+    # передаём пустой dict.
+    sber_token = entry.data.get(CONF_TOKEN) or {"access_token": ""}
+    sber = SberAPI(token=sber_token, http=http)
+
+    # Диспатч на нужный auth manager по auth_method (default — legacy SberID).
+    auth_method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_SBERID)
+    auth: AuthManagerProtocol
+    if auth_method == AUTH_METHOD_CSAFRONT:
+        csaf_store = HACsafrontTokenStore(hass, entry)
+        csaf_data = entry.data.get("csafront_tokens")
+        if not csaf_data:
+            await http.aclose()
+            raise ConfigEntryAuthFailed("CSAFront tokens missing — reauth required")
+        initial = CsafrontTokens.from_dict(csaf_data)
+        auth = CsafrontAuthManager(
+            http=http,
+            store=csaf_store,
+            initial=initial,
+            on_tokens_refreshed=csaf_store.save_refreshed,
+        )
+    else:
+        store = HATokenStore(hass, entry)
+        # Ротированные SberID токены персистятся в entry.data, чтобы выживать
+        # рестарт HA: refresh_token у Sber одноразовый, и без save_sberid
+        # после первой ротации токен в entry.data становится невалиден.
+        auth = AuthManager(
+            http=http,
+            store=store,
+            sberid_tokens=sber.sberid_tokens,
+            on_sberid_refreshed=store.save_sberid,
+        )
     transport = HttpTransport(http=http, auth=auth)
 
     coordinator = SberHomeCoordinator(hass, entry, sber, transport, auth)

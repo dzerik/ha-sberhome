@@ -49,33 +49,22 @@ export class SberHomeHomeSwitcher extends LitElement {
         display: inline-flex;
         align-items: center;
       }
-      .switcher {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(255, 255, 255, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        padding: 4px 8px 4px 10px;
-        border-radius: 6px;
-        font-size: 13px;
-      }
-      .icon {
-        font-size: 14px;
-        opacity: 0.85;
-      }
+      /* Единый стиль с category-dropdown в device-picker (toolbar).
+         Геометрия, border-radius, font-size, padding идентичны. */
       select {
-        background: transparent;
-        color: inherit;
-        border: none;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.3));
+        background: var(--card-background-color, rgba(255, 255, 255, 0.15));
+        color: var(--primary-text-color, inherit);
         font-size: 13px;
-        padding: 2px 4px;
         cursor: pointer;
         outline: none;
-        max-width: 180px;
+        max-width: 220px;
       }
       select option {
-        color: #000;
-        background: #fff;
+        color: var(--primary-text-color, #000);
+        background: var(--card-background-color, #fff);
       }
     `;
   }
@@ -85,22 +74,24 @@ export class SberHomeHomeSwitcher extends LitElement {
       return html``;
     }
     const value = this.selectedHomeId || "__all__";
+    const totalDevices = this.homes.reduce((s, h) => s + (h.device_count || 0), 0);
     return html`
-      <div class="switcher" title="Фильтр устройств и комнат по дому">
-        <span class="icon">🏡</span>
-        <select @change=${this._onChange} .value=${value}>
-          <option value="__all__" ?selected=${value === "__all__"}>
-            Все дома (${this.homes.reduce((s, h) => s + (h.device_count || 0), 0)})
-          </option>
-          ${this.homes.map(
-            (h) => html`
-              <option value=${h.id} ?selected=${value === h.id}>
-                ${h.name || "Дом"} (${h.device_count || 0})
-              </option>
-            `
-          )}
-        </select>
-      </div>
+      <select
+        @change=${this._onChange}
+        .value=${value}
+        title="Фильтр устройств и комнат по дому"
+      >
+        <option value="__all__" ?selected=${value === "__all__"}>
+          Все дома (${totalDevices})
+        </option>
+        ${this.homes.map(
+          (h) => html`
+            <option value=${h.id} ?selected=${value === h.id}>
+              ${h.name || "Дом"} (${h.device_count || 0})
+            </option>
+          `
+        )}
+      </select>
     `;
   }
 }

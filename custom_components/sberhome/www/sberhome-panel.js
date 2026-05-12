@@ -209,17 +209,21 @@ class SberHomePanel extends LitElement {
       .header sberhome-home-switcher {
         margin-right: 12px;
       }
+      /* Единый стиль с category-dropdown / device-picker toolbar:
+         padding 8px 12px, border-radius 6px, фон через HA-переменные.
+         Поведение consistent с другими формами на панели. */
       .refresh-btn {
-        background: rgba(255, 255, 255, 0.15);
-        color: inherit;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        padding: 6px 14px;
+        background: var(--card-background-color, rgba(255, 255, 255, 0.15));
+        color: var(--primary-text-color, inherit);
+        border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.3));
+        padding: 8px 12px;
         border-radius: 6px;
         cursor: pointer;
         font-size: 13px;
+        font-weight: 500;
       }
       .refresh-btn:hover:not([disabled]) {
-        background: rgba(255, 255, 255, 0.25);
+        background: var(--secondary-background-color, rgba(255, 255, 255, 0.25));
       }
       .refresh-btn[disabled] {
         opacity: 0.5;

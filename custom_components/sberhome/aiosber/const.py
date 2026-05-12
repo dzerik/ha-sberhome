@@ -63,6 +63,36 @@ DEFAULT_SCOPES: Final = ("openid",)
 DEFAULT_PARTNER_NAME: Final = "Салют! Умный дом"
 
 # =============================================================================
+# CSAFront SMS-OTP auth (beta path)
+# =============================================================================
+# Альтернативный flow: вход через номер телефона + SMS-OTP, минуя
+# Sber ID OAuth. Удобен для пользователей у которых стандартный
+# `id.sber.ru` flow упал (например блокировка `companionapp://` в браузере).
+#
+# Этапы:
+# 1. POST /CSAFront/uapi/v2/authenticate с phone + PKCE → ouid (SMS отправлен).
+# 2. POST /CSAFront/uapi/v2/verify с OTP → authcode.
+# 3. POST /CSAFront/api/service/oidc/v3/token с authcode → access + refresh.
+# 4. GET /v13/smarthome/token с Bearer → SmartHomeToken (используется как
+#    X-AUTH-jwt для Gateway API напрямую).
+# 5. Refresh: POST .../token с grant_type=refresh_token (rotation!).
+CSAFRONT_AUTHENTICATE_URL: Final = (
+    "https://online.sberbank.ru/CSAFront/uapi/v2/authenticate"
+)
+CSAFRONT_VERIFY_URL: Final = "https://online.sberbank.ru/CSAFront/uapi/v2/verify"
+# CSAFRONT_TOKEN_URL = TOKEN_ENDPOINT — reused (тот же endpoint).
+CSAFRONT_SMARTHOME_TOKEN_URL: Final = "https://mp-prom.salutehome.ru/v13/smarthome/token"
+
+# Отдельный client_id для CSAFront flow — взят из app-конфига Sber Home.
+# Отличается от DEFAULT_CLIENT_ID, который используется для companion-flow.
+CSAFRONT_CLIENT_ID: Final = "6835fd63-22c8-4c20-bd4a-2bba906afe5f"
+CSAFRONT_REDIRECT_URI: Final = "homuzapp://host"
+
+# auth_method значения для entry.data["auth_method"]
+AUTH_METHOD_SBERID: Final = "sberid"
+AUTH_METHOD_CSAFRONT: Final = "csafront"
+
+# =============================================================================
 # HTTP defaults
 # =============================================================================
 DEFAULT_USER_AGENT: Final = (

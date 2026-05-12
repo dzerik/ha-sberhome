@@ -1,5 +1,52 @@
 # Changelog
 
+## [5.1.0] — 2026-05-12
+
+### Added
+
+- **SMS-OTP вход (beta)** — альтернативный путь авторизации через
+  номер телефона + одноразовый код. Полезно тем, у кого стандартный
+  `id.sber.ru` flow не отработал (блокировка `companionapp://`,
+  баги мобильного браузера и т.п.). В config flow появилось меню
+  выбора метода: «Sber ID (через браузер, рекомендуем)» или «Номер
+  телефона + SMS-код (beta)».
+
+  **Механизм и алгоритм взяты полностью из открытого источника —
+  проекта [shuryak/sberdevices](https://github.com/shuryak/sberdevices)
+  (Go, MIT)**. Endpoint'ы CSAFront (`/authenticate`, `/verify`,
+  `/oidc/v3/token`, `/v13/smarthome/token`), anti-bot `rsa_data`,
+  persistent `X-Device-ID`, refresh-rotation — переиспользованы без
+  изменений по существу; портировано на Python/asyncio и
+  интегрировано в общий `aiosber`-стек.
+
+  Технически: `CsafrontTokens` (DTO с CSAFront access + refresh +
+  SmartHomeToken + client_uuid), `CsafrontAuthManager` (тот же
+  публичный API что у `AuthManager`: `access_token()` + `force_refresh()`),
+  `HACsafrontTokenStore` (persist в `entry.data["csafront_tokens"]`).
+  HttpTransport принимает оба менеджера через duck-typed
+  `AuthManagerProtocol`. Reauth flow диспатчит на исходный метод
+  по `entry.data["auth_method"]`.
+
+- **`AuthManagerProtocol`** в `aiosber/auth/store.py` — runtime-checkable
+  Protocol для duck-typing'а между `AuthManager` (SberID + companion)
+  и `CsafrontAuthManager` (SMS-OTP). `HttpTransport` теперь типизирован
+  на Protocol, не на конкретный класс.
+
+### Changed
+
+- **`coordinator.auth_manager`** теперь возвращает `AuthManagerProtocol`
+  вместо `AuthManager` — может быть и `CsafrontAuthManager`.
+- **UI**: dropdown «Все дома» в header панели приведён к единому
+  стилю с dropdown «Все категории» (тот же `padding`, `border-radius`,
+  HA-палитра через `--card-background-color` / `--divider-color`).
+  Кнопка «Обновить» также подтянута под общий стандарт.
+
+### Migration
+
+Существующие entries не требуют действий — `entry.data["auth_method"]`
+по умолчанию считается `sberid` (старый flow). Новые установки
+проходят через меню выбора метода.
+
 ## [5.0.0] — 2026-05-12
 
 Полная миграция координатора на типизированный стек `aiosber`. Удалён

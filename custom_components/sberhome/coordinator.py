@@ -32,7 +32,7 @@ from homeassistant.helpers.update_coordinator import (
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
 from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
-from .aiosber.auth import AuthManager
+from .aiosber.auth import AuthManagerProtocol
 from .aiosber.dto import AttributeValueDto, IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto, ScenarioEventDto
@@ -126,7 +126,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry: SberHomeConfigEntry,
         sber_api: SberAPI,
         transport: HttpTransport,
-        auth_manager: AuthManager,
+        auth_manager: AuthManagerProtocol,
     ) -> None:
         scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
@@ -244,8 +244,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._ws_client.is_connected if self._ws_client is not None else False
 
     @property
-    def auth_manager(self) -> AuthManager:
-        """AuthManager for token info (panel status) и WS handshake."""
+    def auth_manager(self) -> AuthManagerProtocol:
+        """AuthManager (SberID или CSAFront) для panel status + WS handshake."""
         return self._auth_manager
 
     @property

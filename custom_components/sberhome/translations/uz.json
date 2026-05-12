@@ -2,23 +2,49 @@
   "config": {
     "step": {
       "user": {
+        "title": "Sber Aqlli uy ulanishi",
+        "description": "Avtorizatsiya usulini tanlang.",
+        "menu_options": {
+          "sberid": "Sber ID (brauzer orqali, tavsiya etiladi)",
+          "sms": "Telefon raqami + SMS kod (beta)"
+        }
+      },
+      "sberid": {
         "title": "Sber ID orqali avtorizatsiya"
+      },
+      "sms_phone": {
+        "title": "SMS orqali kirish (beta)",
+        "description": "Sber Aqlli uyga ulangan telefon raqamini kiriting. Format: {example_phone}. SMS orqali bir martalik kod yuboramiz.",
+        "data": {
+          "phone": "Telefon raqami"
+        }
+      },
+      "sms_otp": {
+        "title": "SMS kodi",
+        "description": "Kodni {phone} raqamiga yubordik.",
+        "data": {
+          "otp": "SMS kod"
+        }
       },
       "reauth_confirm": {
         "title": "Qayta avtorizatsiya",
-        "description": "SberHome avtorizatsiya tokeni muddati tugadi. Sber ID orqali qayta kirish kerak."
+        "description": "SberHome tokeni muddati tugadi. Qayta kiring ({method})."
       }
     },
     "abort": {
       "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
       "already_configured": "Qurilma allaqachon sozlangan",
       "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi",
-      "wrong_account": "Boshlang'ich yozuvdan farqli Sber ID bilan kirildi. To'g'ri hisob bilan qaytadan kiring."
+      "wrong_account": "Boshlang'ich yozuvdan farqli Sber hisob bilan kirildi. To'g'ri hisob bilan qaytadan kiring.",
+      "cannot_connect": "Sber serverlariga ulanib bo'lmadi. Ulanishni tekshirib, qayta urinib ko'ring."
     },
     "error": {
       "cannot_connect": "Ulanib bo'lmadi",
       "invalid_auth": "Avtorizatsiya ma'lumotlari noto'g'ri",
-      "unknown": "Noma'lum xatolik"
+      "unknown": "Noma'lum xatolik",
+      "invalid_phone": "Telefon raqami noto'g'ri. Format: 78001234567.",
+      "send_otp_failed": "SMS yuborilmadi. Raqamni tekshirib, keyinroq qaytadan urinib ko'ring.",
+      "invalid_otp": "SMS kodi noto'g'ri yoki muddati tugagan. Kerak bo'lsa yangisini so'rang."
     },
     "create_entry": {
       "default": "Avtorizatsiya muvaffaqiyatli o'tdi. **Qurilmalar avtomatik import qilinmadi** — yon menyudan SberHome panelini oching (yoki [/sberhome](/sberhome) manziliga o'ting) va Home Assistant-ga kerakli qurilmalarni tanlang. Shu paytgacha integratsiya ulangan, lekin entitylar yaratmaydi."
