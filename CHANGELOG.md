@@ -1,5 +1,39 @@
 # Changelog
 
+## [4.6.0] — 2026-05-12
+
+### Added
+
+- **#2 Multi-home UI filter в панели.** У юзеров с несколькими домами в Sber
+  (например «Мой дом» + «Дача») появился dropdown-свитчер в header панели,
+  позволяющий переключаться между домами. Состояние выбора хранится в
+  `localStorage` ключом `sberhome.selected_home_id`. Если у юзера один дом
+  — свитчер скрыт (`homes.length <= 1`).
+- Подход — **lossless UI-only фильтр**: backend по-прежнему тянет все
+  устройства из всех домов. HA entities, история, automations не
+  затрагиваются. Только Devices/Debug вью в нашей панели фильтруют список
+  по выбранному дому.
+- `StateCache` теперь tracking-aware: `_walk_tree` пробрасывает
+  `current_home_id` через subtree. Новые методы — `get_homes()`,
+  `device_home_id(device_id)`, `device_home_name(device_id)`,
+  `get_rooms(home_id=...)`. Legacy `get_home()` возвращает первый из
+  `get_homes()` (для intents/scenarios).
+- WS API: новая команда `sberhome/get_homes` (id/name/room_count/
+  device_count/is_default), опциональный фильтр `home_id` в существующей
+  `sberhome/get_rooms`. В `sberhome/get_devices` / `sberhome/device_detail`
+  каждый device теперь несёт `home_id` и `home_name`.
+- Новый компонент `sberhome-home-switcher.js` — drop-in в header,
+  rendering пусто при ≤1 доме, валидация stale-state (если выбранный
+  дом исчез из tree — сброс на «Все дома»).
+
+### Out of scope (на будущее)
+
+- **Multi-home для intents/scenarios** — пока работают только для
+  первого HOME (legacy `state_cache.get_home()`). Расширение —
+  отдельный PR.
+- **Backend жёсткий фильтр** (`hidden_home_ids` в Options) — для юзеров,
+  кто хочет полностью спрятать дом из HA. Делается по запросу.
+
 ## [4.5.0] — 2026-05-12
 
 ### Added

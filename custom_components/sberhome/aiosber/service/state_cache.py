@@ -32,6 +32,8 @@ class StateCache:
         # Derived mappings (rebuilt on update_from_tree)
         self._device_to_room_name: dict[str, str] = {}
         self._device_to_room_id: dict[str, str] = {}
+        self._device_to_home_id: dict[str, str] = {}
+        self._device_to_home_name: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Read — devices
@@ -54,20 +56,47 @@ class StateCache:
     def get_all_groups(self) -> dict[str, UnionDto]:
         return dict(self._groups)
 
-    def get_rooms(self) -> list[UnionDto]:
-        """Все группы с type==ROOM."""
+    def get_rooms(self, home_id: str | None = None) -> list[UnionDto]:
+        """Все группы с type==ROOM, опционально фильтр по принадлежности дому.
+
+        Args:
+            home_id: если задан — вернуть только rooms, чьи устройства
+                принадлежат указанному дому. Если None — все rooms (legacy).
+        """
         from ..dto.union import UnionType
 
-        return [g for g in self._groups.values() if g.group_type is UnionType.ROOM]
+        rooms = [g for g in self._groups.values() if g.group_type is UnionType.ROOM]
+        if home_id is None:
+            return rooms
+        # Room принадлежит дому если хотя бы одно её device мапится на этот home_id.
+        return [r for r in rooms if r.id and self._room_home_id(r.id) == home_id]
+
+    def _room_home_id(self, room_id: str) -> str | None:
+        """Home id для room через первое попавшееся device в этой room."""
+        for did, rid in self._device_to_room_id.items():
+            if rid == room_id:
+                return self._device_to_home_id.get(did)
+        return None
 
     def get_home(self) -> UnionDto | None:
-        """Группа с type==HOME (обычно одна)."""
+        """Первая группа с type==HOME — legacy single-home accessor.
+
+        Используется intents/scenarios, которые пока работают только для
+        primary home (multi-home — отдельный enhancement). Для UI и WS API
+        используй `get_homes()` чтобы получить полный список.
+        """
+        homes = self.get_homes()
+        return homes[0] if homes else None
+
+    def get_homes(self) -> list[UnionDto]:
+        """Все HOME-узлы в текущем tree (multi-home aware).
+
+        Порядок сохраняется из dict insertion order — соответствует порядку
+        обхода tree, что обычно совпадает с порядком домов в Sber-приложении.
+        """
         from ..dto.union import UnionType
 
-        for g in self._groups.values():
-            if g.group_type is UnionType.HOME:
-                return g
-        return None
+        return [g for g in self._groups.values() if g.group_type is UnionType.HOME]
 
     def get_tree(self) -> UnionTreeDto | None:
         return self._tree
@@ -83,11 +112,19 @@ class StateCache:
         """ID комнаты для устройства (или None)."""
         return self._device_to_room_id.get(device_id)
 
+    def device_home_id(self, device_id: str) -> str | None:
+        """ID дома для устройства (или None)."""
+        return self._device_to_home_id.get(device_id)
+
+    def device_home_name(self, device_id: str) -> str | None:
+        """Имя дома для устройства (или None)."""
+        return self._device_to_home_name.get(device_id)
+
     # ------------------------------------------------------------------
     # Write — full refresh from tree
     # ------------------------------------------------------------------
     def update_from_tree(self, tree: UnionTreeDto) -> None:
-        """Parse tree → populate devices, groups, room mappings.
+        """Parse tree → populate devices, groups, room/home mappings.
 
         Вызывается после каждого polling refresh.
         """
@@ -96,19 +133,34 @@ class StateCache:
         groups: dict[str, UnionDto] = {}
         device_to_room_name: dict[str, str] = {}
         device_to_room_id: dict[str, str] = {}
+        device_to_home_id: dict[str, str] = {}
+        device_to_home_name: dict[str, str] = {}
 
-        self._walk_tree(tree, devices, groups, device_to_room_name, device_to_room_id)
+        self._walk_tree(
+            tree,
+            devices,
+            groups,
+            device_to_room_name,
+            device_to_room_id,
+            device_to_home_id,
+            device_to_home_name,
+            current_home_id=None,
+            current_home_name=None,
+        )
 
         self._devices = devices
         self._groups = groups
         self._device_to_room_name = device_to_room_name
         self._device_to_room_id = device_to_room_id
+        self._device_to_home_id = device_to_home_id
+        self._device_to_home_name = device_to_home_name
 
         _LOGGER.debug(
-            "StateCache updated: %d devices, %d groups, %d room mappings",
+            "StateCache updated: %d devices, %d groups, %d room mappings, %d home mappings",
             len(devices),
             len(groups),
             len(device_to_room_name),
+            len(device_to_home_id),
         )
 
     def update_from_devices(self, devices: dict[str, DeviceDto]) -> None:
@@ -130,13 +182,27 @@ class StateCache:
         groups: dict[str, UnionDto],
         device_to_room_name: dict[str, str],
         device_to_room_id: dict[str, str],
+        device_to_home_id: dict[str, str],
+        device_to_home_name: dict[str, str],
+        current_home_id: str | None,
+        current_home_name: str | None,
     ) -> None:
-        """Рекурсивно обойти дерево, собирая devices и groups."""
+        """Рекурсивно обойти дерево, собирая devices, groups и home/room mappings.
+
+        `current_home_id`/`current_home_name` пробрасываются вглубь и
+        обновляются при заходе в HOME-узел. Каждое device наследует home
+        от ближайшего предка-HOME.
+        """
         from ..dto.union import UnionType
 
         union = node.union
         if union is not None and union.id:
             groups[union.id] = union
+
+        # Если этот node — HOME, обновляем context для subtree.
+        if union is not None and union.group_type is UnionType.HOME and union.id:
+            current_home_id = union.id
+            current_home_name = union.name
 
         # Определяем: этот node — комната?
         is_room = union is not None and union.group_type is UnionType.ROOM and union.name
@@ -147,9 +213,23 @@ class StateCache:
                 if is_room and union is not None:
                     device_to_room_name[device.id] = union.name  # type: ignore[arg-type]
                     device_to_room_id[device.id] = union.id  # type: ignore[arg-type]
+                if current_home_id:
+                    device_to_home_id[device.id] = current_home_id
+                    if current_home_name:
+                        device_to_home_name[device.id] = current_home_name
 
         for child in node.children:
-            self._walk_tree(child, devices, groups, device_to_room_name, device_to_room_id)
+            self._walk_tree(
+                child,
+                devices,
+                groups,
+                device_to_room_name,
+                device_to_room_id,
+                device_to_home_id,
+                device_to_home_name,
+                current_home_id,
+                current_home_name,
+            )
 
     # ------------------------------------------------------------------
     # Write — WS patch (точечное обновление)

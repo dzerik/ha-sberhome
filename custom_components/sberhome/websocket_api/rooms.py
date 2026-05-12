@@ -11,22 +11,40 @@ from homeassistant.core import HomeAssistant, callback
 from ._common import get_coordinator
 
 
-@websocket_api.websocket_command({vol.Required("type"): "sberhome/get_rooms"})
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "sberhome/get_rooms",
+        vol.Optional("home_id"): vol.Any(str, None),
+    }
+)
 @callback
 def ws_get_rooms(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return all Sber rooms with device counts."""
+    """Return Sber rooms with device counts.
+
+    Опциональный `home_id` фильтр — если задан, возвращаются только rooms
+    указанного дома, и `total_devices` считается только по нему. Без
+    параметра — поведение legacy (все rooms всех домов).
+    """
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
 
     cache = coord.state_cache
-    home = cache.get_home()
-    rooms = cache.get_rooms()
+    requested_home_id = msg.get("home_id")
+
+    if requested_home_id is not None:
+        home = cache.get_group(requested_home_id)
+        rooms = cache.get_rooms(home_id=requested_home_id)
+        device_filter = lambda did: cache.device_home_id(did) == requested_home_id  # noqa: E731
+    else:
+        home = cache.get_home()
+        rooms = cache.get_rooms()
+        device_filter = lambda _did: True  # noqa: E731
 
     rooms_out: list[dict[str, Any]] = []
     for room in rooms:
@@ -42,6 +60,8 @@ def ws_get_rooms(
             }
         )
 
+    total_devices = sum(1 for did in cache.get_all_devices() if device_filter(did))
+
     connection.send_result(
         msg["id"],
         {
@@ -52,9 +72,50 @@ def ws_get_rooms(
             if home
             else None,
             "rooms": rooms_out,
-            "total_devices": len(cache.get_all_devices()),
+            "total_devices": total_devices,
         },
     )
+
+
+@websocket_api.websocket_command({vol.Required("type"): "sberhome/get_homes"})
+@callback
+def ws_get_homes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return all Sber HOME-узлы текущего юзера с метаданными.
+
+    Для multi-home поддержки (issue #2) — UI dropdown в панели использует
+    этот endpoint чтобы отрисовать switcher. `is_default` — флаг первого
+    HOME (используется legacy single-home accessor'ом `get_home()`).
+    """
+    coord = get_coordinator(hass)
+    if coord is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+
+    cache = coord.state_cache
+    homes = cache.get_homes()
+    default_id = homes[0].id if homes else None
+
+    homes_out: list[dict[str, Any]] = []
+    for home in homes:
+        device_count = sum(
+            1 for did in cache.get_all_devices() if cache.device_home_id(did) == home.id
+        )
+        room_count = sum(1 for _ in cache.get_rooms(home_id=home.id))
+        homes_out.append(
+            {
+                "id": home.id,
+                "name": home.name,
+                "room_count": room_count,
+                "device_count": device_count,
+                "is_default": home.id == default_id,
+            }
+        )
+
+    connection.send_result(msg["id"], {"homes": homes_out})
 
 
 @websocket_api.websocket_command(

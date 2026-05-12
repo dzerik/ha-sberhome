@@ -117,6 +117,8 @@ def ws_get_devices(
                 "serial_number": dto.serial_number,
                 "room_id": coord.state_cache.device_room_id(device_id),
                 "room_name": coord.state_cache.device_room(device_id),
+                "home_id": coord.state_cache.device_home_id(device_id),
+                "home_name": coord.state_cache.device_home_name(device_id),
                 "features": [av.key for av in dto.reported_state if av.key],
                 "connection_type": (
                     str(dto.connection_type.value) if dto.connection_type else None
@@ -177,6 +179,10 @@ def ws_device_detail(
             "model": dto.device_info.model if dto.device_info else None,
             "sw_version": dto.sw_version,
             "serial_number": dto.serial_number,
+            "home_id": coord.state_cache.device_home_id(device_id),
+            "home_name": coord.state_cache.device_home_name(device_id),
+            "room_id": coord.state_cache.device_room_id(device_id),
+            "room_name": coord.state_cache.device_room(device_id),
             "reported_state": [
                 {
                     "key": av.key,

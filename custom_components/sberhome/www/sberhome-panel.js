@@ -22,9 +22,11 @@ await Promise.all([
   import(`./components/sberhome-settings.js${_q}`),
   import(`./components/sberhome-intents-view.js${_q}`),
   import(`./components/sberhome-intent-modal.js${_q}`),
+  import(`./components/sberhome-home-switcher.js${_q}`),
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
+import { HOME_SWITCHER_STORAGE_KEY } from "./components/sberhome-home-switcher.js";
 
 class SberHomePanel extends LitElement {
   static get properties() {
@@ -35,6 +37,8 @@ class SberHomePanel extends LitElement {
       _tab: { type: Number },
       _devices: { type: Array },
       _status: { type: Object },
+      _homes: { type: Array },
+      _selectedHomeId: { type: String },
       _loading: { type: Boolean },
       _error: { type: String },
       _modalDeviceId: { type: String },
@@ -46,10 +50,44 @@ class SberHomePanel extends LitElement {
     this._tab = 0;
     this._devices = [];
     this._status = null;
+    this._homes = [];
+    this._selectedHomeId = this._loadSelectedHomeId();
     this._loading = false;
     this._error = "";
     this._autoRefresh = null;
     this._modalDeviceId = "";
+  }
+
+  _loadSelectedHomeId() {
+    try {
+      return window.localStorage.getItem(HOME_SWITCHER_STORAGE_KEY) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _persistSelectedHomeId(homeId) {
+    try {
+      if (homeId === null) {
+        window.localStorage.removeItem(HOME_SWITCHER_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(HOME_SWITCHER_STORAGE_KEY, homeId);
+      }
+    } catch (e) {
+      // ignore — приватный режим, переполнение и т.п.
+    }
+  }
+
+  _onHomeSelected(e) {
+    const homeId = e.detail?.homeId ?? null;
+    this._selectedHomeId = homeId;
+    this._persistSelectedHomeId(homeId);
+  }
+
+  /** Devices, отфильтрованные по выбранному дому (или все, если null). */
+  get _visibleDevices() {
+    if (!this._selectedHomeId) return this._devices;
+    return this._devices.filter((d) => d.home_id === this._selectedHomeId);
   }
 
   connectedCallback() {
@@ -76,12 +114,22 @@ class SberHomePanel extends LitElement {
     if (!this.hass) return;
     this._loading = true;
     try {
-      const [devicesResp, status] = await Promise.all([
+      const [devicesResp, status, homesResp] = await Promise.all([
         this.hass.callWS({ type: "sberhome/get_devices" }),
         this.hass.callWS({ type: "sberhome/get_status" }),
+        this.hass.callWS({ type: "sberhome/get_homes" }).catch(() => ({ homes: [] })),
       ]);
       this._devices = devicesResp.devices || [];
       this._status = status;
+      this._homes = homesResp?.homes || [];
+      // Если выбранного дома больше нет (удалён, не загрузился) — сбрасываем.
+      if (
+        this._selectedHomeId &&
+        !this._homes.some((h) => h.id === this._selectedHomeId)
+      ) {
+        this._selectedHomeId = null;
+        this._persistSelectedHomeId(null);
+      }
       this._error = "";
     } catch (e) {
       this._error = e.message || String(e);
@@ -153,6 +201,9 @@ class SberHomePanel extends LitElement {
         font-size: 12px; opacity: 0.65; font-weight: normal;
         font-family: ui-monospace, SFMono-Regular, monospace;
       }
+      .header sberhome-home-switcher {
+        margin-right: 12px;
+      }
       .refresh-btn {
         background: rgba(255, 255, 255, 0.15);
         color: inherit;
@@ -207,6 +258,11 @@ class SberHomePanel extends LitElement {
             ? html`<span class="version">v${this._status.version}</span>`
             : ""}
         </h1>
+        <sberhome-home-switcher
+          .homes=${this._homes}
+          .selectedHomeId=${this._selectedHomeId}
+          @home-selected=${this._onHomeSelected}
+        ></sberhome-home-switcher>
         <button
           class="refresh-btn"
           @click=${this._forceRefresh}
@@ -233,7 +289,7 @@ class SberHomePanel extends LitElement {
         @device-toggled=${this._onDeviceToggled}>
         ${this._tab === 0 ? html`
           <sberhome-device-picker .hass=${this.hass}
-            .devices=${this._devices}>
+            .devices=${this._visibleDevices}>
           </sberhome-device-picker>` : ""}
         ${this._tab === 1 ? html`
           <sberhome-intents-view .hass=${this.hass}>
@@ -242,7 +298,7 @@ class SberHomePanel extends LitElement {
           <sberhome-monitor-view .hass=${this.hass} .status=${this._status}>
           </sberhome-monitor-view>` : ""}
         ${this._tab === 3 ? html`
-          <sberhome-debug-view .hass=${this.hass} .devices=${this._devices}>
+          <sberhome-debug-view .hass=${this.hass} .devices=${this._visibleDevices}>
           </sberhome-debug-view>` : ""}
         ${this._tab === 4 ? html`
           <sberhome-settings .hass=${this.hass}></sberhome-settings>` : ""}
