@@ -297,7 +297,9 @@ class SberHomePanel extends LitElement {
             .devices=${this._visibleDevices}>
           </sberhome-device-picker>` : ""}
         ${this._tab === 1 ? html`
-          <sberhome-intents-view .hass=${this.hass}>
+          <sberhome-intents-view .hass=${this.hass}
+            .homes=${this._homes}
+            .selectedHomeId=${this._selectedHomeId}>
           </sberhome-intents-view>` : ""}
         ${this._tab === 2 ? html`
           <sberhome-monitor-view .hass=${this.hass} .status=${this._status}>

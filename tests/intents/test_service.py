@@ -53,9 +53,12 @@ def _build_service(
 
     coord.state_cache = MagicMock()
     if home_id:
-        coord.state_cache.get_home = MagicMock(return_value=UnionDto(id=home_id))
+        home_dto = UnionDto(id=home_id)
+        coord.state_cache.get_home = MagicMock(return_value=home_dto)
+        coord.state_cache.get_homes = MagicMock(return_value=[home_dto])
     else:
         coord.state_cache.get_home = MagicMock(return_value=None)
+        coord.state_cache.get_homes = MagicMock(return_value=[])
 
     return IntentService(coord), coord
 

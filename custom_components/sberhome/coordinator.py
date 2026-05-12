@@ -201,11 +201,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._client: SberClient | None = None
         # Voice-intent dispatcher state (Phase 10).
         # Хранит ISO-8601 `event_time` последнего обработанного scenario
-        # event'а — нужен для dedup'а: scenario_widgets WS push приходит
-        # парами (×2) на каждое срабатывание, плюс при `_on_ws_scenario_widgets`
-        # мы получаем последние N событий (limit=10), некоторые из которых
-        # уже обработаны.
-        self._last_intent_event_time: str | None = None
+        # event'а **per-home** — нужен для dedup'а: scenario_widgets WS push
+        # приходит парами (×2) на каждое срабатывание, плюс при
+        # `_on_ws_scenario_widgets` мы получаем последние N событий
+        # (limit=10), некоторые из которых уже обработаны.
+        #
+        # Multi-home: при N домах cursor должен быть per home_id, иначе
+        # событие из «Дача» с event_time T2 < cursor из «Мой дом» T1
+        # будет ошибочно отброшено. Ключи добавляются ленива при первом
+        # push'е из соответствующего дома.
+        self._last_intent_event_time: dict[str, str | None] = {}
         # Concurrency: WS пушит UPDATE_WIDGETS дважды подряд за <100ms,
         # одна history-fetch достаточна. Lock держим на время fetch'а.
         self._intent_dispatch_lock = asyncio.Lock()
@@ -1048,12 +1053,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             payload=payload,
         )
 
-        # Best-effort: home_id из state_cache. Если его ещё нет
-        # (первый refresh не прошёл) — skip dispatch, прилетит снова.
-        home = self.state_cache.get_home()
-        if home is None or not home.id:
+        # Multi-home: получаем все HOME-узлы. Если кеш ещё не прогрет —
+        # skip dispatch, прилетит снова на следующем push'е.
+        homes = self.state_cache.get_homes()
+        if not homes:
             LOGGER.debug(
-                "scenario_widgets push, but home_id not yet known — skipping intent dispatch"
+                "scenario_widgets push, but no homes known yet — skipping intent dispatch"
             )
             return
 
@@ -1062,46 +1067,60 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         async with self._intent_dispatch_lock:
-            try:
-                events = await self.client.scenarios.history(home.id, limit=INTENT_FETCH_LIMIT)
-            except Exception:  # noqa: BLE001
-                LOGGER.debug("Failed to fetch scenario history", exc_info=True)
-                return
+            # Запрашиваем history per home, fire'им events независимо
+            # (cursor per home_id предотвращает потерю асимметричных
+            # timestamps между домами).
+            for home in homes:
+                if not home.id:
+                    continue
+                try:
+                    events = await self.client.scenarios.history(
+                        home.id, limit=INTENT_FETCH_LIMIT
+                    )
+                except Exception:  # noqa: BLE001
+                    LOGGER.debug(
+                        "Failed to fetch scenario history for home %s", home.id, exc_info=True
+                    )
+                    continue
 
-            new_events = self._select_new_intent_events(events)
-            if not new_events:
-                return
+                new_events = self._select_new_intent_events(home.id, events)
+                if not new_events:
+                    continue
 
-            for event in new_events:
-                self._fire_intent_event(event)
+                for event in new_events:
+                    self._fire_intent_event(event)
 
-            # Обновляем cursor на максимальный event_time, чтобы следующий
-            # fetch не повторял эти же.
-            latest = max(
-                (e.event_time for e in new_events if e.event_time),
-                default=self._last_intent_event_time,
-            )
-            self._last_intent_event_time = latest
+                # Cursor per home_id — максимальный event_time.
+                latest = max(
+                    (e.event_time for e in new_events if e.event_time),
+                    default=self._last_intent_event_time.get(home.id),
+                )
+                self._last_intent_event_time[home.id] = latest
+
             # Cooldown — guard от повторного fetch'а в follow-up push'е.
             await asyncio.sleep(INTENT_DISPATCH_COOLDOWN_SEC)
 
-    def _select_new_intent_events(self, events: list[ScenarioEventDto]) -> list[ScenarioEventDto]:
+    def _select_new_intent_events(
+        self, home_id: str, events: list[ScenarioEventDto]
+    ) -> list[ScenarioEventDto]:
         """Отфильтровать события, чьё ``event_time`` строго больше
-        ранее обработанного cursor'а.
+        ранее обработанного cursor'а **для этого дома**.
 
         Sber возвращает события отсортированными по `event_time desc`.
         При первом срабатывании (cursor=None) берём только самое свежее
         (limit=1) — иначе на старте integration'а fire'ится весь
         history.
         """
-        if self._last_intent_event_time is None:
-            # Первый запуск — берём только последнее, маркируем cursor.
+        cursor = self._last_intent_event_time.get(home_id)
+        if cursor is None:
+            # Первый push из этого дома — берём только последнее,
+            # маркируем cursor.
             if not events:
                 return []
             head = events[0]
-            self._last_intent_event_time = head.event_time
+            self._last_intent_event_time[home_id] = head.event_time
             return [head]
-        return [e for e in events if e.event_time and e.event_time > self._last_intent_event_time]
+        return [e for e in events if e.event_time and e.event_time > cursor]
 
     def _fire_intent_event(self, event: ScenarioEventDto) -> None:
         """Fire ``EVENT_SBERHOME_INTENT`` в HA event bus.

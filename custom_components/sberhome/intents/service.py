@@ -138,24 +138,29 @@ class IntentService:
     async def _populate_last_fired_at(self, specs: list[IntentSpec]) -> None:
         """Best-effort fill `last_fired_at` для каждого spec'а из event log.
 
-        Берём top-N последних событий и матчим object_id == spec.id.
-        Если home_id неизвестен — skip.
+        Multi-home: проходим по всем HOME-узлам, объединяем events,
+        выбираем для каждого scenario_id максимальный event_time. Если
+        у юзера несколько домов — sber-side у каждого свой event log,
+        нужно слить.
         """
-        home = self._coord.state_cache.get_home()
-        if home is None or not home.id:
+        homes = self._coord.state_cache.get_homes()
+        if not homes or not specs:
             return
-        if not specs:
-            return
-        try:
-            events = await self._coord.client.scenarios.history(
-                home.id, limit=max(10, len(specs) * 2)
-            )
-        except Exception:  # noqa: BLE001 — best-effort, без last_fired_at прожить можно
-            return
+        limit = max(10, len(specs) * 2)
         latest_per_id: dict[str, str] = {}
-        for ev in events:
-            if ev.object_id and ev.event_time and ev.object_id not in latest_per_id:
-                latest_per_id[ev.object_id] = ev.event_time
+        for home in homes:
+            if not home.id:
+                continue
+            try:
+                events = await self._coord.client.scenarios.history(home.id, limit=limit)
+            except Exception:  # noqa: BLE001 — best-effort per home
+                continue
+            for ev in events:
+                if not (ev.object_id and ev.event_time):
+                    continue
+                prev = latest_per_id.get(ev.object_id)
+                if prev is None or ev.event_time > prev:
+                    latest_per_id[ev.object_id] = ev.event_time
         for spec in specs:
             if spec.id and spec.id in latest_per_id:
                 spec.last_fired_at = latest_per_id[spec.id]

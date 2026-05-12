@@ -1,5 +1,40 @@
 # Changelog
 
+## [4.7.0] — 2026-05-12
+
+### Added — Multi-home для intents/scenarios
+
+Закрывает второе ограничение из v4.6.0 — теперь voice intents работают
+корректно при наличии нескольких домов в Sber. Раньше dispatcher
+обрабатывал только первый HOME, события из «Дачи» в `sberhome_intent`
+не превращались.
+
+- **Dispatcher (`coordinator._on_ws_scenario_widgets`)** теперь итерирует
+  по `state_cache.get_homes()`, делая `history(home_id)` per home.
+  Events fire'ятся независимо — событие из «Дачи» с `event_time` меньше
+  cursor'а из «Мой дом» не теряется.
+- **Cursor per home_id** — `_last_intent_event_time` теперь
+  `dict[str, str | None]` вместо одного значения. Предотвращает потерю
+  асимметричных timestamps между домами.
+- **`IntentSpec.home_id`** — новое top-level поле (раньше home_id
+  попадал в `raw_extras` через forward-compat). Encoder пишет в body
+  при create — Sber кладёт сценарий в указанный дом вместо дефолтного.
+- **`_populate_last_fired_at`** проходит по всем домам, объединяет
+  events, выбирает максимальный `event_time` per scenario_id.
+- **Intent modal** — dropdown «Дом» при create (если homes.length > 1).
+  Default — `selectedHomeId` из panel state, либо `is_default=true` home.
+  Для существующих intent'ов поле readonly (Sber не позволяет переместить
+  через PUT — нужен delete+create).
+- **Intents list** — фильтр по `selectedHomeId` из panel switcher'а.
+  В режиме «Все дома» каждый intent несёт `🏡 имя_дома` badge.
+
+### Limitations (документировано)
+
+- Сменить дом существующего сценария через UI нельзя — Sber API не
+  поддерживает move. Workaround: delete + create в новом доме.
+- `at_home` переменная — глобальная для аккаунта (endpoint без
+  home_id), multi-home не применимо.
+
 ## [4.6.1] — 2026-05-12
 
 ### Fixed

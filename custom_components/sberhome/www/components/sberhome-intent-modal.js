@@ -14,6 +14,7 @@ class SberHomeIntentModal extends LitElement {
       hass: { type: Object },
       intent: { type: Object },     // initial value от parent — read-once
       isNew: { type: Boolean },
+      homes: { type: Array },       // multi-home (v4.7.0)
       _draft: { type: Object },     // local state — что юзер реально редактирует
       _schema: { type: Array },
       _saving: { type: Boolean },
@@ -26,6 +27,7 @@ class SberHomeIntentModal extends LitElement {
     super();
     this.intent = null;
     this.isNew = false;
+    this.homes = [];
     this._draft = null;
     this._schema = [];
     this._saving = false;
@@ -71,6 +73,11 @@ class SberHomeIntentModal extends LitElement {
 
   _onNameChange(e) {
     this._draft = { ...this._draft, name: e.target.value };
+  }
+
+  _onHomeChange(e) {
+    const value = e.target.value || null;
+    this._draft = { ...this._draft, home_id: value };
   }
 
   _onAddPhrase() {
@@ -166,6 +173,45 @@ class SberHomeIntentModal extends LitElement {
       }
     }
     return null;
+  }
+
+  _renderHomeField() {
+    // Multi-home: показываем dropdown только если у юзера >1 дома.
+    // Single-home — Sber сам положит в default, ничего лишнего в UI.
+    if (!this.homes || this.homes.length <= 1) return "";
+    const value = this._draft?.home_id || "";
+    // Для существующих intent'ов — readonly (Sber не позволяет переместить
+    // сценарий между домами через PUT, надо delete+create). Только для
+    // новых intent'ов даём выбрать.
+    if (!this.isNew) {
+      const home = this.homes.find((h) => h.id === value);
+      return html`
+        <div class="field">
+          <label>Дом</label>
+          <input type="text" disabled .value=${home?.name || value || "—"} />
+          <div class="help">
+            Перенести сценарий между домами через UI нельзя — удали и создай в нужном доме.
+          </div>
+        </div>
+      `;
+    }
+    return html`
+      <div class="field">
+        <label>Дом</label>
+        <select @change=${this._onHomeChange} .value=${value}>
+          ${this.homes.map(
+            (h) => html`
+              <option value=${h.id} ?selected=${h.id === value}>
+                ${h.name}${h.is_default ? " (по умолчанию)" : ""}
+              </option>
+            `
+          )}
+        </select>
+        <div class="help">
+          В каком Sber-доме создать сценарий. Default — твой основной дом.
+        </div>
+      </div>
+    `;
   }
 
   async _onSave() {
@@ -373,6 +419,8 @@ class SberHomeIntentModal extends LitElement {
             @input=${this._onNameChange}
           />
         </div>
+
+        ${this._renderHomeField()}
 
         <!-- Phrases -->
         <div class="field">

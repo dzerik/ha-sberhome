@@ -63,6 +63,7 @@ _KNOWN_TOP_FIELDS = frozenset(
         "name",
         "is_active",
         "steps",
+        "home_id",
         # эти поля важны но не маппятся на UI напрямую — храним в raw_extras
         # для round-trip update'ов
     }
@@ -107,6 +108,9 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
     # Forward-compat: всё остальное — в raw_extras.
     raw_extras = {k: v for k, v in scenario.items() if k not in _KNOWN_TOP_FIELDS}
 
+    home_id_raw = scenario.get("home_id")
+    home_id = home_id_raw if isinstance(home_id_raw, str) and home_id_raw else None
+
     return IntentSpec(
         id=spec_id if spec_id else None,
         name=name,
@@ -114,6 +118,7 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
         actions=actions,
         enabled=enabled,
         is_ha_managed=is_ha_managed,
+        home_id=home_id,
         raw_extras=raw_extras,
     )
 
@@ -237,6 +242,13 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
             }
         ],
     }
+
+    # Multi-home: если у IntentSpec задан home_id — пишем в body.
+    # Это применимо как для create (Sber кладёт сценарий в нужный дом
+    # вместо дефолтного), так и для update (preserves существующий
+    # home_id, который decoder скопировал из scenario при load).
+    if spec.home_id:
+        body["home_id"] = spec.home_id
 
     # Тащим назад незнакомые top-level поля кроме тех что уже
     # принципиально установили выше.

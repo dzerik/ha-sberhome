@@ -135,7 +135,10 @@ class TestDecode:
         assert "meta" in spec.raw_extras
         assert spec.raw_extras["account_id"] == "28775"
         assert spec.raw_extras["image"].startswith("https://")
-        assert "home_id" in spec.raw_extras
+        # home_id — promoted из raw_extras в top-level IntentSpec.home_id
+        # (multi-home support, см. encoder _KNOWN_TOP_FIELDS).
+        assert spec.home_id == "c0o3edhu7jqgr5lbnks0"
+        assert "home_id" not in spec.raw_extras
 
     def test_marker_odin_decodes_trigger_notify(self):
         spec = decode_scenario(LIVE_MARKER_ODIN)
@@ -308,3 +311,41 @@ class TestEncode:
         spec = IntentSpec(name="Off", phrases=["x"], enabled=False)
         body = encode_scenario(spec)
         assert body["is_active"] is False
+
+
+class TestHomeIdRoundtrip:
+    """Multi-home support: home_id явно сохраняется в IntentSpec.home_id,
+    encoder пишет в body['home_id'] для create/update.
+    """
+
+    def test_decode_promotes_home_id_to_top_level(self):
+        spec = decode_scenario({**LIVE_HA_API_TEST, "home_id": "home-dacha"})
+        assert spec.home_id == "home-dacha"
+        assert "home_id" not in spec.raw_extras
+
+    def test_decode_no_home_id_yields_none(self):
+        scenario = {k: v for k, v in LIVE_HA_API_TEST.items() if k != "home_id"}
+        spec = decode_scenario(scenario)
+        assert spec.home_id is None
+
+    def test_decode_empty_string_home_id_yields_none(self):
+        """Sber иногда возвращает home_id=\"\" — трактуем как unset."""
+        spec = decode_scenario({**LIVE_HA_API_TEST, "home_id": ""})
+        assert spec.home_id is None
+
+    def test_encode_writes_home_id_when_set(self):
+        spec = IntentSpec(name="Test", phrases=["x"], home_id="home-dacha")
+        body = encode_scenario(spec)
+        assert body["home_id"] == "home-dacha"
+
+    def test_encode_omits_home_id_when_unset(self):
+        """При create без явного home_id — Sber кладёт в дефолтный."""
+        spec = IntentSpec(name="Test", phrases=["x"], home_id=None)
+        body = encode_scenario(spec)
+        assert "home_id" not in body
+
+    def test_round_trip_preserves_home_id(self):
+        spec1 = decode_scenario({**LIVE_HA_API_TEST, "home_id": "home-dacha"})
+        body = encode_scenario(spec1)
+        spec2 = decode_scenario(body)
+        assert spec2.home_id == "home-dacha"

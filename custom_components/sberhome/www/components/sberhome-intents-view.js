@@ -18,6 +18,10 @@ class SberHomeIntentsView extends LitElement {
   static get properties() {
     return {
       hass: { type: Object },
+      // Multi-home (v4.7.0): передаются из panel — для фильтрации и
+      // pre-select при create. selectedHomeId=null → «все дома».
+      homes: { type: Array },
+      selectedHomeId: { type: String },
       _intents: { type: Array },
       _loading: { type: Boolean },
       _error: { type: String },
@@ -35,6 +39,8 @@ class SberHomeIntentsView extends LitElement {
     this._filter = "";
     this._editingIntent = null;
     this._isCreatingNew = false;
+    this.homes = [];
+    this.selectedHomeId = null;
   }
 
   connectedCallback() {
@@ -82,14 +88,28 @@ class SberHomeIntentsView extends LitElement {
   }
 
   _filtered() {
-    if (!this._filter) return this._intents;
-    const f = this._filter.toLowerCase();
-    return this._intents.filter((it) => {
-      if ((it.name || "").toLowerCase().includes(f)) return true;
-      return (it.phrases || []).some((p) =>
-        (p || "").toLowerCase().includes(f)
-      );
-    });
+    let list = this._intents;
+    // Multi-home: фильтр по выбранному дому. selectedHomeId=null → all.
+    if (this.selectedHomeId) {
+      list = list.filter((it) => it.home_id === this.selectedHomeId);
+    }
+    if (this._filter) {
+      const f = this._filter.toLowerCase();
+      list = list.filter((it) => {
+        if ((it.name || "").toLowerCase().includes(f)) return true;
+        return (it.phrases || []).some((p) => (p || "").toLowerCase().includes(f));
+      });
+    }
+    return list;
+  }
+
+  _defaultHomeIdForNew() {
+    // 1. Если в panel выбран конкретный дом — pre-select его.
+    // 2. Иначе — default home (is_default=true) из списка.
+    // 3. Fallback — null (single-home юзеры; modal скроет dropdown).
+    if (this.selectedHomeId) return this.selectedHomeId;
+    const def = (this.homes || []).find((h) => h.is_default);
+    return def?.id || null;
   }
 
   _onCreateNew() {
@@ -99,6 +119,7 @@ class SberHomeIntentsView extends LitElement {
       phrases: [],
       actions: [{ type: "ha_event_only", data: {} }],
       enabled: true,
+      home_id: this._defaultHomeIdForNew(),
     };
   }
 
@@ -242,6 +263,9 @@ class SberHomeIntentsView extends LitElement {
       .badge.fired {
         background: var(--success-color, #4caf50); color: #fff;
       }
+      .badge.home {
+        background: var(--info-color, #03a9f4); color: #fff;
+      }
       .icon-btn {
         background: transparent; border: 1px solid var(--divider-color);
         padding: 6px 10px; border-radius: 6px; cursor: pointer;
@@ -302,12 +326,25 @@ class SberHomeIntentsView extends LitElement {
               .hass=${this.hass}
               .intent=${this._editingIntent}
               .isNew=${this._isCreatingNew}
+              .homes=${this.homes}
               @close-intent-modal=${this._onCloseModal}
               @intent-saved=${this._onSavedIntent}
             ></sberhome-intent-modal>
           `
         : ""}
     `;
+  }
+
+  _homeBadge(intent) {
+    // Показываем badge с именем дома только в multi-home аккаунте и
+    // только когда юзер смотрит «Все дома» (selectedHomeId == null) —
+    // в single-home view ярлык избыточен.
+    if (!intent.home_id) return "";
+    if ((this.homes || []).length <= 1) return "";
+    if (this.selectedHomeId) return "";
+    const home = this.homes.find((h) => h.id === intent.home_id);
+    if (!home) return "";
+    return html`<span class="badge home">🏡 ${home.name}</span>`;
   }
 
   _renderIntent(intent) {
@@ -340,6 +377,7 @@ class SberHomeIntentsView extends LitElement {
             ${readOnly
               ? html`<span class="badge read-only">sber-only</span>`
               : ""}
+            ${this._homeBadge(intent)}
           </div>
         </div>
         <button

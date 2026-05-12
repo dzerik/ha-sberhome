@@ -86,6 +86,7 @@ class IntentSpec:
     description: str = ""
     last_fired_at: str | None = None
     is_ha_managed: bool = True
+    home_id: str | None = None
     raw_extras: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,6 +99,7 @@ class IntentSpec:
             "description": self.description,
             "last_fired_at": self.last_fired_at,
             "is_ha_managed": self.is_ha_managed,
+            "home_id": self.home_id,
         }
 
     @classmethod
@@ -111,6 +113,7 @@ class IntentSpec:
             description=str(raw.get("description", "")),
             last_fired_at=raw.get("last_fired_at"),
             is_ha_managed=bool(raw.get("is_ha_managed", True)),
+            home_id=raw.get("home_id"),
             raw_extras=dict(raw.get("raw_extras") or {}),
         )
 
