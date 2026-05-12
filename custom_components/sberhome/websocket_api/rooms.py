@@ -117,40 +117,36 @@ async def ws_debug_raw_tree(
     endpoints = list(_HOME_PROBE_ENDPOINTS)
     target_home_id = msg.get("home_id")
     if target_home_id:
-        # Probe tree/list endpoints с конкретным home_id (для multi-home).
         endpoints.extend(
             [
-                f"/device_groups/tree?home_id={target_home_id}",
-                f"/device_groups/tree?union_id={target_home_id}",
-                f"/device_groups?parent_id={target_home_id}&pagination.offset=0&pagination.limit=100",
-                f"/device_groups?home_id={target_home_id}&pagination.offset=0&pagination.limit=100",
-                f"/device_groups/{target_home_id}/tree",
-                f"/device_groups/{target_home_id}",
+                f"/device_groups?group_type=ROOM&parent_id={target_home_id}"
+                "&pagination.offset=0&pagination.limit=100",
+                f"/device_groups?parent_id={target_home_id}"
+                "&pagination.offset=0&pagination.limit=100",
+                f"/devices?home_id={target_home_id}&pagination.offset=0&pagination.limit=200",
+                f"/devices?desired_home_id={target_home_id}"
+                "&pagination.offset=0&pagination.limit=200",
+                f"/devices?parent_id={target_home_id}&pagination.offset=0&pagination.limit=200",
             ]
         )
+    # Также пробуем /devices как плоский список — Salute, возможно,
+    # использует unified flat-list approach для всех unions+devices.
+    endpoints.append("/devices?pagination.offset=0&pagination.limit=200")
 
     results: list[dict[str, Any]] = []
     for url in endpoints:
         try:
             resp = await transport.get(url)
             payload = resp.json()
-            home_count = _count_homes_in_raw(payload)
-            home_names = _list_home_names(payload)
-            top_level_keys = (
-                sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__
-            )
-            # Сохраняем payload только если он мал (плоский список)
-            # — full tree слишком большой и не нужен в diagnostic-сводке.
+            summary = _summarize_payload(payload)
             payload_size = len(str(payload))
             results.append(
                 {
                     "url": url,
                     "status": "ok",
-                    "home_count": home_count,
-                    "home_names": home_names,
-                    "top_level_keys": top_level_keys,
+                    **summary,
                     "payload_size_bytes": payload_size,
-                    "raw": payload if payload_size < 50000 else None,
+                    "sample": _first_sample(payload),
                 }
             )
         except Exception as err:  # noqa: BLE001
@@ -163,6 +159,87 @@ async def ws_debug_raw_tree(
             )
 
     connection.send_result(msg["id"], {"results": results})
+
+
+def _summarize_payload(payload: Any) -> dict[str, Any]:
+    """Считает узлы по типу + собирает имена/parent_id для первых нескольких."""
+    by_type: dict[str, int] = {}
+    samples_by_type: dict[str, list[dict[str, Any]]] = {}
+    devices = 0
+    device_samples: list[dict[str, Any]] = []
+    _walk_summary(payload, by_type, samples_by_type, [devices], device_samples)
+    return {
+        "groups_by_type": by_type,
+        "group_samples": samples_by_type,
+        "devices_count": len(device_samples),
+        "device_samples": device_samples[:3],
+    }
+
+
+def _walk_summary(
+    payload: Any,
+    by_type: dict[str, int],
+    samples: dict[str, list[dict[str, Any]]],
+    _dev_counter: list[int],
+    device_samples: list[dict[str, Any]],
+) -> None:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("result"), (dict, list)):
+            _walk_summary(payload["result"], by_type, samples, _dev_counter, device_samples)
+        # Union node — либо в wrapper "group"/"union", либо плоское поле group_type.
+        group = payload.get("group") or payload.get("union")
+        node = group if isinstance(group, dict) else (
+            payload if payload.get("group_type") else None
+        )
+        if isinstance(node, dict):
+            gt = str(node.get("group_type") or "?")
+            by_type[gt] = by_type.get(gt, 0) + 1
+            samples.setdefault(gt, [])
+            if len(samples[gt]) < 3:
+                samples[gt].append(
+                    {
+                        "id": node.get("id"),
+                        "name": node.get("name"),
+                        "parent_id": node.get("parent_id"),
+                    }
+                )
+        # Device — у него есть `device_info` и нет `group_type`.
+        if (
+            isinstance(payload.get("device_info"), dict)
+            and not payload.get("group_type")
+            and len(device_samples) < 3
+        ):
+            device_samples.append(
+                    {
+                        "id": payload.get("id"),
+                        "name": (payload.get("name") or {}).get("name")
+                        if isinstance(payload.get("name"), dict)
+                        else payload.get("name"),
+                        "parent_id": payload.get("parent_id"),
+                        "group_ids": payload.get("group_ids"),
+                    }
+                )
+        for child in payload.get("children") or []:
+            _walk_summary(child, by_type, samples, _dev_counter, device_samples)
+        for dev in payload.get("devices") or []:
+            _walk_summary(dev, by_type, samples, _dev_counter, device_samples)
+    elif isinstance(payload, list):
+        for item in payload:
+            _walk_summary(item, by_type, samples, _dev_counter, device_samples)
+
+
+def _first_sample(payload: Any) -> Any:
+    """Очень короткий sample — первый элемент плоского списка или root group."""
+    if isinstance(payload, dict):
+        if isinstance(payload.get("result"), list) and payload["result"]:
+            first = payload["result"][0]
+            if isinstance(first, dict):
+                return {k: first.get(k) for k in ("id", "name", "group_type", "parent_id")}
+        if "group" in payload:
+            g = payload["group"]
+            if isinstance(g, dict):
+                return {k: g.get(k) for k in ("id", "name", "group_type", "parent_id")}
+    return None
 
 
 def _list_home_names(payload: Any) -> list[str]:
