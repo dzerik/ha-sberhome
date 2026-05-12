@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.6.1] — 2026-05-12
+
+### Fixed
+
+- **Двойная загрузка `sberhome-home-switcher` модуля → `customElements.define` падал с
+  «name has already been used with this registry».** Причина: в `sberhome-panel.js`
+  модуль импортировался дважды — один раз через `await Promise.all([import(...?v=X)])`
+  с cache-busting querystring, второй раз через статический
+  `import { HOME_SWITCHER_STORAGE_KEY }` без querystring. ESM считает URL'ы с
+  разным query разными модулями → `define` вызывался дважды. Fix: storage-key
+  инлайн в panel.js + защита `if (!customElements.get(...))` в самом switcher'е.
+
 ## [4.6.0] — 2026-05-12
 
 ### Added

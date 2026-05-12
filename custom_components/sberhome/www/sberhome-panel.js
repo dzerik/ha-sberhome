@@ -26,7 +26,12 @@ await Promise.all([
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
-import { HOME_SWITCHER_STORAGE_KEY } from "./components/sberhome-home-switcher.js";
+
+// Inline (вместо импорта из switcher) — иначе модуль загрузится дважды:
+// один раз через dynamic import с `?v=` querystring, второй раз через
+// статический import без querystring, и ESM посчитает их разными
+// модулями → `customElements.define` упадёт с "name already used".
+const HOME_SWITCHER_STORAGE_KEY = "sberhome.selected_home_id";
 
 class SberHomePanel extends LitElement {
   static get properties() {

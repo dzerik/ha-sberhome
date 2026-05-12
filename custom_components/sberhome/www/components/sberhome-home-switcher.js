@@ -105,4 +105,6 @@ export class SberHomeHomeSwitcher extends LitElement {
   }
 }
 
-customElements.define("sberhome-home-switcher", SberHomeHomeSwitcher);
+if (!customElements.get("sberhome-home-switcher")) {
+  customElements.define("sberhome-home-switcher", SberHomeHomeSwitcher);
+}
