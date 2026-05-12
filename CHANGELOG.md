@@ -1,5 +1,41 @@
 # Changelog
 
+## [5.1.3] — 2026-05-12
+
+### Documentation
+
+- Добавлен файл `LEGAL.md` с развёрнутой правовой позицией проекта:
+  ст. 1280 ГК РФ, EU Software Directive 2009/24/EC, EFF Coders'
+  Rights Reverse Engineering FAQ, разбор публичных документов
+  SberDevices / Sber (Правила гарантийного обслуживания, Условия
+  использования виртуального ассистента «Салют», C2C-документация).
+  Описаны защитные ограничения проекта (только собственные credentials
+  пользователя, no scraping, no MITM, атрибуция MIT-источников).
+- В README добавлен раздел **Disclaimer**: явное указание на
+  отсутствие аффилиации с ПАО Сбербанк / SberDevices, выделение
+  публично задокументированного Sber ID OAuth flow как основного
+  пути, ссылка на MIT-источник для бета-режима SMS-OTP, **nominative
+  use** товарных знаков. Шаблон взят из `sboom_ha`.
+
+Содержательных изменений в коде интеграции нет.
+
+## [5.1.2] — 2026-05-12
+
+### Fixed
+
+- HACS validation: добавлены brand-assets
+  (`custom_components/sberhome/brand/icon.png` + `icon@2x.png`).
+  Раньше HACS-checker выдавал warning «repository does not contain
+  brands assets».
+
+## [5.1.1] — 2026-05-12
+
+### Fixed
+
+- CI: применён `ruff format` к 13 файлам — локально гонял только
+  `ruff check`, без auto-format, отсюда регрессия. Поведение кода
+  не меняется.
+
 ## [5.1.0] — 2026-05-12
 
 ### Added
