@@ -1,5 +1,33 @@
 # Changelog
 
+## [4.5.0] — 2026-05-12
+
+### Added
+
+- **Smart token-fallback в `resolve_category`** — Sber-категория определяется
+  по slug `image_set_type` через три уровня: exact match → phrase substring
+  (отсортирован по длине, детерминизм) → token-window fallback по новому
+  `CATEGORY_KEYWORDS`. Slug разбивается на токены по `_`, для каждого
+  multi-token window ищется known keyword. Это автоматически покрывает
+  новые префиксы Сбера (`cat_*`, `dt_*`, `xyz_*`) без ручного расширения
+  `IMAGE_TYPE_MAP`. Длинные phrase-keywords (`sensor_temp_humidity`,
+  `hvac_underfloor_heating`) имеют приоритет над short single-token.
+- Конфликт-проверка на load: один keyword → одна категория, иначе
+  `ValueError` на импорте модуля. Раньше зависимость от insertion order
+  была хрупкой.
+
+### Fixed
+
+- **#1 Умная лента Sber SBDV-00055 (`image_set_type: cat_ledstrip_m`)** —
+  раньше попадала в `resolve_category` → `None`, устройство игнорировалось
+  с сообщением "категория не распознаётся". Теперь резолвится через
+  token-fallback (`ledstrip` ∈ keywords для `led_strip`). Категория
+  `led_strip` сама по себе полноценно поддержана: Platform.LIGHT + NUMBER
+  для sleep_timer, расширенный CCT-range 2000–6500K.
+- Аналогично закрыты потенциальные дыры покрытия: `cat_light_*` (умные
+  лампы, артефакт `cat_light_basic` встречается в diagnose-payload'ах),
+  `cat_vacuum_*` (роботы-пылесосы).
+
 ## [4.4.2] — 2026-04-27
 
 ### Fixed

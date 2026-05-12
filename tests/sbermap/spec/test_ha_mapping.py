@@ -97,6 +97,44 @@ class TestResolveCategoryDtFormat:
 
     @pytest.mark.parametrize(
         "image_set_type",
+        ["cat_ledstrip_m", "cat_ledstrip_s", "cat_ledstrip_l", "cat_ledstrip"],
+    )
+    def test_cat_ledstrip_variants_resolve_to_led_strip(self, image_set_type):
+        """`cat_ledstrip_*` — формат image_set_type для умной ленты Sber (SBDV-00055).
+
+        Покрывается token-fallback'ом (token `ledstrip` ∈ CATEGORY_KEYWORDS).
+        Раньше попадал в `resolve_category` → None, устройство игнорировалось
+        с сообщением "категория не распознаётся". См. issue #1.
+        """
+        assert resolve_category(image_set_type) == "led_strip"
+
+    @pytest.mark.parametrize(
+        "image_set_type",
+        ["cat_light_m", "cat_light_s", "cat_light_l", "cat_light_basic", "cat_light"],
+    )
+    def test_cat_light_variants_resolve_to_light(self, image_set_type):
+        """`cat_light_*` — формат image_set_type для умных ламп Sber.
+
+        Артефакт `cat_light_basic` встречается в payload'ах diagnose-тестов
+        — реальный пример из API. Покрывается token-fallback'ом (`light` ∈
+        CATEGORY_KEYWORDS["light"]).
+        """
+        assert resolve_category(image_set_type) == "light"
+
+    @pytest.mark.parametrize(
+        "image_set_type",
+        ["cat_vacuum_m", "cat_vacuum_s", "cat_vacuum"],
+    )
+    def test_cat_vacuum_variants_resolve_to_vacuum_cleaner(self, image_set_type):
+        """`cat_vacuum_*` — гипотетический формат для роботов-пылесосов Sber.
+
+        Покрывается token-fallback'ом (token `vacuum` ∈ CATEGORY_KEYWORDS).
+        """
+        assert resolve_category(image_set_type) == "vacuum_cleaner"
+
+
+    @pytest.mark.parametrize(
+        "image_set_type",
         ["cat_button_m", "cat_button_s", "cat_button_l"],
     )
     def test_virtual_cat_button_resolves_to_scenario_button(self, image_set_type):
@@ -121,6 +159,53 @@ class TestResolveCategoryDtFormat:
     def test_sber_speaker_variants_resolve(self, image_set_type):
         """SberBoom/Portal/Box/Satellite → category sber_speaker."""
         assert resolve_category(image_set_type) == "sber_speaker"
+
+
+class TestResolveCategoryTokenFallback:
+    """Token-fallback (level 3): автоматическое покрытие любых новых префиксов.
+
+    `IMAGE_TYPE_MAP` не нужно расширять для каждого нового `xyz_*` или
+    `cat_*` формата — slug разбивается на токены и сматчится по
+    `CATEGORY_KEYWORDS`.
+    """
+
+    @pytest.mark.parametrize(
+        "image_set_type,expected",
+        [
+            # Light variations
+            ("xyz_bulb_pro_2026", "light"),
+            ("smart_light_basic", "light"),
+            ("cat_light_basic", "light"),
+            # LED strip variations
+            ("xyz_ledstrip_pro_2026", "led_strip"),
+            ("new_led_strip_v3", "led_strip"),
+            # Vacuum
+            ("brand_vacuum_pro", "vacuum_cleaner"),
+            # Multi-token phrase priority — sensor_temp_humidity побеждает
+            # sensor (если бы был short keyword).
+            ("xyz_sensor_temp_humidity_v2", "sensor_temp"),
+            ("xyz_sensor_water_leak_v2", "sensor_water_leak"),
+            # HVAC composite
+            ("xyz_hvac_underfloor_heating_v2", "hvac_underfloor_heating"),
+            # Sber speakers — boom/portal/satellite tokens
+            ("new_boom_2026", "sber_speaker"),
+            ("custom_portal_v3", "sber_speaker"),
+        ],
+    )
+    def test_token_fallback_resolves(self, image_set_type, expected):
+        assert resolve_category(image_set_type) == expected
+
+    def test_token_fallback_returns_none_for_no_keyword(self):
+        """Slug без known keyword'ов → None."""
+        assert resolve_category("xyz_unknown_alien_device_v9") is None
+
+    def test_long_phrase_priority(self):
+        """Длинный multi-token window побеждает короткий single-token.
+
+        `sensor_temp_humidity` (3 токена) → sensor_temp,
+        а не `sensor` (если бы был такой keyword).
+        """
+        assert resolve_category("xyz_sensor_temp_humidity") == "sensor_temp"
 
 
 class TestImageTypeMapInvariants:
