@@ -1,15 +1,40 @@
 # Changelog
 
-## [4.7.1-debug] — 2026-05-12
+## [4.8.0] — 2026-05-12
 
-Debug-only pre-release для разбора multi-home (issue #2). После
-финального fix-а будет удалён.
+### Fixed
 
-### Added
+- **#2 Multi-home теперь реально работает.** v4.6.0/v4.7.0 закрывали UI
+  + dispatcher слои, но `state_cache` грузился через
+  `/device_groups/tree` — а этот endpoint single-home by design
+  (отдаёт только дефолтный дом, параметры `home_id`/`union_id`
+  игнорируются). В результате `get_homes()` всегда возвращал 1 дом,
+  свитчер в панели не отображался у multi-home юзеров.
 
-- `sberhome/debug/raw_tree` теперь пробует 9 candidate-endpoints Sber
-  API и возвращает home_count + home_names для каждого. Цель — найти
-  endpoint, отдающий все HOME-узлы.
+### Changed
+
+- **`DeviceService.refresh()` теперь делает 4 параллельных flat-list
+  запроса** вместо tree, и эти endpoints **multi-home aware**:
+  - `GET /device_groups?group_type=HOME&pagination` — все дома аккаунта
+  - `GET /device_groups?group_type=ROOM&pagination` — все комнаты всех домов
+  - `GET /device_groups?group_type=GROUP&pagination` — кастомные группы
+  - `GET /devices?pagination` — все устройства аккаунта
+- **`StateCache.update_from_flat()`** строит mappings локально:
+  - `room.parent_id == home.id` — room → home
+  - `device.group_ids[0]` сматчится либо с room (значит device в
+    комнате этого дома), либо с home (top-level, например SberBoom Home)
+- **`GroupAPI.list(group_type=, limit=)`** — расширена, повторяет Salute
+  pattern с `pagination.offset/limit`. Старый `/device_groups/` URL
+  заменён на `/device_groups` без trailing slash + pagination params.
+- **`DeviceAPI.list_flat(limit=500)`** — pagination-aware, нацелена на
+  `/devices` (без trailing slash) с явным limit'ом.
+- Legacy `update_from_tree()` остаётся как fallback при ошибке flat-API
+  (single-home, deprecated).
+
+### Removed
+
+- `sberhome/debug/raw_tree` WS endpoint — был debug-only для разбора
+  multi-home архитектуры, больше не нужен.
 
 ## [4.7.0] — 2026-05-12
 

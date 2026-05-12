@@ -83,14 +83,49 @@ class DeviceService:
     # Lifecycle / management
     # ------------------------------------------------------------------
     async def refresh(self) -> None:
-        """Full refresh: GET tree → parse → cache.update_from_tree().
+        """Full refresh через 4 параллельных flat-list запроса.
 
-        Обновляет И devices И groups в одном запросе.
+        Это **multi-home aware** path:
+        - `/device_groups?group_type=HOME` — все дома аккаунта
+        - `/device_groups?group_type=ROOM` — все комнаты всех домов
+        - `/device_groups?group_type=GROUP` — кастомные группы
+        - `/devices?pagination` — все устройства
+
+        Связи device → room → home строятся локально по `parent_id` и
+        `group_ids` (см. `StateCache.update_from_flat`).
+
+        Замена legacy `/device_groups/tree` который отдаёт только дефолтный
+        дом (см. issue #2). Tree-fallback оставлен на случай ошибки одного
+        из endpoint'ов.
+        """
+        import asyncio
+
+        from ..api.groups import GroupAPI
+
+        # group API: используем тот же transport что и devices.
+        groups_api = GroupAPI(self._api._transport)
+        try:
+            homes, rooms, custom_groups, devices = await asyncio.gather(
+                groups_api.list(group_type="HOME"),
+                groups_api.list(group_type="ROOM"),
+                groups_api.list(group_type="GROUP"),
+                self._api.list_flat(),
+            )
+        except Exception:  # noqa: BLE001 — fallback на tree при любой ошибке
+            await self._refresh_via_tree()
+            return
+
+        self._cache.update_from_flat(homes, rooms, custom_groups, devices)
+
+    async def _refresh_via_tree(self) -> None:
+        """Legacy fallback: GET /device_groups/tree.
+
+        Используется только если flat-API упал (Sber может вернуть 500 или
+        изменить schema). Single-home aware — для multi-home аккаунтов
+        придёт только дефолтный дом.
         """
         from ..dto.union import UnionTreeDto
 
-        # Используем GroupAPI.tree() для typed parse
-        # Но DeviceAPI тоже ходит в тот же endpoint — используем его transport
         resp = await self._api._transport.get("/device_groups/tree")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:

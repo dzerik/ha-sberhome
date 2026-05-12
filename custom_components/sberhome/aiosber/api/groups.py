@@ -41,9 +41,29 @@ class GroupAPI:
         self._transport = transport
 
     # ----- list / get -----
-    async def list(self) -> list[UnionDto]:
-        """Return all groups (без вложенных устройств)."""
-        resp = await self._transport.get("/device_groups/")
+    async def list(
+        self,
+        *,
+        group_type: str | None = None,
+        limit: int = 1000,
+    ) -> list[UnionDto]:
+        """Return groups (без вложенных устройств).
+
+        Args:
+            group_type: фильтр по типу — "HOME", "ROOM", "GROUP".
+                Salute использует именно этот endpoint для multi-home —
+                `?group_type=HOME` возвращает ВСЕ дома аккаунта (vs
+                `/device_groups/tree` который single-home по дизайну).
+            limit: pagination.limit. Salute шлёт Long.MAX_VALUE — 1000
+                достаточно с большим запасом для типичного аккаунта.
+        """
+        params: dict[str, str] = {
+            "pagination.offset": "0",
+            "pagination.limit": str(limit),
+        }
+        if group_type is not None:
+            params["group_type"] = group_type
+        resp = await self._transport.get("/device_groups", params=params)
         raw = _unwrap_list(resp.json())
         return [u for d in raw if (u := UnionDto.from_dict(d)) is not None]
 

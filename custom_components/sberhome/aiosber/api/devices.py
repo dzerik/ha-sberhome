@@ -53,12 +53,21 @@ class DeviceAPI:
         payload = _unwrap_result(resp.json())
         return [_to_device(d) for d in flatten_device_tree(payload)]
 
-    async def list_flat(self) -> list[DeviceDto]:
-        """Alternative: GET /devices/ (без иерархии групп)."""
-        resp = await self._transport.get("/devices/")
+    async def list_flat(self, *, limit: int = 500) -> list[DeviceDto]:
+        """Плоский список всех устройств аккаунта через `/devices?pagination`.
+
+        Это **multi-home aware** — в отличие от `/device_groups/tree` который
+        отдаёт single home, `/devices?pagination` возвращает девайсы всех
+        домов аккаунта одним списком. Связь device → home определяется
+        через `device.group_ids` (см. `state_cache.update_from_flat`).
+        """
+        resp = await self._transport.get(
+            "/devices",
+            params={"pagination.offset": "0", "pagination.limit": str(limit)},
+        )
         payload = _unwrap_result(resp.json())
         if not isinstance(payload, list):
-            raise ProtocolError(f"Expected list from /devices/, got {type(payload).__name__}")
+            raise ProtocolError(f"Expected list from /devices, got {type(payload).__name__}")
         return [_to_device(d) for d in payload]
 
     async def get(self, device_id: str) -> DeviceDto:

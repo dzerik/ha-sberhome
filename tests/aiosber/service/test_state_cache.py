@@ -269,3 +269,96 @@ def test_single_home_tree_still_works():
     assert homes[0].id == "home-1"
     assert cache.device_home_id("dev-1") == "home-1"
     assert cache.device_home_id("dev-orphan") == "home-1"  # под HOME root, без room
+
+
+# ---------------------------------------------------------------------------
+# update_from_flat (multi-home unified flat-list refresh)
+# ---------------------------------------------------------------------------
+
+
+def _flat_data() -> tuple[list, list, list, list]:
+    """2 homes, по 1 room в каждом, devices в обоих + один top-level."""
+    homes = [
+        UnionDto(id="home-main", name="Мой дом", group_type=UnionType.HOME),
+        UnionDto(id="home-dacha", name="Дача", group_type=UnionType.HOME),
+    ]
+    rooms = [
+        UnionDto(
+            id="room-kitchen",
+            name="Кухня",
+            group_type=UnionType.ROOM,
+            parent_id="home-main",
+        ),
+        UnionDto(
+            id="room-veranda",
+            name="Веранда",
+            group_type=UnionType.ROOM,
+            parent_id="home-dacha",
+        ),
+    ]
+    groups: list[UnionDto] = []
+    devices = [
+        # Device в комнате «Мой дом» / Кухня.
+        DeviceDto(id="dev-main-lamp", name="Лампа кухни", group_ids=["room-kitchen"]),
+        # Device в комнате «Дача» / Веранда.
+        DeviceDto(id="dev-dacha-strip", name="Лента веранды", group_ids=["room-veranda"]),
+        # Top-level device напрямую под home (SberBoom Home pattern).
+        DeviceDto(id="dev-boom", name="SberBoom Home", group_ids=["home-main"]),
+    ]
+    return homes, rooms, groups, devices
+
+
+def test_update_from_flat_homes():
+    cache = StateCache()
+    homes, rooms, groups, devices = _flat_data()
+    cache.update_from_flat(homes, rooms, groups, devices)
+    got = cache.get_homes()
+    assert {h.name for h in got} == {"Мой дом", "Дача"}
+
+
+def test_update_from_flat_device_home_via_room():
+    """device.group_ids[0] = room.id → home через room.parent_id."""
+    cache = StateCache()
+    cache.update_from_flat(*_flat_data())
+    assert cache.device_home_id("dev-main-lamp") == "home-main"
+    assert cache.device_home_name("dev-main-lamp") == "Мой дом"
+    assert cache.device_room_id("dev-main-lamp") == "room-kitchen"
+    assert cache.device_room("dev-main-lamp") == "Кухня"
+
+
+def test_update_from_flat_device_home_direct():
+    """device.group_ids[0] = home.id → top-level (SberBoom pattern)."""
+    cache = StateCache()
+    cache.update_from_flat(*_flat_data())
+    assert cache.device_home_id("dev-boom") == "home-main"
+    assert cache.device_home_name("dev-boom") == "Мой дом"
+    # У top-level device нет room.
+    assert cache.device_room_id("dev-boom") is None
+
+
+def test_update_from_flat_separates_homes():
+    """Devices разных домов не путаются."""
+    cache = StateCache()
+    cache.update_from_flat(*_flat_data())
+    assert cache.device_home_id("dev-dacha-strip") == "home-dacha"
+    assert cache.device_home_name("dev-dacha-strip") == "Дача"
+    assert cache.device_room("dev-dacha-strip") == "Веранда"
+
+
+def test_update_from_flat_get_rooms_filter():
+    cache = StateCache()
+    cache.update_from_flat(*_flat_data())
+    main_rooms = cache.get_rooms(home_id="home-main")
+    dacha_rooms = cache.get_rooms(home_id="home-dacha")
+    assert {r.name for r in main_rooms} == {"Кухня"}
+    assert {r.name for r in dacha_rooms} == {"Веранда"}
+
+
+def test_update_from_flat_unknown_group_id():
+    """Device с group_ids указывающим на несуществующую группу — orphan."""
+    cache = StateCache()
+    devices = [DeviceDto(id="orphan", name="Orphan", group_ids=["does-not-exist"])]
+    cache.update_from_flat([], [], [], devices)
+    assert cache.get_device("orphan") is not None
+    assert cache.device_home_id("orphan") is None
+    assert cache.device_room_id("orphan") is None

@@ -175,6 +175,99 @@ class StateCache:
         # Остальные структуры не трогаем — либо они уже пусты (первый refresh
         # до tree), либо остаются от прошлого успешного update_from_tree.
 
+    def update_from_flat(
+        self,
+        homes: list[UnionDto],
+        rooms: list[UnionDto],
+        groups: list[UnionDto],
+        devices: list[DeviceDto],
+    ) -> None:
+        """Multi-home aware refresh из 4 плоских списков.
+
+        В отличие от `update_from_tree` (single-home — Sber `/device_groups/tree`
+        отдаёт только дефолтный дом), эти 4 endpoint'а отдают полную картину
+        аккаунта:
+        - `/device_groups?group_type=HOME` — все дома
+        - `/device_groups?group_type=ROOM` — все комнаты всех домов
+        - `/device_groups?group_type=GROUP` — кастомные группы
+        - `/devices?pagination` — все устройства
+
+        Связи строятся локально:
+        - **room → home**: `room.parent_id == home.id`
+        - **device → room | home**: первый id из `device.group_ids`
+          сматчится либо с room (значит device в комнате этого дома),
+          либо с home (top-level device, например SberBoom).
+        """
+        groups_map: dict[str, UnionDto] = {}
+        device_to_room_name: dict[str, str] = {}
+        device_to_room_id: dict[str, str] = {}
+        device_to_home_id: dict[str, str] = {}
+        device_to_home_name: dict[str, str] = {}
+
+        homes_by_id: dict[str, UnionDto] = {}
+        rooms_by_id: dict[str, UnionDto] = {}
+
+        for h in homes:
+            if h.id:
+                groups_map[h.id] = h
+                homes_by_id[h.id] = h
+        for r in rooms:
+            if r.id:
+                groups_map[r.id] = r
+                rooms_by_id[r.id] = r
+        for g in groups:
+            if g.id:
+                groups_map[g.id] = g
+
+        devices_map: dict[str, DeviceDto] = {}
+        for dev in devices:
+            if not dev.id:
+                continue
+            devices_map[dev.id] = dev
+            # Резолвим home/room через group_ids[0] (Sber всегда кладёт один).
+            gids = dev.group_ids or []
+            primary_gid = gids[0] if gids else None
+            if primary_gid is None:
+                continue
+            room = rooms_by_id.get(primary_gid)
+            if room is not None:
+                # device в комнате → home через room.parent_id
+                if room.name and dev.id:
+                    device_to_room_name[dev.id] = room.name
+                device_to_room_id[dev.id] = room.id  # type: ignore[assignment]
+                home_id = room.parent_id
+                if home_id:
+                    device_to_home_id[dev.id] = home_id
+                    home = homes_by_id.get(home_id)
+                    if home is not None and home.name:
+                        device_to_home_name[dev.id] = home.name
+            elif primary_gid in homes_by_id:
+                # device напрямую под home (top-level: SberBoom Home, и т.п.)
+                device_to_home_id[dev.id] = primary_gid
+                home = homes_by_id[primary_gid]
+                if home.name:
+                    device_to_home_name[dev.id] = home.name
+
+        self._devices = devices_map
+        self._groups = groups_map
+        self._device_to_room_name = device_to_room_name
+        self._device_to_room_id = device_to_room_id
+        self._device_to_home_id = device_to_home_id
+        self._device_to_home_name = device_to_home_name
+        # `_tree` остаётся либо None, либо последний tree от legacy refresh —
+        # consumer'ы tree должны мигрировать на flat-API.
+
+        _LOGGER.debug(
+            "StateCache (flat) updated: %d devices, %d groups (%d homes, %d rooms), "
+            "%d room mappings, %d home mappings",
+            len(devices_map),
+            len(groups_map),
+            len(homes_by_id),
+            len(rooms_by_id),
+            len(device_to_room_name),
+            len(device_to_home_id),
+        )
+
     def _walk_tree(
         self,
         node: UnionTreeDto,

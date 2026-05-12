@@ -37,7 +37,10 @@ def _build(handler) -> tuple[GroupAPI, list[httpx.Request]]:
 # ----- list / get -----
 async def test_list_unwraps_result():
     def h(req: httpx.Request) -> httpx.Response:
-        assert req.url.path.endswith("/device_groups/")
+        # URL без trailing slash + pagination params (Salute pattern).
+        assert req.url.path.endswith("/device_groups")
+        assert req.url.params.get("pagination.limit") == "1000"
+        assert "group_type" not in req.url.params
         return httpx.Response(200, json={"result": [{"id": "g1", "name": "Кухня"}]})
 
     api, _ = _build(h)
@@ -45,6 +48,30 @@ async def test_list_unwraps_result():
     assert len(groups) == 1
     assert groups[0].id == "g1"
     assert groups[0].name == "Кухня"
+
+
+async def test_list_filters_by_group_type():
+    """Multi-home: GET /device_groups?group_type=HOME&pagination... отдаёт все HOMEs аккаунта."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.path.endswith("/device_groups")
+        assert req.url.params.get("group_type") == "HOME"
+        assert req.url.params.get("pagination.offset") == "0"
+        assert req.url.params.get("pagination.limit") == "1000"
+        return httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"id": "h1", "name": "Мой дом", "group_type": "HOME"},
+                    {"id": "h2", "name": "Дача", "group_type": "HOME"},
+                ]
+            },
+        )
+
+    api, _ = _build(h)
+    homes = await api.list(group_type="HOME")
+    assert len(homes) == 2
+    assert {h.name for h in homes} == {"Мой дом", "Дача"}
 
 
 async def test_get_single_group():

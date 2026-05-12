@@ -154,8 +154,12 @@ async def test_list_404_raises_api_error():
 
 # ----- list_flat() -----
 async def test_list_flat_devices_endpoint():
+    """`/devices?pagination` — multi-home aware flat-list (без trailing slash)."""
+
     def h(req: httpx.Request) -> httpx.Response:
-        assert req.url.path.endswith("/devices/")
+        assert req.url.path.endswith("/devices")
+        assert req.url.params.get("pagination.offset") == "0"
+        assert req.url.params.get("pagination.limit") == "500"
         return httpx.Response(200, json={"result": [_device("a", "A")]})
 
     api, _ = _build(h)
