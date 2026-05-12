@@ -9,9 +9,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .aiosber.dto import AttributeValueDto
+from .aiosber.exceptions import AuthError
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeCoordinator
-from .exceptions import SberAuthError
 
 if TYPE_CHECKING:
     from .aiosber.dto.device import DeviceDto
@@ -97,11 +97,13 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         )
 
     async def _async_send_attrs(self, attrs: list[AttributeValueDto]) -> None:
-        """Send list[AttributeValueDto] via API + optimistic cache update."""
+        """Send list[AttributeValueDto] via aiosber + optimistic cache update."""
         states_dicts = [a.to_dict() for a in attrs]
         try:
-            await self.coordinator.home_api.set_device_state(self._device_id, states_dicts)
-        except SberAuthError as err:
+            # DeviceService.set_state делает HTTP PUT + optimistic patch
+            # state_cache (см. aiosber/service/device_service.py).
+            await self.coordinator.async_send_device_state(self._device_id, attrs)
+        except AuthError as err:
             LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
             raise ConfigEntryAuthFailed(str(err)) from err
 
@@ -118,11 +120,8 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         except Exception:  # pragma: no cover — DevTools must never break sending
             LOGGER.exception("CommandTracker.record_sent failed")
 
-        # Optimistic patch: применяем desired state к локальному кэшу,
-        # пересобираем entities и уведомляем подписчиков. Публичный hook —
-        # без лазания в приватный `_rebuild_dto_caches` и передачи stale
-        # `coordinator.data` (эту проблему отмечал аудит P1 #15).
-        self.coordinator.state_cache.patch_device_desired(self._device_id, attrs)
+        # Optimistic patch уже сделан DeviceService.set_state — нужно лишь
+        # пересобрать sbermap entities и уведомить HA-подписчиков.
         self.coordinator.rebuild_caches_and_notify()
 
     async def _async_send_command(self, **features: Any) -> None:

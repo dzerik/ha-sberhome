@@ -1,8 +1,8 @@
 """Tests для SberClient facade на coordinator.
 
-Архитектурный долг (CLAUDE.md, парадигма пункт 6) закрыт частично:
-HomeAPI остался как HA-shim, но все новые API-доступы идут через
-`coordinator.client.<domain>` — единая точка входа.
+PR #2 (v5.0.0): coordinator.client — eager-built фасад. Все Sber-API
+вызовы идут через `coordinator.client.<domain>`, state_cache — alias
+на `client.state`.
 """
 
 from __future__ import annotations
@@ -22,19 +22,18 @@ from custom_components.sberhome.coordinator import SberHomeCoordinator
 
 
 def _stub_coord() -> MagicMock:
+    """Stub: эмулируем coordinator с готовым SberClient."""
     coord = MagicMock(spec=SberHomeCoordinator)
-    coord.home_api = MagicMock()
-    coord.home_api._transport = MagicMock()
-    coord._client = None
+    coord._client = SberClient(transport=MagicMock())
     return coord
 
 
 class TestCoordinatorClientFacade:
-    def test_client_lazily_built(self):
+    def test_client_property_returns_sberclient(self):
         coord = _stub_coord()
         client = SberHomeCoordinator.client.fget(coord)
         assert isinstance(client, SberClient)
-        # Reuse: повторный доступ возвращает тот же instance.
+        # Стабильность: повторный доступ возвращает тот же instance.
         assert SberHomeCoordinator.client.fget(coord) is client
 
     def test_client_exposes_all_domains(self):

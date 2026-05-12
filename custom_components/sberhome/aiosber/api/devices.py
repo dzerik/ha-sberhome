@@ -72,13 +72,22 @@ class DeviceAPI:
 
     async def get(self, device_id: str) -> DeviceDto:
         """Return single device. Raises `ApiError` (404) if not found."""
+        payload = await self.get_raw(device_id)
+        return _to_device(payload)
+
+    async def get_raw(self, device_id: str) -> dict[str, Any]:
+        """Return raw `/devices/{id}` payload (без DTO пост-обработки).
+
+        Используется WS/diagnostics endpoints, которым нужен сырой Sber
+        payload (например для debug-view, fetch_device-flow).
+        """
         resp = await self._transport.get(f"/devices/{device_id}")
         payload = _unwrap_result(resp.json())
         if not isinstance(payload, dict):
             raise ProtocolError(
                 f"Expected dict from /devices/{device_id}, got {type(payload).__name__}"
             )
-        return _to_device(payload)
+        return payload
 
     # ----- mutations -----
     async def set_state(

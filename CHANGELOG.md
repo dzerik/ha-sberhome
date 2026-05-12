@@ -1,5 +1,65 @@
 # Changelog
 
+## [5.0.0] — 2026-05-12
+
+Полная миграция координатора на типизированный стек `aiosber`. Удалён
+устаревший `HomeAPI` shim и связанный с ним кеш raw dict. Все Sber-API
+вызовы теперь идут через `coordinator.client.<domain>` (SberClient
+фасад). Архитектурный долг из CLAUDE.md «парадигма пункт 6» закрыт.
+
+Поведение для пользователя не меняется — это рефакторинг внутренних слоёв.
+Bump до 5.0.0 потому что публичные внутренние API для расширений
+(intents, custom services) меняются: `coordinator.home_api` больше нет.
+
+### Changed (BREAKING для разработчиков расширений)
+
+- **`coordinator.home_api` удалён**. Используйте `coordinator.client`
+  (SberClient) или `coordinator.client.transport` для низкоуровневых
+  запросов. AuthManager доступен через `coordinator.auth_manager`.
+- **`HomeAPI` класс удалён из `api.py`**. AuthManager + HttpTransport
+  теперь строятся напрямую в `async_setup_entry` и инжектятся в
+  coordinator конструктор.
+- **`SberHomeCoordinator.__init__` сигнатура изменилась**: вместо
+  `(hass, entry, sber_api, home_api)` теперь
+  `(hass, entry, sber_api, transport, auth_manager)`.
+- **`entity._async_send_attrs`** использует
+  `coordinator.async_send_device_state(device_id, attrs)` →
+  `client.device_service.set_state(...)` с optimistic patch и
+  единым retry на NetworkError.
+- **`IntentService`** перешёл с `coord.home_api._transport` на
+  `coord.client.transport`.
+- **`send_raw_command` сервис** ходит через `coord.client.transport.put`
+  напрямую (preserves raw-dict debug-fidelity, без AttributeValueDto
+  парсинга).
+
+### Removed
+
+- `HomeAPI` класс целиком (был тонким shim'ом, все методы мигрированы).
+- `HomeAPI.set_device_state`, `_set_device_state_inner`, `_request`,
+  `_request_once` — функциональность доступна через
+  `client.device_service.set_state` + `client.transport`.
+- `HomeAPI._cached_devices` — source of truth теперь только
+  `client.state` (StateCache).
+- `tests/test_home_api.py` — тесты удалённого класса.
+
+### Internal
+
+- `coordinator.async_send_device_state(device_id, attrs)` — единая
+  точка отправки команд с retry. Маппит в `client.device_service.set_state`.
+- `COMMAND_RETRY_DELAY` константа переехала из `api.py` в `coordinator.py`.
+- In-band code-16 retry теперь единым местом в `aiosber/transport/http.py`
+  (был продублирован в `HomeAPI._request`).
+
+### Migration guide (для custom-расширений)
+
+| Было | Стало |
+|---|---|
+| `coord.home_api._transport.get(path)` | `coord.client.transport.get(path)` |
+| `coord.home_api._auth` | `coord.auth_manager` |
+| `await coord.home_api.set_device_state(id, dicts)` | `await coord.async_send_device_state(id, attrs)` |
+| `await coord.home_api.get_auth_manager()` | `coord.auth_manager` (sync) |
+| `await coord.home_api.aclose()` | (управляется coordinator.async_shutdown) |
+
 ## [4.8.0] — 2026-05-12
 
 ### Fixed

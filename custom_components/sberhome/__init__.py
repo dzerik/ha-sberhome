@@ -18,7 +18,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 
 from ._ha_token_store import HATokenStore
-from .api import REQUEST_TIMEOUT, HomeAPI, SberAPI, async_init_ssl
+from .aiosber.auth import AuthManager
+from .aiosber.transport import HttpTransport
+from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
 from .const import CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
@@ -59,9 +61,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     планирует retry. Дополнительно ловим голые SberSmartHomeError на
     случай ошибок до полноценного `_async_update_data`.
     """
-    # Shared SSL + один httpx.AsyncClient на entry (оба API используют его
-    # через DI). Без этого раньше создавались два независимых httpx клиента
-    # с отдельными connection pool'ами и дубль SSL ручки.
+    # Shared SSL + один httpx.AsyncClient на entry (используется SberAPI и
+    # HttpTransport через DI). Без этого раньше создавались два независимых
+    # httpx клиента с отдельными connection pool'ами и дубль SSL ручки.
     ssl_ctx = await async_init_ssl(hass)
     http = httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
 
@@ -70,16 +72,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # Ротированные SberID токены персистятся в entry.data, чтобы выживать
     # рестарт HA: refresh_token у Sber одноразовый, и без save_sberid
     # после первой ротации токен в entry.data становится невалиден.
-    home = HomeAPI(
-        sber,
+    auth = AuthManager(
         http=http,
-        token_store=store,
+        store=store,
+        sberid_tokens=sber.sberid_tokens,
         on_sberid_refreshed=store.save_sberid,
     )
+    transport = HttpTransport(http=http, auth=auth)
 
-    coordinator = SberHomeCoordinator(hass, entry, sber, home)
+    coordinator = SberHomeCoordinator(hass, entry, sber, transport, auth)
     # Shared http нужен coordinator.async_shutdown() чтобы закрыть его
-    # один раз (aclose у sber/home теперь no-op при DI).
+    # один раз (aclose у sber теперь no-op при DI, transport не владеет http).
     coordinator._shared_http = http
 
     # Panel + WS API не зависят от devices — регистрируем до refresh,
@@ -157,6 +160,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
     )
 
     async def _send_raw(call: ServiceCall) -> dict[str, object]:
+        from datetime import UTC, datetime
+
         device_id: str = call.data["device_id"]
         state: list[dict] = call.data["state"]
 
@@ -168,8 +173,19 @@ def _async_register_services(hass: HomeAssistant) -> None:
         if coord is None:
             return {"ok": False, "error": "No loaded sberhome entry"}
 
+        # Debug service: пишем raw через transport — без AttributeValueDto
+        # парсинга, чтобы пользователь мог отправить даже некорректные
+        # payloads и увидеть как gateway отреагирует.
+        timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         try:
-            await coord.home_api.set_device_state(device_id, state)
+            await coord.client.transport.put(
+                f"/devices/{device_id}/state",
+                json={
+                    "device_id": device_id,
+                    "desired_state": state,
+                    "timestamp": timestamp,
+                },
+            )
         except Exception as err:  # noqa: BLE001 — debug service, нам нужен любой error в response
             LOGGER.warning(
                 "send_raw_command to %s failed: %s (payload=%s)",

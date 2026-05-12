@@ -42,11 +42,9 @@ def _build_service(
     if update_response is not None:
         transport.put.return_value = _resp(update_response)
 
-    coord.home_api = MagicMock()
-    coord.home_api._transport = transport
-
-    # client.scenarios.history for last_fired_at
+    # PR #5 (v5.0.0): IntentService использует coord.client.transport (не home_api)
     coord.client = MagicMock()
+    coord.client.transport = transport
     coord.client.scenarios = MagicMock()
     coord.client.scenarios.history = AsyncMock(return_value=history or [])
     coord.client.scenarios.execute_command = AsyncMock(return_value={"ok": True})
@@ -155,14 +153,14 @@ class TestCreateIntent:
         result = await service.create_intent(spec)
         assert result.id == "new-id"
         # Проверяем что body не содержит id (POST без id).
-        body = coord.home_api._transport.post.await_args[1]["json"]
+        body = coord.client.transport.post.await_args[1]["json"]
         assert "id" not in body
 
     @pytest.mark.asyncio
     async def test_post_endpoint_used(self):
         service, coord = _build_service(create_response={"result": SAMPLE_SCENARIO})
         await service.create_intent(IntentSpec(name="X", phrases=["x"]))
-        path = coord.home_api._transport.post.await_args[0][0]
+        path = coord.client.transport.post.await_args[0][0]
         assert path == "/scenario/v2/scenario"
 
 
@@ -179,7 +177,7 @@ class TestUpdateIntent:
             raw_extras={"image": "https://..."},
         )
         await service.update_intent("sc-1", spec)
-        body = coord.home_api._transport.put.await_args[1]["json"]
+        body = coord.client.transport.put.await_args[1]["json"]
         assert body["id"] == "sc-1"
         assert body["name"] == "Renamed"
 
@@ -189,7 +187,7 @@ class TestDeleteIntent:
     async def test_calls_delete_endpoint(self):
         service, coord = _build_service()
         await service.delete_intent("sc-99")
-        path = coord.home_api._transport.delete.await_args[0][0]
+        path = coord.client.transport.delete.await_args[0][0]
         assert path == "/scenario/v2/scenario/sc-99"
 
 

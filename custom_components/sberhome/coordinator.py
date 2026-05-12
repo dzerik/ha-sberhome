@@ -32,11 +32,13 @@ from homeassistant.helpers.update_coordinator import (
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
 from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
-from .aiosber.dto import IndicatorColor, IndicatorColors
+from .aiosber.auth import AuthManager
+from .aiosber.dto import AttributeValueDto, IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto, ScenarioEventDto
 from .aiosber.dto.union import UnionDto
-from .api import HomeAPI, SberAPI
+from .aiosber.transport import HttpTransport
+from .api import SberAPI
 from .command_tracker import CommandTracker
 from .const import (
     CONF_ENABLED_DEVICE_IDS,
@@ -79,6 +81,11 @@ INTENT_FETCH_LIMIT = 10
 # чтобы погасить duplicate, но не пропустить быстрые повторные команды.
 INTENT_DISPATCH_COOLDOWN_SEC = 1.0
 
+# Пауза между неуспешной командой и retry. 1 sec ловит большую часть
+# transient network glitches gateway'я без раздражающего пользователя
+# задержкой реакции.
+COMMAND_RETRY_DELAY = 1.0
+
 # Интервал между poll'ами /scenario/v2/scenario + /scenario/v2/home/variable/at_home.
 # 5 минут — список сценариев меняется редко (CRUD руками пользователя),
 # at_home чаще, но HA-side switch.set_at_home делает optimistic update,
@@ -118,7 +125,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hass: HomeAssistant,
         entry: SberHomeConfigEntry,
         sber_api: SberAPI,
-        home_api: HomeAPI,
+        transport: HttpTransport,
+        auth_manager: AuthManager,
     ) -> None:
         scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
@@ -129,16 +137,27 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_interval),
         )
         self.sber_api = sber_api
-        self.home_api = home_api
+        # AuthManager + HttpTransport теперь напрямую на координаторе.
+        # HomeAPI оболочка удалена в PR #6 (v5.0.0) — coordinator владеет
+        # обоими ресурсами и закрывает их через async_shutdown.
+        self._auth_manager = auth_manager
+        self._transport = transport
         self._user_update_interval = timedelta(seconds=scan_interval)
         # WebSocket — lazy, после первого успешного polling refresh.
         self._ws_client: WebSocketClient | None = None
         self._ws_task: asyncio.Task | None = None
         # Shared httpx.AsyncClient injected by `async_setup_entry` — один
-        # pool на оба SberAPI/HomeAPI. Закрывается в async_shutdown.
+        # pool на SberAPI/AuthManager/HttpTransport. Закрывается в async_shutdown.
         self._shared_http: httpx.AsyncClient | None = None
+        # SberClient — eager-built фасад поверх transport.
+        # Все Sber-API вызовы идут через client, state_cache — shared
+        # инстанс из client.state (refresh() пишет именно в неё).
+        # Закрывает архитектурный долг (CLAUDE.md, парадигма пункт 6:
+        # «один публичный фасад SberClient для 80% задач»).
+        self._client: SberClient = SberClient(transport=transport)
         # StateCache — typed single source of truth (devices + groups + rooms).
-        self.state_cache = StateCache()
+        # Alias на client.state — refresh() через aiosber наполняет её.
+        self.state_cache: StateCache = self._client.state
         # sbermap entities cache (rebuilt from state_cache after each refresh).
         self.entities: dict[str, list[HaEntityData]] = {}
         # Stats для panel (PR #12) — count + last timestamps + ring buffer WS msgs.
@@ -193,12 +212,6 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.indicator_colors: IndicatorColors | None = None
         self._indicator_last_poll_at: float | None = None
         self._indicator_disabled: bool = False
-        # SberClient — lazily-built фасад поверх home_api._transport.
-        # Закрывает архитектурный долг (CLAUDE.md, парадигма пункт 6:
-        # «один публичный фасад SberClient для 80% задач») без ломающего
-        # рефакторинга HomeAPI. Все internal API-factories (_device_api,
-        # _inventory_api, ...) теперь делегируют сюда.
-        self._client: SberClient | None = None
         # Voice-intent dispatcher state (Phase 10).
         # Хранит ISO-8601 `event_time` последнего обработанного scenario
         # event'а **per-home** — нужен для dedup'а: scenario_widgets WS push
@@ -231,24 +244,22 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._ws_client.is_connected if self._ws_client is not None else False
 
     @property
-    def auth_manager(self):
-        """AuthManager for token info (panel status)."""
-        return self.home_api._auth
+    def auth_manager(self) -> AuthManager:
+        """AuthManager for token info (panel status) и WS handshake."""
+        return self._auth_manager
 
     @property
     def client(self) -> SberClient:
-        """SberClient facade — lazily построен поверх home_api._transport.
+        """SberClient facade — eager-built поверх HttpTransport.
 
-        Это **public entry point** для всех новых Sber-API вызовов в
-        coordinator/WS endpoints (`coordinator.client.devices.list()`,
-        `coordinator.client.scenarios.execute_command(...)` и т.п.).
+        Это **public entry point** для всех Sber-API вызовов в coordinator
+        и WS endpoints. `client.state` — shared StateCache, идентичный
+        `coordinator.state_cache`.
 
-        Lifecycle: SberClient НЕ владеет transport — closing'ом transport
-        управляет home_api.aclose(). Поэтому coordinator.client.aclose()
-        НЕ зовём — закрытие через `home_api.aclose()` в async_shutdown.
+        Lifecycle: shared httpx закрывается в async_shutdown через
+        `_shared_http.aclose()`. SberClient.aclose не вызываем, чтобы
+        избежать double-close.
         """
-        if self._client is None:
-            self._client = SberClient(transport=self.home_api._transport)
         return self._client
 
     @property
@@ -260,11 +271,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         select.options там, где `device.attributes[].enum_values` пуст
         (Sber не всегда инлайнит enum в DTO).
         """
-        return self.home_api.get_cached_enums()
+        return self.state_cache.get_enums()
 
     def enum_values_for(self, attribute_key: str) -> list[str]:
         """Shortcut: список enum-значений для конкретного attribute_key."""
-        return self.home_api.get_enum_values(attribute_key)
+        return self.state_cache.get_enum_values(attribute_key)
 
     async def _async_setup(self) -> None:
         """Perform initial setup on first coordinator refresh."""
@@ -289,7 +300,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the SberHome API."""
         try:
-            await self.home_api.update_devices_cache()
+            # Multi-home aware refresh через aiosber — 4 параллельных flat-list
+            # запроса + naполняет state_cache, raw_devices, enums.
+            await self.client.device_service.refresh()
             LOGGER.debug(
                 "Updated %d devices from API",
                 len(self.state_cache.get_all_devices()),
@@ -297,7 +310,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.last_polling_at = time.time()
             self.polling_count += 1
             # Параллельно строим типизированные DTO + кэш sbermap-сущностей.
-            self._rebuild_dto_caches()
+            self._rebuild_entities_from_state_cache()
             # DevTools #1 state-diff: record per-device deltas for this
             # polling refresh too.  Most of the time polling brings
             # no news when WS is alive, but during WS outages it's the
@@ -369,22 +382,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------------------
     # Sbermap entities cache — typed DeviceDto + HaEntityData
     # ------------------------------------------------------------------
-    def _rebuild_dto_caches(self) -> None:
-        """После polling refresh: reload StateCache из fresh tree + rebuild entities.
 
-        ВАЖНО: вызывается ТОЛЬКО после `update_devices_cache()` — т.е. когда
-        tree в `home_api.get_cached_tree()` свежий. Для optimistic-patch
-        (после команды, до следующего polling) используется
-        `_rebuild_entities_from_state_cache()` — он не трогает state_cache.
-        """
-        tree = self.home_api.get_cached_tree()
-        if tree is not None:
-            self.state_cache.update_from_tree(tree)
-        else:
-            # Fallback: tree не распарсился — заполним state_cache из raw DTO
-            # через публичный метод (без лазания в `_devices` напрямую).
-            self.state_cache.update_from_devices(self.home_api.get_cached_devices_dto())
-        self._rebuild_entities_from_state_cache()
 
     def _rebuild_entities_from_state_cache(self) -> None:
         """Пересобрать `self.entities` из ТЕКУЩЕГО state_cache — БЕЗ перезаписи.
@@ -677,6 +675,31 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._rebuild_entities_from_state_cache()
         self.async_set_updated_data(self._derive_data())
 
+    async def async_send_device_state(
+        self,
+        device_id: str,
+        attrs: list[AttributeValueDto],
+    ) -> None:
+        """Отправить команду через aiosber с 1 retry на NetworkError.
+
+        Один проброшенный network glitch — норма (Sber gateway периодически
+        режет соединение). Поэтому делаем один retry с задержкой
+        `COMMAND_RETRY_DELAY` (как раньше делал `HomeAPI.set_device_state`).
+
+        Auth/Api/RateLimit ошибки летят дальше неизменно — caller обработает
+        и смапит в ConfigEntryAuthFailed/etc.
+
+        Optimistic patch state_cache.desired_state делает сам DeviceService.
+        """
+        from .aiosber.exceptions import NetworkError
+
+        try:
+            await self.client.device_service.set_state(device_id, attrs)
+        except NetworkError:
+            LOGGER.debug("Command failed for %s, retrying in %ss", device_id, COMMAND_RETRY_DELAY)
+            await asyncio.sleep(COMMAND_RETRY_DELAY)
+            await self.client.device_service.set_state(device_id, attrs)
+
     @property
     def enabled_device_ids(self) -> set[str] | None:
         """Set of device_ids выбранных пользователем, либо None если не настроено.
@@ -774,11 +797,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _run_ws(self) -> None:
         """Создать WebSocketClient и крутить его infinite reconnect loop."""
-        try:
-            auth = await self.home_api.get_auth_manager()
-        except Exception:
-            LOGGER.exception("Cannot init AuthManager for WS — disabling WS push")
-            return
+        auth = self._auth_manager
 
         session = async_get_clientsession(self.hass)
         factory = make_aiohttp_factory(session)
@@ -1195,9 +1214,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._ws_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._ws_task
-        # Home/Sber aclose no-op при DI (owns_http=False). Shared http
+        # SberAPI.aclose no-op при DI (owns_http=False). Shared http
         # закрываем здесь — один раз, с contextlib на случай двойного вызова.
-        await self.home_api.aclose()
+        # SberClient.aclose НЕ зовём чтобы избежать double-close shared httpx.
         await self.sber_api.aclose()
         if self._shared_http is not None:
             with contextlib.suppress(RuntimeError):

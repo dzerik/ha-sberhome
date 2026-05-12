@@ -13,10 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from custom_components.sberhome.aiosber import SocketMessageDto
+from custom_components.sberhome.aiosber.auth import AuthManager
 from custom_components.sberhome.aiosber.dto.device import DeviceDto
 from custom_components.sberhome.aiosber.dto.state import AttributeValueDto, StateDto
 from custom_components.sberhome.aiosber.dto.values import AttributeValueType
-from custom_components.sberhome.api import HomeAPI, SberAPI
+from custom_components.sberhome.aiosber.transport import HttpTransport
+from custom_components.sberhome.api import SberAPI
 from custom_components.sberhome.coordinator import SberHomeCoordinator
 
 
@@ -31,11 +33,10 @@ def coordinator():
     entry.options = {}
 
     sber_api = AsyncMock(spec=SberAPI)
-    home_api = AsyncMock(spec=HomeAPI)
-    home_api.get_cached_devices = MagicMock(return_value={})
-    home_api.get_cached_tree = MagicMock(return_value=None)
+    transport = AsyncMock(spec=HttpTransport)
+    auth = AsyncMock(spec=AuthManager)
 
-    coord = SberHomeCoordinator(hass, entry, sber_api, home_api)
+    coord = SberHomeCoordinator(hass, entry, sber_api, transport, auth)
     coord.async_set_updated_data = MagicMock()
     return coord
 

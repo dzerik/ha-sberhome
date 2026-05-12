@@ -8,13 +8,15 @@ import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.sberhome.aiosber import SocketMessageDto, StateCache
+from custom_components.sberhome.aiosber import SocketMessageDto
+from custom_components.sberhome.aiosber.auth import AuthManager
 from custom_components.sberhome.aiosber.dto.devman import DevmanDto
 from custom_components.sberhome.aiosber.dto.state import (
     AttributeValueDto,
     StateDto,
 )
-from custom_components.sberhome.api import HomeAPI, SberAPI
+from custom_components.sberhome.aiosber.transport import HttpTransport
+from custom_components.sberhome.api import SberAPI
 from custom_components.sberhome.coordinator import SberHomeCoordinator
 from custom_components.sberhome.exceptions import (
     SberApiError,
@@ -30,12 +32,37 @@ def mock_sber_api():
 
 
 @pytest.fixture
-def mock_home_api(mock_devices):
-    api = AsyncMock(spec=HomeAPI)
-    api.get_cached_devices = MagicMock(return_value=mock_devices)
-    api.get_cached_tree = MagicMock(return_value=None)  # no tree → fallback to DTO
-    api.update_devices_cache = AsyncMock()
-    return api
+def mock_transport():
+    """HttpTransport mock — coordinator его hold'ит после PR #6."""
+    return AsyncMock(spec=HttpTransport)
+
+
+@pytest.fixture
+def mock_auth_manager():
+    """AuthManager mock — для _run_ws handshake и panel-status."""
+    return AsyncMock(spec=AuthManager)
+
+
+@pytest.fixture
+def mock_client(mock_devices):
+    """SberClient mock для refresh-path."""
+    from custom_components.sberhome.aiosber import SberClient
+    from custom_components.sberhome.aiosber.dto.device import DeviceDto
+    from custom_components.sberhome.aiosber.service.state_cache import StateCache
+
+    client = AsyncMock(spec=SberClient)
+    state = StateCache()
+    # Pre-populate state_cache с DTO из mock_devices для read-path тестов.
+    dto_devices = []
+    for _did, raw in mock_devices.items():
+        dto = DeviceDto.from_dict(raw)
+        if dto is not None:
+            dto_devices.append(dto)
+    state.update_from_flat(homes=[], rooms=[], groups=[], devices=dto_devices)
+    client.state = state
+    client.device_service = MagicMock()
+    client.device_service.refresh = AsyncMock()
+    return client
 
 
 @pytest.fixture
@@ -48,12 +75,21 @@ def mock_hass():
 
 
 @pytest.fixture
-def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
+def coordinator(
+    mock_hass,
+    mock_config_entry,
+    mock_sber_api,
+    mock_transport,
+    mock_auth_manager,
+    mock_client,
+):
     from datetime import timedelta
 
     coord = SberHomeCoordinator.__new__(SberHomeCoordinator)
     coord.sber_api = mock_sber_api
-    coord.home_api = mock_home_api
+    coord._transport = mock_transport
+    coord._auth_manager = mock_auth_manager
+    coord._client = mock_client
     coord.hass = mock_hass
     coord.logger = MagicMock()
     coord.name = "sberhome"
@@ -71,8 +107,8 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
     coord._ws_task = MagicMock()
     coord._ws_task.done = MagicMock(return_value=False)
     coord._ws_client = None
-    # StateCache + sbermap entities cache.
-    coord.state_cache = StateCache()
+    # StateCache + sbermap entities cache. shared между coordinator и client.
+    coord.state_cache = mock_client.state
     coord.entities = {}
     # PR #11 stats для panel.
     from collections import deque
@@ -111,34 +147,34 @@ def coordinator(mock_hass, mock_config_entry, mock_sber_api, mock_home_api):
 
 
 @pytest.mark.asyncio
-async def test_update_data_success(coordinator, mock_home_api, mock_devices):
-    """Test successful data update."""
+async def test_update_data_success(coordinator, mock_client):
+    """Test successful data update — через client.device_service.refresh."""
     result = await coordinator._async_update_data()
-    mock_home_api.update_devices_cache.assert_called_once()
-    # result is derived from state_cache (DTO.to_dict), not raw mock_devices
+    mock_client.device_service.refresh.assert_awaited_once()
+    # result is derived from state_cache (DTO.to_dict).
     assert isinstance(result, dict)
 
 
 @pytest.mark.asyncio
-async def test_update_data_auth_error(coordinator, mock_home_api):
+async def test_update_data_auth_error(coordinator, mock_client):
     """Test auth error raises ConfigEntryAuthFailed."""
-    mock_home_api.update_devices_cache.side_effect = SberAuthError("expired")
+    mock_client.device_service.refresh.side_effect = SberAuthError("expired")
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
 
 @pytest.mark.asyncio
-async def test_update_data_connection_error(coordinator, mock_home_api):
+async def test_update_data_connection_error(coordinator, mock_client):
     """Test connection error raises UpdateFailed."""
-    mock_home_api.update_devices_cache.side_effect = SberConnectionError("timeout")
+    mock_client.device_service.refresh.side_effect = SberConnectionError("timeout")
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
 
 @pytest.mark.asyncio
-async def test_update_data_rate_limited(coordinator, mock_home_api):
+async def test_update_data_rate_limited(coordinator, mock_client):
     """Test rate limiting adjusts update_interval."""
-    mock_home_api.update_devices_cache.side_effect = SberApiError(
+    mock_client.device_service.refresh.side_effect = SberApiError(
         code=429, status_code=429, message="rate limited", retry_after=120
     )
     with pytest.raises(UpdateFailed):
@@ -153,12 +189,10 @@ async def test_async_setup(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_closes_clients(coordinator, mock_sber_api, mock_home_api):
-    """Test that shutdown closes both API clients."""
-    # Call only our custom shutdown logic directly
-    await coordinator.home_api.aclose()
+async def test_shutdown_closes_clients(coordinator, mock_sber_api):
+    """Shutdown закрывает SberAPI. Shared http закрывается отдельно через
+    _shared_http (см. coordinator.async_shutdown — full path)."""
     await coordinator.sber_api.aclose()
-    mock_home_api.aclose.assert_called_once()
     mock_sber_api.aclose.assert_called_once()
 
 
@@ -205,10 +239,6 @@ async def test_on_ws_device_state_direct_patch(coordinator):
     )
     coordinator.state_cache._devices = {"dev-1": dto}
     coordinator.entities = {}
-    coordinator.home_api._cached_devices = {"dev-1": dto.to_dict()}
-    coordinator.home_api.get_cached_devices = MagicMock(
-        return_value=coordinator.home_api._cached_devices
-    )
     coordinator.async_set_updated_data = MagicMock()
     coordinator.hass.async_create_task = MagicMock()
 
@@ -308,26 +338,14 @@ def test_start_ws_task_swallows_exception(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_run_ws_returns_when_auth_fails(coordinator, mock_home_api):
-    """Если AuthManager init упал — _run_ws тихо завершается без падения."""
-    mock_home_api.get_auth_manager = AsyncMock(side_effect=RuntimeError("no token"))
-
-    await coordinator._run_ws()
-
-    # WebSocketClient не должен быть создан
-    assert coordinator._ws_client is None
-
-
-@pytest.mark.asyncio
-async def test_run_ws_creates_client_and_runs(coordinator, mock_home_api):
-    """Happy path: AuthManager OK → WebSocketClient создан и .run() вызван.
+async def test_run_ws_creates_client_and_runs(coordinator):
+    """Happy path: WebSocketClient создан с self._auth_manager и .run() вызван.
 
     Во время `run()` `_ws_client` ссылается на созданный клиент (чтобы
     `ws_connected` property работал). После завершения `run()` finally-блок
     сбрасывает `_ws_client = None`, чтобы следующий polling tick не видел
     stale reference на завершённый клиент.
     """
-    mock_home_api.get_auth_manager = AsyncMock(return_value=MagicMock())
     fake_ws_client = AsyncMock()
 
     # Фиксируем значение _ws_client во время run() — оно должно указывать на клиента
@@ -358,9 +376,8 @@ async def test_run_ws_creates_client_and_runs(coordinator, mock_home_api):
 
 
 @pytest.mark.asyncio
-async def test_run_ws_logs_unexpected_exception(coordinator, mock_home_api):
+async def test_run_ws_logs_unexpected_exception(coordinator):
     """Если WebSocketClient.run() бросил неожиданное — логируем и не падаем."""
-    mock_home_api.get_auth_manager = AsyncMock(return_value=MagicMock())
     fake_ws_client = AsyncMock()
     fake_ws_client.run.side_effect = RuntimeError("network broken")
 
@@ -376,7 +393,7 @@ async def test_run_ws_logs_unexpected_exception(coordinator, mock_home_api):
 
 
 @pytest.mark.asyncio
-async def test_update_data_starts_ws_when_task_is_none(coordinator, mock_home_api):
+async def test_update_data_starts_ws_when_task_is_none(coordinator):
     """При первом успешном polling (без активного _ws_task) — стартует WS task."""
     coordinator._ws_task = None
     coordinator._start_ws_task = MagicMock()
@@ -387,7 +404,7 @@ async def test_update_data_starts_ws_when_task_is_none(coordinator, mock_home_ap
 
 
 @pytest.mark.asyncio
-async def test_update_data_does_not_restart_ws_when_already_running(coordinator, mock_home_api):
+async def test_update_data_does_not_restart_ws_when_already_running(coordinator):
     """Если _ws_task уже запущен — повторно не стартуем."""
     # _ws_task уже truthy MagicMock из фикстуры, .done()=False
     coordinator._start_ws_task = MagicMock()
@@ -398,7 +415,7 @@ async def test_update_data_does_not_restart_ws_when_already_running(coordinator,
 
 
 @pytest.mark.asyncio
-async def test_update_data_restarts_ws_when_task_is_done(coordinator, mock_home_api):
+async def test_update_data_restarts_ws_when_task_is_done(coordinator):
     """Если `_ws_task.done()=True` (завершился после max_consecutive_failures) —
     `_async_update_data` должен запустить новый. Без `.done()` проверки
     прошлая реализация `if self._ws_task is None` застревала в degraded
@@ -412,13 +429,12 @@ async def test_update_data_restarts_ws_when_task_is_done(coordinator, mock_home_
 
 
 @pytest.mark.asyncio
-async def test_run_ws_clears_client_on_completion(coordinator, mock_home_api):
+async def test_run_ws_clears_client_on_completion(coordinator):
     """После завершения `_run_ws` (нормальное или unexpected) `_ws_client`
     должен быть сброшен на None — иначе `ws_connected` property продолжал
     бы показывать `is_connected` мёртвого клиента, и следующий polling
     tick с `.done() == True` пытался бы рестартовать, оставляя старый
     dead-reference."""
-    mock_home_api.get_auth_manager = AsyncMock(return_value=MagicMock())
     fake_ws_client = AsyncMock()
     fake_ws_client.run = AsyncMock(return_value=None)
 
@@ -439,7 +455,7 @@ async def test_run_ws_clears_client_on_completion(coordinator, mock_home_api):
 
 
 @pytest.mark.asyncio
-async def test_update_data_restores_user_interval_after_429(coordinator, mock_home_api):
+async def test_update_data_restores_user_interval_after_429(coordinator):
     """После rate-limit interval повышается; следующий успешный update — восстанавливает."""
     from datetime import timedelta
 
@@ -457,21 +473,16 @@ async def test_update_data_restores_user_interval_after_429(coordinator, mock_ho
 
 
 @pytest.mark.asyncio
-async def test_update_data_populates_devices_and_entities(coordinator, mock_home_api, mock_devices):
+async def test_update_data_populates_devices_and_entities(coordinator, mock_client):
     """После refresh coordinator.devices содержит DeviceDto, entities — HaEntityData."""
     from custom_components.sberhome.aiosber.dto.device import DeviceDto
 
-    # mock_home_api.get_cached_devices_dto возвращает реальные DTO из mock_devices.
-    def _to_dto():
-        return {did: DeviceDto.from_dict(raw) for did, raw in mock_devices.items()}
-
-    mock_home_api.get_cached_devices_dto = MagicMock(side_effect=_to_dto)
-
+    # mock_client.state уже наполнен в fixture через update_from_flat(mock_devices).
+    # device_service.refresh — noop в моке, state остаётся pre-populated.
     await coordinator._async_update_data()
 
     assert "device_light_1" in coordinator.devices
     assert isinstance(coordinator.devices["device_light_1"], DeviceDto)
-    # entities — list HaEntityData; для bulb_sber минимум один Platform.LIGHT.
     from homeassistant.const import Platform
 
     light_entities = coordinator.entities["device_light_1"]
@@ -480,21 +491,17 @@ async def test_update_data_populates_devices_and_entities(coordinator, mock_home
 
 
 @pytest.mark.asyncio
-async def test_update_data_with_unknown_image_yields_empty_entities(coordinator, mock_home_api):
+async def test_update_data_with_unknown_image_yields_empty_entities(coordinator, mock_client):
     """Категория unknown → entities=[] но devices DTO всё равно есть."""
     from custom_components.sberhome.aiosber.dto.device import DeviceDto
 
     raw = {
-        "alien-1": {
-            "id": "alien-1",
-            "image_set_type": "completely_unknown_xyz",
-            "name": "Alien",
-        }
+        "id": "alien-1",
+        "image_set_type": "completely_unknown_xyz",
+        "name": "Alien",
     }
-    mock_home_api.get_cached_devices = MagicMock(return_value=raw)
-    mock_home_api.get_cached_devices_dto = MagicMock(
-        return_value={"alien-1": DeviceDto.from_dict(raw["alien-1"])}
-    )
+    alien_dto = DeviceDto.from_dict(raw)
+    mock_client.state._devices = {"alien-1": alien_dto}
 
     await coordinator._async_update_data()
 
@@ -502,19 +509,13 @@ async def test_update_data_with_unknown_image_yields_empty_entities(coordinator,
     assert coordinator.entities["alien-1"] == []
 
 
-def test_rebuild_dto_caches_idempotent(coordinator, mock_home_api, mock_devices):
-    """Многократный rebuild — детерминирован, не растёт."""
-    from custom_components.sberhome.aiosber.dto.device import DeviceDto
-
-    mock_home_api.get_cached_devices_dto = MagicMock(
-        side_effect=lambda: {did: DeviceDto.from_dict(raw) for did, raw in mock_devices.items()}
-    )
-
-    coordinator._rebuild_dto_caches()
+def test_rebuild_entities_idempotent(coordinator, mock_client):
+    """Многократный rebuild_entities — детерминирован, не растёт."""
+    coordinator._rebuild_entities_from_state_cache()
     first_devices = set(coordinator.devices.keys())
     first_count = sum(len(es) for es in coordinator.entities.values())
 
-    coordinator._rebuild_dto_caches()
+    coordinator._rebuild_entities_from_state_cache()
     assert set(coordinator.devices.keys()) == first_devices
     assert sum(len(es) for es in coordinator.entities.values()) == first_count
 
@@ -599,7 +600,7 @@ def test_desired_update_interval_when_ws_offline(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_update_data_switches_to_long_interval_when_ws_connected(coordinator, mock_home_api):
+async def test_update_data_switches_to_long_interval_when_ws_connected(coordinator):
     """После успешного polling с активным WS — interval становится 10 мин."""
     from datetime import timedelta
 

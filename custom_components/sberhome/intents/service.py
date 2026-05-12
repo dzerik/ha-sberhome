@@ -39,7 +39,7 @@ class IntentService:
         """
         # API возвращает list[ScenarioDto] — но мы хотим raw dict для
         # forward-compat с raw_extras. Используем low-level transport.
-        resp = await self._coord.home_api._transport.get("/scenario/v2/scenario")
+        resp = await self._coord.client.transport.get("/scenario/v2/scenario")
         payload = resp.json()
         # Sber отдаёт {"scenarios": [...], "pagination": {...}} — НЕ
         # обёрнутый в "result" (live observation).
@@ -51,7 +51,7 @@ class IntentService:
 
     async def get_intent(self, scenario_id: str) -> IntentSpec | None:
         """Один сценарий по id, или None если не найден."""
-        resp = await self._coord.home_api._transport.get(f"/scenario/v2/scenario/{scenario_id}")
+        resp = await self._coord.client.transport.get(f"/scenario/v2/scenario/{scenario_id}")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
             payload = payload["result"]
@@ -74,7 +74,7 @@ class IntentService:
         # Sber требует POST без id — encoder его и не выставляет (spec.id
         # игнорируется на encode).
         body.pop("id", None)
-        resp = await self._coord.home_api._transport.post("/scenario/v2/scenario", json=body)
+        resp = await self._coord.client.transport.post("/scenario/v2/scenario", json=body)
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
             payload = payload["result"]
@@ -92,7 +92,7 @@ class IntentService:
         # Sber хочет id внутри body для PUT — encoder его не ставит,
         # но можем добавить из аргумента.
         body["id"] = scenario_id
-        resp = await self._coord.home_api._transport.put(
+        resp = await self._coord.client.transport.put(
             f"/scenario/v2/scenario/{scenario_id}", json=body
         )
         payload = resp.json()
@@ -101,7 +101,7 @@ class IntentService:
         return decode_scenario(payload) if isinstance(payload, dict) else spec
 
     async def delete_intent(self, scenario_id: str) -> None:
-        await self._coord.home_api._transport.delete(f"/scenario/v2/scenario/{scenario_id}")
+        await self._coord.client.transport.delete(f"/scenario/v2/scenario/{scenario_id}")
 
     async def test_intent(self, scenario_id: str) -> dict[str, Any]:
         """«Test now» — реально запустить сценарий через Sber API.

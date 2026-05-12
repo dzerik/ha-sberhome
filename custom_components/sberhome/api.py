@@ -1,64 +1,40 @@
-"""HA-shim над aiosber.
+"""SberAPI shim для config_flow + shared SSL provider.
 
-Тонкие обёртки `SberAPI` и `HomeAPI` сохраняют легаси-интерфейс для
-config_flow.py и платформ (entity._async_send_bundle), внутри полностью
-делегируют работу типизированному стеку `aiosber/`:
+PR #6 (v5.0.0): HomeAPI оболочка удалена. AuthManager + HttpTransport
+теперь строятся напрямую в `__init__.py:async_setup_entry` и инжектятся
+в coordinator. Этот модуль остался только ради:
 
-- `SberAPI` хранит SberID-токены и делает PKCE-флоу (config_flow).
-- `HomeAPI` владеет AuthManager + HttpTransport, кеширует raw devices в
-  `_cached_devices` для совместимости с WS-патчем (coordinator) и
-  diagnostics, выполняет команды через `transport.put`, мапит aiosber
-  исключения в SberSmartHome иерархию.
+- `SberAPI` — PKCE OAuth-flow для config_flow (создание SberID токенов).
+- `async_init_ssl` — shared SslContextProvider в hass.data.
 
 Никакой business-логики здесь нет — она в aiosber.
 """
 
 from __future__ import annotations
 
-import asyncio
 import ssl
-from datetime import UTC, datetime
-from typing import Any
 
 import httpx
 
 from .aiosber.auth import (
-    AuthManager,
-    InMemoryTokenStore,
     PkceParams,
     SberIdTokens,
-    TokenStore,
     build_authorize_url,
     exchange_code_for_tokens,
     extract_code_from_redirect,
 )
-from .aiosber.auth.manager import SberIdRefreshCallback
 from .aiosber.const import DEFAULT_PARTNER_NAME
-from .aiosber.dto.device import DeviceDto
-from .aiosber.dto.union import UnionTreeDto
 from .aiosber.exceptions import (
     ApiError,
     AuthError,
     InvalidGrant,
     NetworkError,
     PkceError,
-    RateLimitError,
 )
-from .aiosber.transport import HttpTransport, SslContextProvider
+from .aiosber.transport import SslContextProvider
 from .const import DOMAIN, LOGGER
-from .exceptions import (
-    SberApiError,
-    SberAuthError,
-    SberConnectionError,
-    SberSmartHomeError,
-)
-from .utils import extract_devices
 
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
-COMMAND_RETRY_DELAY = 1.0
-
-# In-band gateway error codes
-_CODE_TOKEN_EXPIRED = 16
 
 # Ключ в hass.data для shared SslContextProvider — один на HA instance,
 # чтобы `ssl.create_default_context()` (~50-200 мс блокирующий I/O)
@@ -81,29 +57,6 @@ async def async_init_ssl(hass) -> ssl.SSLContext:
     return await provider.get()
 
 
-def _extract_enum_values(raw: Any) -> list[str]:
-    """Достать enum-список из разнообразных shapes от Sber.
-
-    Sber `/devices/enums` непоследователен: один атрибут — голый list,
-    другой — `{"values": [...]}`, третий — list объектов
-    `[{"value": "x", "name": "..."}]`. Нормализуем во flat list[str],
-    отбрасывая мусор.
-    """
-    if isinstance(raw, list):
-        out: list[str] = []
-        for item in raw:
-            if isinstance(item, str):
-                out.append(item)
-            elif isinstance(item, dict):
-                value = item.get("value") or item.get("id") or item.get("name")
-                if isinstance(value, str):
-                    out.append(value)
-        return out
-    if isinstance(raw, dict) and isinstance(raw.get("values"), list):
-        return _extract_enum_values(raw["values"])
-    return []
-
-
 def _normalize_legacy_token(token: dict) -> dict:
     """Сконвертить authlib-стиль `expires_at` в aiosber-стиль `obtained_at`.
 
@@ -120,8 +73,9 @@ def _normalize_legacy_token(token: dict) -> dict:
 class SberAPI:
     """OAuth2 PKCE-shim для config_flow.
 
-    Хранит SberID-токены. Companion-токены живут в HomeAPI (через AuthManager),
-    чтобы не дублировать состояние.
+    Хранит SberID-токены. Companion-токены живут в AuthManager (передаётся
+    в coordinator из `__init__.py:async_setup_entry`), чтобы не дублировать
+    состояние.
 
     Args:
         token: сохранённый SberID token dict (из config_entry.data); или None
@@ -165,7 +119,7 @@ class SberAPI:
 
     @property
     def sberid_tokens(self) -> SberIdTokens | None:
-        """Прямой доступ к SberIdTokens — для передачи в HomeAPI/AuthManager."""
+        """Прямой доступ к SberIdTokens — для передачи в AuthManager."""
         return self._sberid
 
     def create_authorization_url(self) -> str:
@@ -202,253 +156,3 @@ class SberAPI:
             await self._http.aclose()
 
 
-class HomeAPI:
-    """HA-shim над aiosber HttpTransport + AuthManager.
-
-    Сохраняет атрибут `_cached_devices: dict[str, dict]` в raw виде — это нужно
-    для:
-    - точечного WS-патча (`coordinator._on_ws_device_state` мутирует raw dict);
-    - diagnostics, который сериализует raw dict в JSON;
-    - sbermap, который lazy-конвертит в DeviceDto через `get_cached_devices_dto`.
-    """
-
-    def __init__(
-        self,
-        sber: SberAPI,
-        *,
-        http: httpx.AsyncClient | None = None,
-        token_store: TokenStore | None = None,
-        on_sberid_refreshed: SberIdRefreshCallback | None = None,
-    ) -> None:
-        self._sber = sber
-        if http is not None:
-            self._http = http
-            self._owns_http = False
-        else:
-            # Fallback для CLI/тестов (SSL без Russian Trusted Root CA).
-            self._http = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
-            self._owns_http = True
-        # Companion-токены: по умолчанию in-memory (для unit-тестов / CLI),
-        # HA-адаптер прокидывает HATokenStore, который пишет в
-        # config_entry.data, чтобы токены переживали рестарт.
-        self._store = token_store or InMemoryTokenStore()
-        self._auth = AuthManager(
-            http=self._http,
-            store=self._store,
-            sberid_tokens=sber.sberid_tokens,
-            on_sberid_refreshed=on_sberid_refreshed,
-        )
-        self._transport = HttpTransport(http=self._http, auth=self._auth)
-        self._cached_devices: dict = {}
-        self._cached_tree: UnionTreeDto | None = None
-        # /devices/enums — справочник enum-значений атрибутов.
-        # Один раз при первом успешном refresh кэшируем; используется как
-        # fallback-источник opt-in для select.options там, где
-        # device.attributes[].enum_values пусто (Sber иногда возвращает
-        # тип ENUM без values, ожидая что клиент возьмёт их из словаря).
-        self._cached_enums: dict[str, list[str]] = {}
-
-    async def get_auth_manager(self) -> AuthManager:
-        """Доступ к AuthManager для WS handshake (`coordinator._run_ws`).
-
-        Async по контракту с coordinator (он awaits): даёт возможность
-        в будущем lazy-инициализировать AuthManager без breaking-change.
-        """
-        return self._auth
-
-    def get_cached_devices_dto(self) -> dict[str, DeviceDto]:
-        """Lazy-конверт raw → DeviceDto для sbermap.
-
-        Resilient: skip + log devices которые не парсятся, чтобы один
-        нестандартный device не валил polling всем остальным.
-        """
-        out: dict[str, DeviceDto] = {}
-        for device_id, raw in self._cached_devices.items():
-            try:
-                dto = DeviceDto.from_dict(raw)
-            except Exception:  # noqa: BLE001
-                LOGGER.debug(
-                    "Cannot parse DTO for device %s — skipping",
-                    device_id,
-                    exc_info=True,
-                )
-                continue
-            if dto is not None:
-                out[device_id] = dto
-        return out
-
-    async def update_devices_cache(self) -> None:
-        """Legacy refresh через /device_groups/tree (single-home).
-
-        Используется для заполнения `_cached_devices` (raw dict by id) —
-        требуется legacy-callers (debug-view, _bridge_info, _refetch).
-        Multi-home refresh идёт через `aiosber.SberClient.device_service.refresh()`
-        — coordinator вызывает обе в parallel.
-        """
-        device_data = await self._request("GET", "/device_groups/tree")
-        raw_tree = device_data["result"]
-        self._cached_devices = extract_devices(raw_tree)
-        self._cached_tree = UnionTreeDto.from_dict(raw_tree)
-        # При первом успешном refresh — подтянуть /devices/enums.
-        if not self._cached_enums:
-            try:
-                await self._fetch_enums()
-            except SberSmartHomeError:
-                LOGGER.debug("Failed to fetch /devices/enums (ignored)", exc_info=True)
-
-    async def _fetch_enums(self) -> None:
-        """GET /devices/enums → нормализованный dict[attr_key → list[value]].
-
-        Sber возвращает разные shapes (`{"result": {"enum_key": ["v1", "v2"]}}`
-        либо вложенно через `{"values": [...]}`); нормализуем в плоский
-        dict, чтобы потребитель не разбирал shape сам.
-        """
-        data = await self._request("GET", "/devices/enums")
-        payload = data.get("result", data)
-        normalized: dict[str, list[str]] = {}
-        if isinstance(payload, dict):
-            for key, raw in payload.items():
-                values = _extract_enum_values(raw)
-                if values:
-                    normalized[str(key)] = values
-        self._cached_enums = normalized
-
-    def get_cached_enums(self) -> dict[str, list[str]]:
-        """Возвращает нормализованный enum-словарь (пустой если ещё не подтянут)."""
-        return self._cached_enums
-
-    def get_enum_values(self, attribute_key: str) -> list[str]:
-        """Удобный shortcut: список enum-значений для конкретного attribute_key.
-
-        Returns:
-            пустой list если attribute_key не в кэше.
-        """
-        return list(self._cached_enums.get(attribute_key, ()))
-
-    def get_cached_tree(self) -> UnionTreeDto | None:
-        """Typed дерево групп — для legacy state_cache.update_from_tree.
-
-        После v4.8.0 production refresh идёт через aiosber.SberClient,
-        этот tree — fallback и raw `_cached_devices` source.
-        """
-        return self._cached_tree
-
-    def get_cached_devices(self) -> dict:
-        return self._cached_devices
-
-    def get_cached_device(self, device_id: str) -> dict:
-        return self._cached_devices[device_id]
-
-    async def fetch_device(self, device_id: str) -> dict:
-        """GET /devices/{id} — individual device fetch.
-
-        Альтернатива batch `/device_groups/tree` (который для c2c-устройств
-        может отдавать stale values). Мобильное приложение Sber использует
-        именно этот endpoint для single-device detail view.
-        """
-        data = await self._request("GET", f"/devices/{device_id}")
-        return data.get("result") or data
-
-    async def set_device_state(self, device_id: str, state: list[dict]) -> None:
-        """Set device state via the gateway API with one network-retry."""
-        try:
-            await self._set_device_state_inner(device_id, state)
-        except SberConnectionError:
-            LOGGER.debug(
-                "Command failed for %s, retrying in %ss",
-                device_id,
-                COMMAND_RETRY_DELAY,
-            )
-            await asyncio.sleep(COMMAND_RETRY_DELAY)
-            await self._set_device_state_inner(device_id, state)
-
-    async def _set_device_state_inner(self, device_id: str, state: list[dict]) -> None:
-        """Send device state update + merge into local cache."""
-        await self._request(
-            "PUT",
-            f"/devices/{device_id}/state",
-            json={
-                "device_id": device_id,
-                "desired_state": state,
-                "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            },
-        )
-
-        if device_id in self._cached_devices:
-            for state_val in state:
-                for attribute in self._cached_devices[device_id]["desired_state"]:
-                    if attribute["key"] == state_val["key"]:
-                        attribute.update(state_val)
-                        break
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: Any = None,
-        params: dict[str, str] | None = None,
-    ) -> dict:
-        """Низкоуровневый запрос: маппинг aiosber → SberSmartHome исключений.
-
-        Дополнительно ловит in-band `code 16` (token expired): force_refresh +
-        retry один раз. Это compat-strategy для случаев, когда gateway отдаёт
-        200 OK с code-16 вместо честного 401.
-        """
-        payload = await self._request_once(method, path, json=json, params=params)
-
-        if isinstance(payload, dict) and payload.get("code") == _CODE_TOKEN_EXPIRED:
-            LOGGER.debug("Gateway code 16 (token expired) — force refresh + retry")
-            try:
-                await self._auth.force_refresh()
-            except (AuthError, InvalidGrant) as err:
-                raise SberAuthError(str(err)) from err
-            payload = await self._request_once(method, path, json=json, params=params)
-            if isinstance(payload, dict) and payload.get("code") == _CODE_TOKEN_EXPIRED:
-                raise SberAuthError("Token expired and retry failed")
-
-        return payload
-
-    async def _request_once(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: Any = None,
-        params: dict[str, str] | None = None,
-    ) -> dict:
-        try:
-            resp = await self._transport.request(method, path, json=json, params=params)
-        except (AuthError, InvalidGrant) as err:
-            raise SberAuthError(str(err)) from err
-        except RateLimitError as err:
-            retry_after = int(err.retry_after) if err.retry_after else 60
-            LOGGER.warning("API rate limited, retry after %ds", retry_after)
-            raise SberApiError(
-                code=429,
-                status_code=429,
-                message=str(err),
-                retry_after=retry_after,
-            ) from err
-        except NetworkError as err:
-            raise SberConnectionError(f"Connection error: {err}") from err
-        except ApiError as err:
-            code = err.code if isinstance(err.code, int) else -1
-            raise SberApiError(
-                code=code, status_code=err.status_code, message=err.message or str(err)
-            ) from err
-
-        try:
-            return resp.json()
-        except (ValueError, TypeError) as err:
-            raise SberApiError(
-                code=-1, status_code=resp.status_code, message=resp.text[:200]
-            ) from err
-
-    async def aclose(self) -> None:
-        """Закрыть transport, плюс httpx если он был создан внутри.
-
-        При DI-инжекции (http=...) httpx закрывает owner снаружи.
-        """
-        if self._owns_http:
-            await self._transport.aclose()

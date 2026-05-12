@@ -95,7 +95,7 @@ def ws_get_devices(
         ha_area_id = ha_device.area_id if ha_device else None
         # Иконка из Sber CDN: предпочитаем list_on (маленький square icon),
         # fallback на cards_3d_on (тоже small). Полный URL строится фронтом.
-        raw = coord.home_api.get_cached_devices().get(device_id) or {}
+        raw = coord.state_cache.get_raw_payload(device_id) or {}
         images = raw.get("images", {}) if isinstance(raw, dict) else {}
         icon_path = (
             images.get("list_on")
@@ -164,10 +164,9 @@ def ws_device_detail(
         connection.send_error(msg["id"], "not_found", f"Device {device_id} not found")
         return
 
-    # Raw payload от Sber Gateway — как приходит в `/device_groups/tree`
-    # ответе, до любой нашей пост-обработки. Для debug/issue reporting
-    # пользователь может скопировать это и приложить к багрепорту.
-    raw_payload = coord.home_api.get_cached_devices().get(device_id)
+    # Raw payload от Sber Gateway — без пост-обработки. Для debug/issue
+    # reporting пользователь может скопировать это и приложить к багрепорту.
+    raw_payload = coord.state_cache.get_raw_payload(device_id)
 
     connection.send_result(
         msg["id"],
@@ -238,7 +237,7 @@ async def ws_refetch_device(
 
     device_id = msg["device_id"]
     try:
-        raw = await coord.home_api.fetch_device(device_id)
+        raw = await coord.client.devices.get_raw(device_id)
     except Exception as err:  # noqa: BLE001 — возвращаем любую ошибку в UI
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return

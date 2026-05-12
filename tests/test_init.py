@@ -120,9 +120,10 @@ def _patch_setup_dependencies(
 
     sber_mock = MagicMock()
     sber_mock.aclose = AsyncMock()
+    sber_mock.sberid_tokens = MagicMock()
 
-    home_mock = MagicMock()
-    home_mock.aclose = AsyncMock()
+    auth_mock = MagicMock()
+    transport_mock = MagicMock()
 
     coord_mock = MagicMock()
     coord_mock.async_config_entry_first_refresh = AsyncMock(side_effect=first_refresh_side_effect)
@@ -133,7 +134,10 @@ def _patch_setup_dependencies(
         ),
         "http_cls": patch("custom_components.sberhome.httpx.AsyncClient", return_value=http_mock),
         "sber_cls": patch("custom_components.sberhome.SberAPI", return_value=sber_mock),
-        "home_cls": patch("custom_components.sberhome.HomeAPI", return_value=home_mock),
+        "auth_cls": patch("custom_components.sberhome.AuthManager", return_value=auth_mock),
+        "transport_cls": patch(
+            "custom_components.sberhome.HttpTransport", return_value=transport_mock
+        ),
         "coord_cls": patch(
             "custom_components.sberhome.SberHomeCoordinator",
             return_value=coord_mock,
