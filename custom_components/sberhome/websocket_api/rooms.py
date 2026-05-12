@@ -87,7 +87,12 @@ _HOME_PROBE_ENDPOINTS: tuple[str, ...] = (
 )
 
 
-@websocket_api.websocket_command({vol.Required("type"): "sberhome/debug/raw_tree"})
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "sberhome/debug/raw_tree",
+        vol.Optional("home_id"): str,
+    }
+)
 @websocket_api.async_response
 async def ws_debug_raw_tree(
     hass: HomeAssistant,
@@ -109,8 +114,23 @@ async def ws_debug_raw_tree(
         return
 
     transport = coord.client.devices._transport  # type: ignore[attr-defined]
+    endpoints = list(_HOME_PROBE_ENDPOINTS)
+    target_home_id = msg.get("home_id")
+    if target_home_id:
+        # Probe tree/list endpoints с конкретным home_id (для multi-home).
+        endpoints.extend(
+            [
+                f"/device_groups/tree?home_id={target_home_id}",
+                f"/device_groups/tree?union_id={target_home_id}",
+                f"/device_groups?parent_id={target_home_id}&pagination.offset=0&pagination.limit=100",
+                f"/device_groups?home_id={target_home_id}&pagination.offset=0&pagination.limit=100",
+                f"/device_groups/{target_home_id}/tree",
+                f"/device_groups/{target_home_id}",
+            ]
+        )
+
     results: list[dict[str, Any]] = []
-    for url in _HOME_PROBE_ENDPOINTS:
+    for url in endpoints:
         try:
             resp = await transport.get(url)
             payload = resp.json()
@@ -179,6 +199,9 @@ def _count_homes_in_raw(payload: Any) -> int:
             result += _count_homes_in_raw(payload["result"])
         group = payload.get("group") or payload.get("union")
         if isinstance(group, dict) and group.get("group_type") == "HOME":
+            result += 1
+        # Плоский список: узел сам несёт group_type=HOME.
+        if payload.get("group_type") == "HOME":
             result += 1
         for child in payload.get("children") or []:
             result += _count_homes_in_raw(child)
