@@ -79,14 +79,11 @@ def ws_get_rooms(
 
 _HOME_PROBE_ENDPOINTS: tuple[str, ...] = (
     "/device_groups/tree",
-    "/device_groups/",
-    "/device_groups/?type=HOME",
-    "/device_groups/?group_type=HOME",
-    "/homes",
-    "/home/list",
-    "/houses",
-    "/user/homes",
-    "/v1/homes",
+    # Salute-app использует именно этот endpoint для получения всех HOME-узлов:
+    # GET /gateway/v1/device_groups?group_type=HOME&pagination.offset=0&pagination.limit=N
+    "/device_groups?group_type=HOME&pagination.offset=0&pagination.limit=100",
+    "/device_groups?group_type=ROOM&pagination.offset=0&pagination.limit=100",
+    "/device_groups?group_type=GROUP&pagination.offset=0&pagination.limit=100",
 )
 
 
