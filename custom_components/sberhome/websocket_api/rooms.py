@@ -77,6 +77,61 @@ def ws_get_rooms(
     )
 
 
+@websocket_api.websocket_command({vol.Required("type"): "sberhome/debug/raw_tree"})
+@websocket_api.async_response
+async def ws_debug_raw_tree(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Diagnostic: вернуть raw payload `/device_groups/tree` от Sber.
+
+    Используется для отладки multi-home/parsing-вопросов. UI его не зовёт
+    в нормальной работе — только из DevTools при отладке.
+    """
+    coord = get_coordinator(hass)
+    if coord is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+    try:
+        transport = coord.client.devices._transport  # type: ignore[attr-defined]
+        resp = await transport.get("/device_groups/tree")
+        payload = resp.json()
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "fetch_failed", str(err))
+        return
+    # Анализ: посчитаем сколько HOME-узлов видно в payload.
+    home_count = _count_homes_in_raw(payload)
+    top_level_keys = (
+        sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "home_count": home_count,
+            "top_level_keys": top_level_keys,
+            "raw": payload,
+        },
+    )
+
+
+def _count_homes_in_raw(payload: Any) -> int:
+    """Рекурсивный обход raw payload — счёт узлов с group_type=HOME."""
+    if isinstance(payload, dict):
+        result = 0
+        if isinstance(payload.get("result"), (dict, list)):
+            result += _count_homes_in_raw(payload["result"])
+        group = payload.get("group") or payload.get("union")
+        if isinstance(group, dict) and group.get("group_type") == "HOME":
+            result += 1
+        for child in payload.get("children") or []:
+            result += _count_homes_in_raw(child)
+        return result
+    if isinstance(payload, list):
+        return sum(_count_homes_in_raw(p) for p in payload)
+    return 0
+
+
 @websocket_api.websocket_command({vol.Required("type"): "sberhome/get_homes"})
 @callback
 def ws_get_homes(
