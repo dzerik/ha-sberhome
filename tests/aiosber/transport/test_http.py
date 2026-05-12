@@ -181,6 +181,82 @@ async def test_401_after_retry_raises_auth_error():
             await transport.get("/devices/")
 
 
+# ---- In-band code 16 retry (token expired в JSON-body 200 OK) ----
+
+
+async def test_inband_code_16_triggers_refresh_and_retry():
+    """200 OK с `{"code": 16}` → force_refresh + retry. Второй ответ — успех."""
+    state = {"first_call": True, "refreshed": False}
+
+    def companion(req: httpx.Request) -> httpx.Response:
+        state["refreshed"] = True
+        return httpx.Response(200, json={"access_token": "NEW_TOK", "expires_in": 3600})
+
+    def gateway(req: httpx.Request) -> httpx.Response:
+        if state["first_call"]:
+            state["first_call"] = False
+            # Sber возвращает 200 OK, но с code-16 — компат-странность.
+            return httpx.Response(200, json={"code": 16, "message": "token expired"})
+        assert req.headers["x-auth-jwt"] == "NEW_TOK"
+        return httpx.Response(200, json={"ok": True})
+
+    def router(req: httpx.Request) -> httpx.Response:
+        if "smarthome/token" in req.url.path:
+            return companion(req)
+        return gateway(req)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    auth = AuthManager(http=http, store=store, sberid_tokens=sberid)
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        resp = await transport.get("/devices/")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert state["refreshed"]
+
+
+async def test_inband_code_16_after_retry_raises_auth_error():
+    """Если retry снова code 16 — AuthError."""
+
+    def router(req: httpx.Request) -> httpx.Response:
+        if "smarthome/token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+        return httpx.Response(200, json={"code": 16, "message": "still expired"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    auth = AuthManager(http=http, store=store, sberid_tokens=sberid)
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        with pytest.raises(AuthError, match="code 16"):
+            await transport.get("/devices/")
+
+
+async def test_inband_code_other_than_16_passes_through():
+    """Code != 16 — это business error, не token expired. Retry не делаем."""
+
+    def router(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": 42, "message": "some other error"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OK", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    auth = AuthManager(http=http, store=store, sberid_tokens=sberid)
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        resp = await transport.get("/devices/")
+
+    assert resp.status_code == 200
+    assert resp.json()["code"] == 42
+
+
 # ---- HTTP status mapping ----
 async def test_429_raises_rate_limit_with_retry_after():
     def h(req: httpx.Request) -> httpx.Response:

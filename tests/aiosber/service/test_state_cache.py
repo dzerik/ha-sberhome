@@ -362,3 +362,60 @@ def test_update_from_flat_unknown_group_id():
     assert cache.get_device("orphan") is not None
     assert cache.device_home_id("orphan") is None
     assert cache.device_room_id("orphan") is None
+
+
+# ---------------------------------------------------------------------------
+# Raw payload cache
+# ---------------------------------------------------------------------------
+
+
+def test_update_from_flat_raw_devices_cache():
+    """raw_devices=... наполняет _raw_devices для UI/diagnostics."""
+    cache = StateCache()
+    homes, rooms, groups, devices = _flat_data()
+    raw = {
+        "dev-main-lamp": {"id": "dev-main-lamp", "images": {"on": "/url1"}},
+        "dev-boom": {"id": "dev-boom", "images": {"on": "/url2"}},
+    }
+    cache.update_from_flat(homes, rooms, groups, devices, raw_devices=raw)
+    assert cache.get_raw_payload("dev-main-lamp") == raw["dev-main-lamp"]
+    assert cache.get_raw_payload("dev-boom") == raw["dev-boom"]
+    assert cache.get_raw_payload("nonexistent") is None
+    assert cache.get_all_raw_payloads() == raw
+
+
+def test_update_from_flat_no_raw_keeps_previous():
+    """Если raw_devices=None — старый raw cache не сбрасывается."""
+    cache = StateCache()
+    cache.update_from_flat([], [], [], [], raw_devices={"x": {"id": "x"}})
+    # Следующий refresh без raw_devices — не сбрасывает.
+    cache.update_from_flat([], [], [], [])
+    assert cache.get_raw_payload("x") == {"id": "x"}
+
+
+# ---------------------------------------------------------------------------
+# Enum dictionary
+# ---------------------------------------------------------------------------
+
+
+def test_set_enums_get_enum_values():
+    cache = StateCache()
+    cache.set_enums({"hvac_work_mode": ["cool", "heat"], "fan_speed": ["low"]})
+    assert cache.get_enum_values("hvac_work_mode") == ["cool", "heat"]
+    assert cache.get_enum_values("fan_speed") == ["low"]
+    assert cache.get_enum_values("nonexistent") == []
+    assert cache.get_enums() == {"hvac_work_mode": ["cool", "heat"], "fan_speed": ["low"]}
+
+
+def test_enums_default_empty():
+    cache = StateCache()
+    assert cache.get_enums() == {}
+    assert cache.get_enum_values("anything") == []
+
+
+def test_set_enums_replaces_completely():
+    cache = StateCache()
+    cache.set_enums({"a": ["x"]})
+    cache.set_enums({"b": ["y"]})
+    assert cache.get_enums() == {"b": ["y"]}
+    assert cache.get_enum_values("a") == []

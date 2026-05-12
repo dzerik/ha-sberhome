@@ -278,13 +278,18 @@ class HomeAPI:
         return out
 
     async def update_devices_cache(self) -> None:
+        """Legacy refresh через /device_groups/tree (single-home).
+
+        Используется для заполнения `_cached_devices` (raw dict by id) —
+        требуется legacy-callers (debug-view, _bridge_info, _refetch).
+        Multi-home refresh идёт через `aiosber.SberClient.device_service.refresh()`
+        — coordinator вызывает обе в parallel.
+        """
         device_data = await self._request("GET", "/device_groups/tree")
         raw_tree = device_data["result"]
         self._cached_devices = extract_devices(raw_tree)
-        # Параллельно парсим typed tree для StateCache.
         self._cached_tree = UnionTreeDto.from_dict(raw_tree)
         # При первом успешном refresh — подтянуть /devices/enums.
-        # Best-effort: если endpoint отвалится, не валим polling.
         if not self._cached_enums:
             try:
                 await self._fetch_enums()
@@ -321,7 +326,11 @@ class HomeAPI:
         return list(self._cached_enums.get(attribute_key, ()))
 
     def get_cached_tree(self) -> UnionTreeDto | None:
-        """Typed дерево групп — для StateCache."""
+        """Typed дерево групп — для legacy state_cache.update_from_tree.
+
+        После v4.8.0 production refresh идёт через aiosber.SberClient,
+        этот tree — fallback и raw `_cached_devices` source.
+        """
         return self._cached_tree
 
     def get_cached_devices(self) -> dict:
@@ -372,14 +381,21 @@ class HomeAPI:
                         attribute.update(state_val)
                         break
 
-    async def _request(self, method: str, path: str, *, json: Any = None) -> dict:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: dict[str, str] | None = None,
+    ) -> dict:
         """Низкоуровневый запрос: маппинг aiosber → SberSmartHome исключений.
 
         Дополнительно ловит in-band `code 16` (token expired): force_refresh +
         retry один раз. Это compat-strategy для случаев, когда gateway отдаёт
         200 OK с code-16 вместо честного 401.
         """
-        payload = await self._request_once(method, path, json=json)
+        payload = await self._request_once(method, path, json=json, params=params)
 
         if isinstance(payload, dict) and payload.get("code") == _CODE_TOKEN_EXPIRED:
             LOGGER.debug("Gateway code 16 (token expired) — force refresh + retry")
@@ -387,15 +403,22 @@ class HomeAPI:
                 await self._auth.force_refresh()
             except (AuthError, InvalidGrant) as err:
                 raise SberAuthError(str(err)) from err
-            payload = await self._request_once(method, path, json=json)
+            payload = await self._request_once(method, path, json=json, params=params)
             if isinstance(payload, dict) and payload.get("code") == _CODE_TOKEN_EXPIRED:
                 raise SberAuthError("Token expired and retry failed")
 
         return payload
 
-    async def _request_once(self, method: str, path: str, *, json: Any = None) -> dict:
+    async def _request_once(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: dict[str, str] | None = None,
+    ) -> dict:
         try:
-            resp = await self._transport.request(method, path, json=json)
+            resp = await self._transport.request(method, path, json=json, params=params)
         except (AuthError, InvalidGrant) as err:
             raise SberAuthError(str(err)) from err
         except RateLimitError as err:

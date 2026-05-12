@@ -281,7 +281,9 @@ async def test_move_to_root():
 
 
 # ----- enums / discover -----
-async def test_enums():
+async def test_enums_plain_list():
+    """Sber-shape #1: голый list для атрибута → нормализуется как list[str]."""
+
     def h(req: httpx.Request) -> httpx.Response:
         assert req.url.path.endswith("/devices/enums")
         return httpx.Response(200, json={"result": {"hvac_work_mode": ["cool", "heat"]}})
@@ -289,6 +291,72 @@ async def test_enums():
     api, _ = _build(h)
     enums = await api.enums()
     assert enums == {"hvac_work_mode": ["cool", "heat"]}
+
+
+async def test_enums_values_wrapped():
+    """Sber-shape #2: `{"values": [...]}` → нормализуется."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"result": {"fan_speed": {"values": ["low", "high"]}}}
+        )
+
+    api, _ = _build(h)
+    enums = await api.enums()
+    assert enums == {"fan_speed": ["low", "high"]}
+
+
+async def test_enums_list_of_objects():
+    """Sber-shape #3: `[{"value": "x", "name": "..."}]` → берём value."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "result": {
+                    "light_mode": [
+                        {"value": "white", "name": "Белый"},
+                        {"value": "colour", "name": "Цвет"},
+                    ]
+                }
+            },
+        )
+
+    api, _ = _build(h)
+    enums = await api.enums()
+    assert enums == {"light_mode": ["white", "colour"]}
+
+
+async def test_enums_drops_garbage_attrs():
+    """Атрибуты с unrecognized shape → отбрасываются (не падаем)."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "result": {
+                    "good": ["a", "b"],
+                    "garbage": 42,
+                    "also_garbage": None,
+                    "wrapped": {"values": ["c"]},
+                }
+            },
+        )
+
+    api, _ = _build(h)
+    enums = await api.enums()
+    assert enums == {"good": ["a", "b"], "wrapped": ["c"]}
+
+
+async def test_enums_raw_returns_unnormalized():
+    """`enums_raw()` сохраняет оригинальный shape для debug."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"x": {"values": ["a"]}}})
+
+    api, _ = _build(h)
+    raw = await api.enums_raw()
+    assert raw == {"x": {"values": ["a"]}}
 
 
 async def test_discover():

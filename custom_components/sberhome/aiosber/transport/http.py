@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -84,14 +84,66 @@ class HttpTransport:
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> httpx.Response:
-        """Сделать запрос с подписью companion-токеном и retry на 401.
+        """Сделать запрос с подписью companion-токеном.
+
+        Retries:
+        - **HTTP 401/403** — force refresh token + повторить запрос.
+        - **In-band code 16** (token expired в body 200 OK, без честного 401) —
+          force refresh + повторить. Compat-strategy для случаев, когда
+          gateway отдаёт code-16 inline.
 
         Возвращает успешный httpx.Response (status 2xx). На любой 4xx/5xx
-        бросает соответствующее `aiosber.exceptions.*`.
+        после retry — бросает соответствующее `aiosber.exceptions.*`.
         """
         url = self._url(path)
-        attempt_headers = await self._build_headers(extra=headers)
 
+        resp = await self._send_with_auth_retry(
+            method, url, json=json, params=params, headers=headers, timeout=timeout
+        )
+
+        # In-band `code 16` (token expired в JSON-body 200 OK) — Sber иногда
+        # отдаёт ошибку через payload вместо HTTP-кода. Делаем повтор как при 401.
+        if _is_inband_token_expired(resp):
+            _LOGGER.debug(
+                "%s %s → 200 with in-band code 16 (token expired); refreshing + retry",
+                method,
+                url,
+            )
+            try:
+                await self._auth.force_refresh()
+            except InvalidGrant:
+                raise
+            except AuthError as err:
+                raise AuthError(f"Token refresh failed: {err}") from err
+            resp = await self._send_with_auth_retry(
+                method,
+                url,
+                json=json,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+                skip_auth_retry=True,
+            )
+            if _is_inband_token_expired(resp):
+                raise AuthError("Token expired and inband retry also returned code 16")
+
+        return self._handle_response(resp, method=method, url=url)
+
+    async def _send_with_auth_retry(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Any,
+        params: dict[str, Any] | None,
+        headers: dict[str, str] | None,
+        timeout: float | None,
+        skip_auth_retry: bool = False,
+    ) -> httpx.Response:
+        """Один send с опциональным 401/403 retry. Вынесено чтобы code-16
+        path мог дёрнуть refresh+send без повторного auth-retry-цикла.
+        """
+        attempt_headers = await self._build_headers(extra=headers)
         try:
             resp = await self._http.request(
                 method,
@@ -108,8 +160,7 @@ class HttpTransport:
         except httpx.HTTPError as err:
             raise NetworkError(f"HTTP error {method} {url}: {err}") from err
 
-        # 401/403 — попробуем один refresh + retry
-        if resp.status_code in (401, 403):
+        if not skip_auth_retry and resp.status_code in (401, 403):
             _LOGGER.debug(
                 "%s %s → %s; refreshing token and retrying once",
                 method,
@@ -119,7 +170,6 @@ class HttpTransport:
             try:
                 await self._auth.force_refresh()
             except InvalidGrant:
-                # Refresh невозможен — пробрасываем как есть, HA-адаптер инициирует reauth
                 raise
             except AuthError as err:
                 raise AuthError(f"Token refresh failed: {err}") from err
@@ -137,7 +187,7 @@ class HttpTransport:
             except httpx.HTTPError as err:
                 raise NetworkError(f"Retry failed {method} {url}: {err}") from err
 
-        return self._handle_response(resp, method=method, url=url)
+        return resp
 
     # ----- Lifecycle -----
     async def aclose(self) -> None:
@@ -204,6 +254,21 @@ class HttpTransport:
             message = resp.text[:200] or f"{method} {url}"
 
         raise ApiError(resp.status_code, message=message, code=code, payload=payload)
+
+
+# Gateway in-band error code: token expired. Sber иногда отдаёт его в
+# теле 200-OK ответа вместо честного 401 HTTP-кода.
+_CODE_TOKEN_EXPIRED: Final[int] = 16
+
+
+def _is_inband_token_expired(resp: httpx.Response) -> bool:
+    """True если 200 OK содержит `{"code": 16}` в JSON-body."""
+    if resp.status_code != 200:
+        return False
+    data = _safe_json(resp)
+    if data is None:
+        return False
+    return data.get("code") == _CODE_TOKEN_EXPIRED
 
 
 def _safe_json(resp: httpx.Response) -> dict | None:

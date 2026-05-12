@@ -113,21 +113,49 @@ async def test_turn_off():
 # ---------------------------------------------------------------------------
 
 
+def _make_devices_resp(devices: list[dict]) -> MagicMock:
+    """Mock httpx.Response с `result: [devices]` payload."""
+    r = MagicMock()
+    r.json = MagicMock(return_value={"result": devices})
+    return r
+
+
 @pytest.mark.asyncio
 async def test_refresh_uses_flat_endpoints(monkeypatch):
-    """refresh() должен делать 4 параллельных запроса вместо /tree."""
+    """refresh() делает 4 параллельных запроса + naполняет raw payloads."""
     cache = StateCache()
     api = MagicMock()
     api._transport = MagicMock()
-    api.list_flat = AsyncMock(
-        return_value=[
-            DeviceDto(id="d1", group_ids=["r-kitchen"]),
-            DeviceDto(id="d2", group_ids=["h-main"]),
-        ]
+
+    # /devices?pagination — raw payloads с device_info чтобы DeviceDto.from_dict
+    # успешно их распарсил.
+    raw_d1 = {
+        "id": "d1",
+        "name": {"name": "Лампа"},
+        "device_info": {"manufacturer": "Sber", "model": "X"},
+        "group_ids": ["r-kitchen"],
+    }
+    raw_d2 = {
+        "id": "d2",
+        "name": {"name": "Boom"},
+        "device_info": {"manufacturer": "Sber", "model": "Y"},
+        "group_ids": ["h-main"],
+    }
+    # /devices/enums — best-effort.
+    enums_resp = MagicMock()
+    enums_resp.json = MagicMock(
+        return_value={"result": {"hvac_work_mode": ["cool", "heat"]}}
     )
 
-    # GroupAPI замокаем через monkeypatch — нам нужны разные list-вызовы
-    # с group_type=HOME/ROOM/GROUP. Возвращаем по списку для каждого.
+    async def fake_transport_get(path, params=None, **kwargs):
+        if path == "/devices":
+            return _make_devices_resp([raw_d1, raw_d2])
+        if path == "/devices/enums":
+            return enums_resp
+        raise AssertionError(f"unexpected GET: {path}")
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
+
     async def fake_list(self, *, group_type=None, limit=1000):
         if group_type == "HOME":
             return [UnionDto(id="h-main", name="Мой дом", group_type=UnionType.HOME)]
@@ -145,17 +173,25 @@ async def test_refresh_uses_flat_endpoints(monkeypatch):
     from custom_components.sberhome.aiosber.api.groups import GroupAPI
 
     monkeypatch.setattr(GroupAPI, "list", fake_list)
+    # Расширенный enums() — нормализованный возврат.
+    api.enums = AsyncMock(return_value={"hvac_work_mode": ["cool", "heat"]})
 
     svc = DeviceService(api=api, cache=cache)
     await svc.refresh()
 
-    # Cache теперь должен содержать оба device, с home/room mappings.
+    # Devices + связи в state.
     assert len(cache.get_all_devices()) == 2
     assert cache.device_home_id("d1") == "h-main"
     assert cache.device_room_id("d1") == "r-kitchen"
     assert cache.device_home_id("d2") == "h-main"
     assert cache.device_room_id("d2") is None  # top-level
-    api.list_flat.assert_awaited_once()
+
+    # Raw payloads сохранены — UI/diagnostics могут их получить.
+    assert cache.get_raw_payload("d1") == raw_d1
+    assert cache.get_raw_payload("d2") == raw_d2
+
+    # Enums best-effort подтянулись.
+    assert cache.get_enum_values("hvac_work_mode") == ["cool", "heat"]
 
 
 @pytest.mark.asyncio
@@ -164,16 +200,15 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
     cache = StateCache()
     api = MagicMock()
     api._transport = MagicMock()
-    api.list_flat = AsyncMock(side_effect=RuntimeError("boom"))
-
-    from custom_components.sberhome.aiosber.api.groups import GroupAPI
 
     async def fake_list(self, *, group_type=None, limit=1000):
         return []
 
-    monkeypatch.setattr(GroupAPI, "list", fake_list)
+    monkeypatch.setattr(
+        "custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list
+    )
 
-    # Симулируем tree-response через mock transport.
+    # Tree-fallback ответ.
     tree_resp = MagicMock()
     tree_resp.json = MagicMock(
         return_value={
@@ -184,7 +219,15 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
             }
         }
     )
-    api._transport.get = AsyncMock(return_value=tree_resp)
+
+    async def fake_transport_get(path, params=None, **kwargs):
+        if path == "/devices":
+            raise RuntimeError("boom — flat-API упал")
+        if path == "/device_groups/tree":
+            return tree_resp
+        raise AssertionError(f"unexpected GET: {path}")
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
 
     svc = DeviceService(api=api, cache=cache)
     await svc.refresh()
@@ -193,4 +236,33 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
     homes = cache.get_homes()
     assert len(homes) == 1
     assert homes[0].id == "h-legacy"
-    api._transport.get.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
+    """Если /devices/enums падает — refresh всё равно успешен (best-effort)."""
+    cache = StateCache()
+    api = MagicMock()
+    api._transport = MagicMock()
+
+    async def fake_transport_get(path, params=None, **kwargs):
+        if path == "/devices":
+            return _make_devices_resp([])
+        if path == "/devices/enums":
+            raise RuntimeError("enums endpoint dead")
+        raise AssertionError(f"unexpected GET: {path}")
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
+    api.enums = AsyncMock(side_effect=RuntimeError("enums endpoint dead"))
+
+    async def fake_list(self, *, group_type=None, limit=1000):
+        return []
+
+    monkeypatch.setattr(
+        "custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list
+    )
+
+    svc = DeviceService(api=api, cache=cache)
+    # Не должно бросить — enums-failure не валит refresh.
+    await svc.refresh()
+    assert cache.get_enums() == {}

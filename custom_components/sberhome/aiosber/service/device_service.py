@@ -83,16 +83,20 @@ class DeviceService:
     # Lifecycle / management
     # ------------------------------------------------------------------
     async def refresh(self) -> None:
-        """Full refresh через 4 параллельных flat-list запроса.
+        """Full refresh через 4 параллельных flat-list запроса + raw payloads + enums.
 
         Это **multi-home aware** path:
         - `/device_groups?group_type=HOME` — все дома аккаунта
         - `/device_groups?group_type=ROOM` — все комнаты всех домов
         - `/device_groups?group_type=GROUP` — кастомные группы
-        - `/devices?pagination` — все устройства
+        - `/devices?pagination` — все устройства (raw payloads сохраняются
+          в StateCache для UI/diagnostics)
 
         Связи device → room → home строятся локально по `parent_id` и
         `group_ids` (см. `StateCache.update_from_flat`).
+
+        После успешного flat refresh — best-effort fetch `/devices/enums`
+        (enum-словарь для fallback `select.options`).
 
         Замена legacy `/device_groups/tree` который отдаёт только дефолтный
         дом (см. issue #2). Tree-fallback оставлен на случай ошибки одного
@@ -105,17 +109,55 @@ class DeviceService:
         # group API: используем тот же transport что и devices.
         groups_api = GroupAPI(self._api._transport)
         try:
-            homes, rooms, custom_groups, devices = await asyncio.gather(
+            homes, rooms, custom_groups, devices_resp = await asyncio.gather(
                 groups_api.list(group_type="HOME"),
                 groups_api.list(group_type="ROOM"),
                 groups_api.list(group_type="GROUP"),
-                self._api.list_flat(),
+                self._fetch_devices_with_raw(),
             )
         except Exception:  # noqa: BLE001 — fallback на tree при любой ошибке
             await self._refresh_via_tree()
             return
 
-        self._cache.update_from_flat(homes, rooms, custom_groups, devices)
+        devices, raw_devices = devices_resp
+        self._cache.update_from_flat(
+            homes, rooms, custom_groups, devices, raw_devices=raw_devices
+        )
+
+        # Best-effort: подтянуть enum-словарь. Не валим refresh если упал.
+        if not self._cache.get_enums():
+            try:
+                enums = await self._api.enums()
+            except Exception:  # noqa: BLE001
+                pass
+            else:
+                self._cache.set_enums(enums)
+
+    async def _fetch_devices_with_raw(self) -> tuple[list[DeviceDto], dict[str, dict]]:
+        """`/devices?pagination` → (DTO list, raw_by_id) одним вызовом."""
+        resp = await self._api._transport.get(
+            "/devices",
+            params={"pagination.offset": "0", "pagination.limit": "500"},
+        )
+        payload = resp.json()
+        if isinstance(payload, dict) and "result" in payload:
+            payload = payload["result"]
+        if not isinstance(payload, list):
+            return [], {}
+
+        from ..dto.device import DeviceDto
+
+        devices: list[DeviceDto] = []
+        raw_by_id: dict[str, dict] = {}
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            dto = DeviceDto.from_dict(raw)
+            if dto is None or not dto.id:
+                continue
+            devices.append(dto)
+            raw_by_id[dto.id] = raw
+        return devices, raw_by_id
 
     async def _refresh_via_tree(self) -> None:
         """Legacy fallback: GET /device_groups/tree.

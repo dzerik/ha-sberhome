@@ -34,6 +34,17 @@ class StateCache:
         self._device_to_room_id: dict[str, str] = {}
         self._device_to_home_id: dict[str, str] = {}
         self._device_to_home_name: dict[str, str] = {}
+        # Raw payload cache — `device_id → raw dict` от Sber-API без
+        # пост-обработки. Используется UI/diagnostics для извлечения
+        # полей не покрытых DTO (images CDN paths, etc.). Наполняется
+        # в `update_from_flat` параллельно с DTO.
+        self._raw_devices: dict[str, dict] = {}
+        # Sber `/devices/enums` — нормализованный справочник
+        # `attribute_key → list[str]`. Fallback-источник для
+        # `select.options` когда `device.attributes[].enum_values`
+        # возвращается пустым. Best-effort populated в
+        # `DeviceService.refresh()` при первом успешном refresh.
+        self._enums: dict[str, list[str]] = {}
 
     # ------------------------------------------------------------------
     # Read — devices
@@ -121,6 +132,47 @@ class StateCache:
         return self._device_to_home_name.get(device_id)
 
     # ------------------------------------------------------------------
+    # Read — raw payload cache
+    # ------------------------------------------------------------------
+    def get_raw_payload(self, device_id: str) -> dict | None:
+        """Raw API payload для устройства (без DTO пост-обработки).
+
+        Используется UI и diagnostics для извлечения полей не покрытых DTO
+        (например `images` CDN paths). Возвращает None если device не в
+        кеше.
+        """
+        return self._raw_devices.get(device_id)
+
+    def get_all_raw_payloads(self) -> dict[str, dict]:
+        """Все raw payloads, как dict by device_id."""
+        return dict(self._raw_devices)
+
+    # ------------------------------------------------------------------
+    # Read — enums dictionary
+    # ------------------------------------------------------------------
+    def get_enums(self) -> dict[str, list[str]]:
+        """Нормализованный enum-словарь из Sber `/devices/enums`.
+
+        Empty если ещё не подтянут (best-effort fetch в refresh()).
+        """
+        return dict(self._enums)
+
+    def get_enum_values(self, attribute_key: str) -> list[str]:
+        """Shortcut: список enum-значений для конкретного `attribute_key`.
+
+        Используется HA-платформами (select) для построения options когда
+        `device.attributes[].enum_values` возвращается пустым.
+        """
+        return list(self._enums.get(attribute_key, ()))
+
+    # ------------------------------------------------------------------
+    # Write — раз-в-сессию данные (enums dict)
+    # ------------------------------------------------------------------
+    def set_enums(self, enums: dict[str, list[str]]) -> None:
+        """Заменить enum-словарь полностью (вызывается из refresh)."""
+        self._enums = dict(enums)
+
+    # ------------------------------------------------------------------
     # Write — full refresh from tree
     # ------------------------------------------------------------------
     def update_from_tree(self, tree: UnionTreeDto) -> None:
@@ -181,6 +233,8 @@ class StateCache:
         rooms: list[UnionDto],
         groups: list[UnionDto],
         devices: list[DeviceDto],
+        *,
+        raw_devices: dict[str, dict] | None = None,
     ) -> None:
         """Multi-home aware refresh из 4 плоских списков.
 
@@ -254,6 +308,9 @@ class StateCache:
         self._device_to_room_id = device_to_room_id
         self._device_to_home_id = device_to_home_id
         self._device_to_home_name = device_to_home_name
+        # Raw payloads — для UI/diagnostics (если переданы).
+        if raw_devices is not None:
+            self._raw_devices = dict(raw_devices)
         # `_tree` остаётся либо None, либо последний tree от legacy refresh —
         # consumer'ы tree должны мигрировать на flat-API.
 

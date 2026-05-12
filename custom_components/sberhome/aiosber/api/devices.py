@@ -128,8 +128,34 @@ class DeviceAPI:
         )
 
     # ----- meta -----
-    async def enums(self) -> dict[str, Any]:
-        """GET /devices/enums — справочники enum-значений атрибутов."""
+    async def enums(self) -> dict[str, list[str]]:
+        """GET /devices/enums — нормализованный справочник enum-значений атрибутов.
+
+        Sber `/devices/enums` отвечает разными shapes (голый list,
+        `{"values": [...]}`, list объектов `[{"value": "x"}]`).
+        Нормализуем во flat `dict[attr_key → list[str]]` — UI/integration
+        не должен разбирать shape сам.
+
+        Используется как fallback-источник для `select.options` там, где
+        `device.attributes[].enum_values` пуст (Sber иногда возвращает
+        тип ENUM без values, ожидая что клиент возьмёт из словаря).
+
+        Returns:
+            Пустой dict если endpoint вернул не-dict либо упал на сервере.
+        """
+        resp = await self._transport.get("/devices/enums")
+        payload = _unwrap_result(resp.json())
+        if not isinstance(payload, dict):
+            return {}
+        normalized: dict[str, list[str]] = {}
+        for key, raw in payload.items():
+            values = _extract_enum_values(raw)
+            if values:
+                normalized[str(key)] = values
+        return normalized
+
+    async def enums_raw(self) -> dict[str, Any]:
+        """Raw payload `/devices/enums` без normalization (для debug)."""
         resp = await self._transport.get("/devices/enums")
         return _unwrap_result(resp.json())
 
@@ -163,6 +189,29 @@ def _unwrap_result(payload: Any) -> Any:
         # Обычно: {"result": ..., "code": 0} или просто {"result": ...}
         return payload["result"]
     return payload
+
+
+def _extract_enum_values(raw: Any) -> list[str]:
+    """Достать enum-список из разнообразных shapes от Sber.
+
+    Sber `/devices/enums` непоследователен: один атрибут — голый list,
+    другой — `{"values": [...]}`, третий — list объектов
+    `[{"value": "x", "name": "..."}]`. Нормализуем во flat list[str],
+    отбрасывая мусор.
+    """
+    if isinstance(raw, list):
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                value = item.get("value") or item.get("id") or item.get("name")
+                if isinstance(value, str):
+                    out.append(value)
+        return out
+    if isinstance(raw, dict) and isinstance(raw.get("values"), list):
+        return _extract_enum_values(raw["values"])
+    return []
 
 
 def _to_device(data: dict[str, Any]) -> DeviceDto:
