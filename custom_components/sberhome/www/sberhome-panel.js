@@ -185,74 +185,142 @@ class SberHomePanel extends LitElement {
     return css`
       :host {
         display: block;
-        height: 100%;
-        background: var(--primary-background-color);
+        min-height: 100%;
+        font-family: var(--paper-font-body1_-_font-family, "Roboto", sans-serif);
         color: var(--primary-text-color);
+        background: var(--primary-background-color);
+        box-sizing: border-box;
       }
+
+      /* Шапка + табы в собственном container'е — view-компоненты
+         (sberhome-device-picker, monitor-view, ...) имеют свой padding,
+         поэтому host оставлен без отступов. */
+      .top {
+        padding: 16px 16px 0;
+      }
+
       .header {
         display: flex;
         align-items: center;
-        background: var(--app-header-background-color, var(--primary-color));
-        color: var(--app-header-text-color, #fff);
-        padding: 0 16px;
-        height: var(--header-height, 56px);
-        box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.1));
+        justify-content: space-between;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 8px;
       }
+
       .header h1 {
-        margin: 0; font-size: 20px; flex: 1;
-        display: flex; align-items: baseline; gap: 8px;
+        margin: 0;
+        font-size: 24px;
+        font-weight: 400;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
       }
+
       .header .version {
-        font-size: 12px; opacity: 0.65; font-weight: normal;
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--secondary-text-color);
         font-family: ui-monospace, SFMono-Regular, monospace;
       }
-      .header sberhome-home-switcher {
-        margin-right: 12px;
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
       }
-      /* Единый стиль с category-dropdown / device-picker toolbar:
-         padding 8px 12px, border-radius 6px, фон через HA-переменные.
-         Поведение consistent с другими формами на панели. */
+
+      /* Refresh-btn в стиле HA-card form-controls: padding/border-radius/
+         border одинаковые с home-switcher select'ом и category-dropdown'ом
+         внутри device-picker. */
       .refresh-btn {
-        background: var(--card-background-color, rgba(255, 255, 255, 0.15));
-        color: var(--primary-text-color, inherit);
-        border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.3));
+        background: var(--card-background-color, #fff);
+        color: var(--primary-text-color);
+        border: 1px solid var(--divider-color);
         padding: 8px 12px;
         border-radius: 6px;
         cursor: pointer;
         font-size: 13px;
         font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
       .refresh-btn:hover:not([disabled]) {
-        background: var(--secondary-background-color, rgba(255, 255, 255, 0.25));
+        background: var(--secondary-background-color);
       }
       .refresh-btn[disabled] {
         opacity: 0.5;
         cursor: not-allowed;
       }
+
       .tabs {
         display: flex;
-        background: var(--app-header-background-color, var(--primary-color));
-        color: var(--app-header-text-color, #fff);
-        padding: 0 16px;
+        border-bottom: 2px solid var(--divider-color, #e0e0e0);
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
       }
+      .tabs::-webkit-scrollbar {
+        display: none;
+      }
+
       .tab {
-        padding: 12px 20px;
+        padding: 12px 24px;
         cursor: pointer;
-        border-bottom: 3px solid transparent;
         font-size: 14px;
+        font-weight: 500;
         text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--secondary-text-color);
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: color 0.2s, border-color 0.2s;
+        user-select: none;
         white-space: nowrap;
-        opacity: 0.7;
+        flex-shrink: 0;
       }
-      .tab.active { border-color: #fff; opacity: 1; }
-      .content { padding: 16px; }
-      @media (max-width: 600px) {
-        .content { padding: 8px; }
+      .tab:hover {
+        color: var(--primary-color);
       }
+      .tab.active {
+        color: var(--primary-color);
+        border-bottom-color: var(--primary-color);
+      }
+
+      .content {
+        /* контент рисуется встроенными view-компонентами, padding на них
+           самих — здесь только container */
+      }
+
       .error {
-        padding: 16px; margin: 16px;
-        background: var(--error-color); color: #fff; border-radius: 8px;
+        padding: 12px 16px;
+        margin: 0 16px 16px;
+        background: var(--error-color);
+        color: #fff;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+
+      /* ── Mobile (планшеты + телефоны) ── */
+      @media (max-width: 768px) {
+        .top {
+          padding: 8px 8px 0;
+        }
+        .header h1 {
+          font-size: 20px;
+        }
+        .header {
+          margin-bottom: 12px;
+        }
+        .tab {
+          padding: 10px 14px;
+          font-size: 12px;
+        }
+        .error {
+          margin: 0 8px 12px;
+        }
       }
     `;
   }
@@ -260,37 +328,44 @@ class SberHomePanel extends LitElement {
   render() {
     const tabs = ["Devices", "Voice Intents", "Monitor", "Debug", "Settings"];
     return html`
-      <div class="header">
-        <h1>
-          SberHome
-          ${this._status?.version
-            ? html`<span class="version">v${this._status.version}</span>`
-            : ""}
-        </h1>
-        <sberhome-home-switcher
-          .homes=${this._homes}
-          .selectedHomeId=${this._selectedHomeId}
-          @home-selected=${this._onHomeSelected}
-        ></sberhome-home-switcher>
-        <button
-          class="refresh-btn"
-          @click=${this._forceRefresh}
-          ?disabled=${this._loading}
-          title="Принудительно обновить state из Sber Gateway"
-        >
-          ${this._loading ? "⟳" : "↻"} Обновить
-        </button>
+      <div class="top">
+        <div class="header">
+          <h1>
+            SberHome
+            ${this._status?.version
+              ? html`<span class="version">v${this._status.version}</span>`
+              : ""}
+          </h1>
+          <div class="header-actions">
+            <sberhome-home-switcher
+              .homes=${this._homes}
+              .selectedHomeId=${this._selectedHomeId}
+              @home-selected=${this._onHomeSelected}
+            ></sberhome-home-switcher>
+            <button
+              class="refresh-btn"
+              @click=${this._forceRefresh}
+              ?disabled=${this._loading}
+              title="Принудительно обновить state из Sber Gateway"
+            >
+              <span aria-hidden="true">${this._loading ? "⟳" : "↻"}</span>
+              <span>Обновить</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tabs">
+          ${tabs.map(
+            (label, idx) => html`
+              <div class="tab ${this._tab === idx ? "active" : ""}"
+                @click=${() => this._onTabClick(idx)}>
+                ${label}
+              </div>
+            `
+          )}
+        </div>
       </div>
-      <div class="tabs">
-        ${tabs.map(
-          (label, idx) => html`
-            <div class="tab ${this._tab === idx ? "active" : ""}"
-              @click=${() => this._onTabClick(idx)}>
-              ${label}
-            </div>
-          `
-        )}
-      </div>
+
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content"
         @toast=${this._onToast}

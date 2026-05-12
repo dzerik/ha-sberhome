@@ -1,5 +1,34 @@
 # Changelog
 
+## [5.1.5] — 2026-05-12
+
+### Changed
+
+- **UI панели приведён к light/content-style** (взято из sister-проекта
+  [MQTT-SberGate](https://github.com/JanchEwgen/MQTT-SberGate)). Раньше
+  верхний bar был тёмный (`--app-header-background-color`) с
+  полу-прозрачными pill-кнопками; теперь шапка и табы рисуются на
+  обычном content-фоне с HA card-палитрой:
+  - Заголовок `SberHome` крупнее (24px), под Sber-стандарт.
+  - Refresh-кнопка единообразна с dropdown-ами выбора дома и
+    категории — `padding: 8px 12px`, `border-radius: 6px`,
+    `--card-background-color` фон.
+  - Табы со стандартным HA-подчёркиванием через `--primary-color`,
+    `text-transform: uppercase; letter-spacing: 0.5px`, transition
+    при hover.
+  - Группа header-actions (home-switcher + refresh-btn) с `flex-wrap`
+    — на узких экранах переезжают на новую строку под заголовок.
+
+### Mobile
+
+- **Breakpoint увеличен с 600 до 768 px** — захватывает планшеты в
+  portrait + телефоны.
+- **Табы стали горизонтально-скроллируемыми** (`overflow-x: auto`,
+  `-webkit-overflow-scrolling: touch`, скрытый scrollbar). На узких
+  экранах таб-полоса не разрывается и не выталкивает контент.
+- Уменьшен padding шапки (`8px` вместо `16px`), размеры табов
+  (`10px 14px / 12px` font), error-banner.
+
 ## [5.1.4] — 2026-05-12
 
 ### Documentation
