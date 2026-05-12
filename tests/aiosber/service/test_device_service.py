@@ -143,9 +143,7 @@ async def test_refresh_uses_flat_endpoints(monkeypatch):
     }
     # /devices/enums — best-effort.
     enums_resp = MagicMock()
-    enums_resp.json = MagicMock(
-        return_value={"result": {"hvac_work_mode": ["cool", "heat"]}}
-    )
+    enums_resp.json = MagicMock(return_value={"result": {"hvac_work_mode": ["cool", "heat"]}})
 
     async def fake_transport_get(path, params=None, **kwargs):
         if path == "/devices":
@@ -204,9 +202,7 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
     async def fake_list(self, *, group_type=None, limit=1000):
         return []
 
-    monkeypatch.setattr(
-        "custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list
-    )
+    monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
 
     # Tree-fallback ответ.
     tree_resp = MagicMock()
@@ -258,9 +254,7 @@ async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
     async def fake_list(self, *, group_type=None, limit=1000):
         return []
 
-    monkeypatch.setattr(
-        "custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list
-    )
+    monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
 
     svc = DeviceService(api=api, cache=cache)
     # Не должно бросить — enums-failure не валит refresh.

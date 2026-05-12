@@ -44,9 +44,7 @@ def _multi_home_cache() -> StateCache:
                 devices=[],
                 children=[
                     UnionTreeDto(
-                        union=UnionDto(
-                            id="room-kitchen", name="Кухня", group_type=UnionType.ROOM
-                        ),
+                        union=UnionDto(id="room-kitchen", name="Кухня", group_type=UnionType.ROOM),
                         devices=[
                             DeviceDto(id="dev-1", name="Лампа"),
                             DeviceDto(id="dev-2", name="Розетка"),

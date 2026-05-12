@@ -113,9 +113,7 @@ async def send_otp(http: httpx.AsyncClient, phone: str, pkce: PkceParams) -> str
         raise NetworkError(f"send_otp transport error: {err}") from err
 
     if resp.status_code != 200:
-        raise AuthError(
-            f"send_otp failed: {resp.status_code} {resp.text[:200]}"
-        )
+        raise AuthError(f"send_otp failed: {resp.status_code} {resp.text[:200]}")
     try:
         data = resp.json()
     except ValueError as err:

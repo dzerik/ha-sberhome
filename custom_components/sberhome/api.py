@@ -154,5 +154,3 @@ class SberAPI:
         """
         if self._owns_http:
             await self._http.aclose()
-
-

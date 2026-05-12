@@ -89,9 +89,7 @@ class TestGet:
         spec = IntentSpec(id="sc-1", name="X", phrases=["x"])
         service = _make_service(get=spec)
         with _patch_service(service):
-            await ws_get_intent.__wrapped__(
-                hass, connection, {"id": 4, "intent_id": "sc-1"}
-            )
+            await ws_get_intent.__wrapped__(hass, connection, {"id": 4, "intent_id": "sc-1"})
         # connection.send_result called с serialized spec
         result = connection.send_result.call_args[0][1]
         assert result["id"] == "sc-1"
@@ -100,9 +98,7 @@ class TestGet:
     async def test_missing_returns_not_found(self, hass, connection):
         service = _make_service(get=None)
         with _patch_service(service):
-            await ws_get_intent.__wrapped__(
-                hass, connection, {"id": 5, "intent_id": "missing"}
-            )
+            await ws_get_intent.__wrapped__(hass, connection, {"id": 5, "intent_id": "missing"})
         assert connection.send_error.call_args[0][1] == "not_found"
 
 
@@ -179,9 +175,7 @@ class TestDelete:
     async def test_deletes(self, hass, connection):
         service = _make_service()
         with _patch_service(service):
-            await ws_delete_intent.__wrapped__(
-                hass, connection, {"id": 10, "intent_id": "sc-1"}
-            )
+            await ws_delete_intent.__wrapped__(hass, connection, {"id": 10, "intent_id": "sc-1"})
         result = connection.send_result.call_args[0][1]
         assert result == {"success": True}
 
@@ -191,9 +185,7 @@ class TestTest:
     async def test_runs_intent(self, hass, connection):
         service = _make_service(test={"ok": True, "scenario_id": "sc-1"})
         with _patch_service(service):
-            await ws_test_intent.__wrapped__(
-                hass, connection, {"id": 11, "intent_id": "sc-1"}
-            )
+            await ws_test_intent.__wrapped__(hass, connection, {"id": 11, "intent_id": "sc-1"})
         result = connection.send_result.call_args[0][1]
         assert result["success"] is True
 

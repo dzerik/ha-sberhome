@@ -132,7 +132,6 @@ class TestResolveCategoryDtFormat:
         """
         assert resolve_category(image_set_type) == "vacuum_cleaner"
 
-
     @pytest.mark.parametrize(
         "image_set_type",
         ["cat_button_m", "cat_button_s", "cat_button_l"],

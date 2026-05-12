@@ -46,10 +46,8 @@ def _coord_with_homes(home_ids: list[str]) -> MagicMock:
     Принимает список home_id. Пустой список = no homes (skip dispatch).
     """
     coord = MagicMock(spec=SberHomeCoordinator)
-    coord._select_new_intent_events = (
-        lambda home_id, events: SberHomeCoordinator._select_new_intent_events(
-            coord, home_id, events
-        )
+    coord._select_new_intent_events = lambda home_id, events: (
+        SberHomeCoordinator._select_new_intent_events(coord, home_id, events)
     )
     coord._fire_intent_event = lambda e: SberHomeCoordinator._fire_intent_event(coord, e)
     coord._last_intent_event_time = {}
@@ -127,9 +125,7 @@ class TestSelectNewIntentEvents:
             _event(time="2026-04-27T13:00:00Z"),
             _event(time="2026-04-27T12:00:00Z"),
         ]
-        result = SberHomeCoordinator._select_new_intent_events(
-            coord, "home-dacha", dacha_events
-        )
+        result = SberHomeCoordinator._select_new_intent_events(coord, "home-dacha", dacha_events)
         # Первый push в «Даче» (cursor unset) → берётся head, не зависит
         # от cursor'а из «Мой дом».
         assert len(result) == 1

@@ -110,24 +110,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             menu_options=["sberid", "sms"],
         )
 
-    async def async_step_sberid(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_sberid(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Standard SberID OAuth flow — внешний редирект на id.sber.ru."""
         if user_input is None:
             return await self._start_external_auth("sberid")
         # Called by SberAuthCallbackView after successful auth
         return self.async_external_step_done(next_step_id="finish")
 
-    async def async_step_sms(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_sms(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Beta path: SMS-OTP через CSAFront. Делегирует на phone-форму."""
         return await self.async_step_sms_phone()
 
-    async def async_step_sms_phone(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_sms_phone(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Шаг 1 SMS-flow: ввод телефона, отправка OTP."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -154,9 +148,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_sms_otp(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_sms_otp(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Шаг 2 SMS-flow: ввод OTP, обмен на токены."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -195,9 +187,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._csafront_http = httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
         self._csafront_pkce = PkceParams.generate()
         self._csafront_phone = phone
-        self._csafront_ouid = await send_otp(
-            self._csafront_http, phone, self._csafront_pkce
-        )
+        self._csafront_ouid = await send_otp(self._csafront_http, phone, self._csafront_pkce)
         LOGGER.debug("CSAFront SMS sent for phone=%s", phone)
 
     async def _csafront_verify_and_exchange(self, otp: str) -> CsafrontTokens:
@@ -207,12 +197,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._csafront_ouid is not None
         assert self._csafront_phone is not None
 
-        authcode = await verify_otp(
-            self._csafront_http, self._csafront_ouid, otp
-        )
-        token_data = await exchange_authcode(
-            self._csafront_http, authcode, self._csafront_pkce
-        )
+        authcode = await verify_otp(self._csafront_http, self._csafront_ouid, otp)
+        token_data = await exchange_authcode(self._csafront_http, authcode, self._csafront_pkce)
         smart_home_token = await get_smart_home_token(
             self._csafront_http, token_data["access_token"]
         )

@@ -383,7 +383,6 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Sbermap entities cache — typed DeviceDto + HaEntityData
     # ------------------------------------------------------------------
 
-
     def _rebuild_entities_from_state_cache(self) -> None:
         """Пересобрать `self.entities` из ТЕКУЩЕГО state_cache — БЕЗ перезаписи.
 
@@ -1076,9 +1075,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # skip dispatch, прилетит снова на следующем push'е.
         homes = self.state_cache.get_homes()
         if not homes:
-            LOGGER.debug(
-                "scenario_widgets push, but no homes known yet — skipping intent dispatch"
-            )
+            LOGGER.debug("scenario_widgets push, but no homes known yet — skipping intent dispatch")
             return
 
         if self._intent_dispatch_lock.locked():
@@ -1093,9 +1090,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not home.id:
                     continue
                 try:
-                    events = await self.client.scenarios.history(
-                        home.id, limit=INTENT_FETCH_LIMIT
-                    )
+                    events = await self.client.scenarios.history(home.id, limit=INTENT_FETCH_LIMIT)
                 except Exception:  # noqa: BLE001
                     LOGGER.debug(
                         "Failed to fetch scenario history for home %s", home.id, exc_info=True

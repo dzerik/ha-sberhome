@@ -120,9 +120,7 @@ class DeviceService:
             return
 
         devices, raw_devices = devices_resp
-        self._cache.update_from_flat(
-            homes, rooms, custom_groups, devices, raw_devices=raw_devices
-        )
+        self._cache.update_from_flat(homes, rooms, custom_groups, devices, raw_devices=raw_devices)
 
         # Best-effort: подтянуть enum-словарь. Не валим refresh если упал.
         if not self._cache.get_enums():

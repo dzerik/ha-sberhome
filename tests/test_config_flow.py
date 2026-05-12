@@ -503,7 +503,9 @@ async def test_sms_otp_step_creates_entry_on_success():
         patch("custom_components.sberhome.config_flow.verify_otp", AsyncMock(return_value="ac")),
         patch(
             "custom_components.sberhome.config_flow.exchange_authcode",
-            AsyncMock(return_value={"access_token": "ax", "refresh_token": "rx", "expires_in": 1800}),
+            AsyncMock(
+                return_value={"access_token": "ax", "refresh_token": "rx", "expires_in": 1800}
+            ),
         ),
         patch(
             "custom_components.sberhome.config_flow.get_smart_home_token",

@@ -297,9 +297,7 @@ async def test_enums_values_wrapped():
     """Sber-shape #2: `{"values": [...]}` → нормализуется."""
 
     def h(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"result": {"fan_speed": {"values": ["low", "high"]}}}
-        )
+        return httpx.Response(200, json={"result": {"fan_speed": {"values": ["low", "high"]}}})
 
     api, _ = _build(h)
     enums = await api.enums()
