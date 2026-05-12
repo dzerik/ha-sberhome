@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.7.1-debug] — 2026-05-12
+
+Debug-only pre-release для разбора multi-home (issue #2). После
+финального fix-а будет удалён.
+
+### Added
+
+- `sberhome/debug/raw_tree` теперь пробует 9 candidate-endpoints Sber
+  API и возвращает home_count + home_names для каждого. Цель — найти
+  endpoint, отдающий все HOME-узлы.
+
 ## [4.7.0] — 2026-05-12
 
 ### Added — Multi-home для intents/scenarios
