@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from .coordinator import SberHomeCoordinator
 
 
-class SberGroupSwitch(CoordinatorEntity, SwitchEntity):
+class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
     """Bulk on/off switch для Sber custom-группы (group_type=GROUP)."""
 
     _attr_has_entity_name = True
