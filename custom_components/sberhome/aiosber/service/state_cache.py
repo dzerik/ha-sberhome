@@ -49,6 +49,9 @@ class StateCache:
         # lazy-loaded в `DeviceService.refresh()`. Каждый элемент содержит
         # `{id, name, preview?, category?}`.
         self._light_effects: list[dict[str, Any]] = []
+        # group_id → [device_id, ...] — reverse-index из device.group_ids.
+        # Перестраивается в update_from_flat()/update_from_tree() каждый refresh.
+        self._devices_by_group: dict[str, list[str]] = {}
 
     # ------------------------------------------------------------------
     # Read — devices
@@ -61,6 +64,14 @@ class StateCache:
 
     def device_ids(self) -> frozenset[str]:
         return frozenset(self._devices)
+
+    def get_group_devices(self, group_id: str) -> list[str]:
+        """Список device_id, входящих в Sber-group (любого type).
+
+        Используется `SberGroupSwitch` для агрегации `is_on` и optimistic
+        patch после bulk-команды. Возвращает копию.
+        """
+        return list(self._devices_by_group.get(group_id, []))
 
     # ------------------------------------------------------------------
     # Read — groups
@@ -232,6 +243,7 @@ class StateCache:
         self._device_to_room_id = device_to_room_id
         self._device_to_home_id = device_to_home_id
         self._device_to_home_name = device_to_home_name
+        self._rebuild_devices_by_group_index()
 
         _LOGGER.debug(
             "StateCache updated: %d devices, %d groups, %d room mappings, %d home mappings",
@@ -250,6 +262,7 @@ class StateCache:
         `state_cache._devices` напрямую (нарушение инкапсуляции).
         """
         self._devices = dict(devices)
+        self._rebuild_devices_by_group_index()
         # Остальные структуры не трогаем — либо они уже пусты (первый refresh
         # до tree), либо остаются от прошлого успешного update_from_tree.
 
@@ -334,6 +347,7 @@ class StateCache:
         self._device_to_room_id = device_to_room_id
         self._device_to_home_id = device_to_home_id
         self._device_to_home_name = device_to_home_name
+        self._rebuild_devices_by_group_index()
         # Raw payloads — для UI/diagnostics (если переданы).
         if raw_devices is not None:
             self._raw_devices = dict(raw_devices)
@@ -350,6 +364,19 @@ class StateCache:
             len(device_to_room_name),
             len(device_to_home_id),
         )
+
+    def _rebuild_devices_by_group_index(self) -> None:
+        """Перестроить reverse-index `group_id → [device_id, ...]`.
+
+        Вызывается из всех `update_from_*` методов после построения
+        `self._devices`. Учитывает все group_ids устройства (device может
+        входить в несколько групп — например ROOM + custom GROUP).
+        """
+        index: dict[str, list[str]] = {}
+        for device_id, dto in self._devices.items():
+            for group_id in dto.group_ids or []:
+                index.setdefault(group_id, []).append(device_id)
+        self._devices_by_group = index
 
     def _walk_tree(
         self,

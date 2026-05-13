@@ -364,6 +364,28 @@ def test_update_from_flat_unknown_group_id():
     assert cache.device_room_id("orphan") is None
 
 
+def test_state_cache_devices_by_group_index():
+    """После update_from_flat() reverse-index group → devices корректен."""
+    cache = StateCache()
+    cache.update_from_flat(
+        homes=[UnionDto(id="home-1", name="Дом", group_type=UnionType.HOME)],
+        rooms=[],
+        groups=[
+            UnionDto(id="grp-living", name="Освещение прихожей", group_type=UnionType.GROUP),
+            UnionDto(id="grp-kitchen", name="Кухонные приборы", group_type=UnionType.GROUP),
+        ],
+        devices=[
+            DeviceDto(id="dev-1", group_ids=["grp-living"]),
+            DeviceDto(id="dev-2", group_ids=["grp-living", "grp-kitchen"]),
+            DeviceDto(id="dev-3", group_ids=["grp-kitchen"]),
+            DeviceDto(id="dev-orphan", group_ids=[]),
+        ],
+    )
+    assert sorted(cache.get_group_devices("grp-living")) == ["dev-1", "dev-2"]
+    assert sorted(cache.get_group_devices("grp-kitchen")) == ["dev-2", "dev-3"]
+    assert cache.get_group_devices("nonexistent") == []
+
+
 # ---------------------------------------------------------------------------
 # Raw payload cache
 # ---------------------------------------------------------------------------
