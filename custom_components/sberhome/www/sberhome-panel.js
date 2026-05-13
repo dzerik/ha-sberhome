@@ -1,7 +1,7 @@
 /**
  * SberHome — main SPA panel.
  *
- * Tabs: Devices | Monitor (status + log) | Debug (payload + raw command) | Settings.
+ * Tabs: Devices | Automations | Monitor (status + log) | Debug (payload + raw command) | Settings.
  */
 
 const _v = new URL(import.meta.url).searchParams.get("v") || "";
@@ -21,6 +21,7 @@ await Promise.all([
   import(`./components/sberhome-device-modal.js${_q}`),
   import(`./components/sberhome-settings.js${_q}`),
   import(`./components/sberhome-intents-view.js${_q}`),
+  import(`./components/sberhome-automations-view.js${_q}`),
   import(`./components/sberhome-intent-modal.js${_q}`),
   import(`./components/sberhome-home-switcher.js${_q}`),
 ]);
@@ -326,7 +327,7 @@ class SberHomePanel extends LitElement {
   }
 
   render() {
-    const tabs = ["Devices", "Voice Intents", "Monitor", "Debug", "Settings"];
+    const tabs = ["Devices", "Automations", "Monitor", "Debug", "Settings"];
     return html`
       <div class="top">
         <div class="header">
@@ -376,10 +377,10 @@ class SberHomePanel extends LitElement {
             .devices=${this._visibleDevices}>
           </sberhome-device-picker>` : ""}
         ${this._tab === 1 ? html`
-          <sberhome-intents-view .hass=${this.hass}
+          <sberhome-automations-view .hass=${this.hass}
             .homes=${this._homes}
             .selectedHomeId=${this._selectedHomeId}>
-          </sberhome-intents-view>` : ""}
+          </sberhome-automations-view>` : ""}
         ${this._tab === 2 ? html`
           <sberhome-monitor-view .hass=${this.hass} .status=${this._status}>
           </sberhome-monitor-view>` : ""}
