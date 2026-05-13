@@ -33,7 +33,7 @@ from .sbermap import (
     build_light_command,
     light_config_from_dto,
     light_state_from_dto,
-    resolve_category,
+    resolve_device_category,
 )
 
 _LIGHT_CATEGORIES = {"light", "led_strip"}
@@ -47,7 +47,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[LightEntity] = []
     for device_id, dto in coordinator.devices.items():
-        category = resolve_category(dto.image_set_type)
+        category = resolve_device_category(dto)
         if category not in _LIGHT_CATEGORIES:
             continue
         entities.append(SberLightEntity(coordinator, device_id))

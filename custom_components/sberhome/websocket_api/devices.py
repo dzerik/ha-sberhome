@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 
 from ..aiosber.dto.device import DeviceDto
 from ..const import DOMAIN
-from ..sbermap import resolve_category
+from ..sbermap import resolve_device_category
 from ._common import find_ha_device, get_coordinator
 
 # Известные HA→Sber мосты — устройства с такими значениями manufacturer
@@ -87,7 +87,7 @@ def ws_get_devices(
     enabled = coord.enabled_device_ids
     out: list[dict[str, Any]] = []
     for device_id, dto in coord.devices.items():
-        category = resolve_category(dto.image_set_type)
+        category = resolve_device_category(dto)
         ents = coord.entities.get(device_id, [])
         is_enabled = enabled is None or device_id in enabled
         bridge = _bridge_info(dto, hass)
@@ -174,7 +174,7 @@ def ws_device_detail(
             "device_id": device_id,
             "name": dto.display_name,
             "image_set_type": dto.image_set_type,
-            "category": resolve_category(dto.image_set_type),
+            "category": resolve_device_category(dto),
             "model": dto.device_info.model if dto.device_info else None,
             "sw_version": dto.sw_version,
             "serial_number": dto.serial_number,

@@ -305,21 +305,50 @@ def _token_fallback(image_set_type: str) -> str | None:
     return None
 
 
-def resolve_category(image_set_type: str | None) -> str | None:
-    """Определить Sber-категорию по `image_set_type` устройства.
+def resolve_category(
+    image_set_type: str | None,
+    *,
+    slug: str | None = None,
+) -> str | None:
+    """Определить Sber-категорию устройства.
 
-    Трёхуровневый matcher:
+    Приоритет источников (от authoritative к heuristic):
 
-    1. **Exact match** — точное совпадение ключа в ``IMAGE_TYPE_MAP``.
+    0. **`slug` из `full_categories[0].slug`** (если задан и известен) —
+       стабильный машинный идентификатор от самого Sber. Используется,
+       когда DeviceDto имеет заполненный `full_categories`. Это самый
+       надёжный источник, не зависит от изменений именования
+       `image_set_type` в новых прошивках.
+    1. **Exact match** `image_set_type` ⇒ ``IMAGE_TYPE_MAP``.
     2. **Phrase substring** — pattern ⊂ image_set_type. Pattern'ы перебираются
        от длинных к коротким (детерминизм, не зависит от insertion order).
     3. **Token fallback** — slug разбивается на токены по `_`, multi-token
        windows ищутся в ``CATEGORY_KEYWORDS``. Автоматически покрывает
        новые префиксы Сбера (`cat_*`, `dt_*`, и т.п.).
 
+    Args:
+        image_set_type: значение поля `device.image_set_type` (например
+            `cat_valve_l`). Может быть `None`.
+        slug: значение `full_categories[0].slug` (например `valve`).
+            Если совпадает с известной категорией из
+            ``CATEGORY_TO_HA_PLATFORMS`` — возвращается напрямую.
+
     Returns:
         Категория из ``CATEGORY_TO_HA_PLATFORMS`` или ``None`` если неизвестно.
     """
+    # Приоритет 0: явный slug из Sber API. Sber называет slug-и точно
+    # так же, как ключи в CATEGORY_TO_HA_PLATFORMS, поэтому достаточно
+    # проверить наличие в reference-map (защита от опечаток/новых
+    # неизвестных категорий).
+    #
+    # Важно: SberBoom/SberPortal/SberBox приходят с `slug="default"`
+    # (full_categories=[{"slug":"default", "name":"Разное"}]), а реальный
+    # тип определяется только по `image_set_type` (`dt_boom_r2_*`).
+    # Slug "default" нет в CATEGORY_TO_HA_PLATFORMS — попадаем в fallback
+    # по image_set_type, который корректно классифицирует sber_speaker.
+    if slug and slug in CATEGORY_TO_HA_PLATFORMS:
+        return slug
+
     if not image_set_type:
         return None
     if image_set_type in IMAGE_TYPE_MAP:
@@ -328,3 +357,19 @@ def resolve_category(image_set_type: str | None) -> str | None:
         if pattern in image_set_type:
             return IMAGE_TYPE_MAP[pattern]
     return _token_fallback(image_set_type)
+
+
+def resolve_device_category(dto: object) -> str | None:
+    """Определить Sber-категорию для DeviceDto.
+
+    Удобная обёртка над `resolve_category()`: достаёт `slug` из
+    `dto.full_categories[0].slug` и `image_set_type` из `dto.image_set_type`,
+    передаёт в основной resolver.
+
+    Принимает `object` чтобы избежать circular import между sbermap и
+    aiosber.dto.device. Реально ожидается DeviceDto.
+    """
+    return resolve_category(
+        getattr(dto, "image_set_type", None),
+        slug=getattr(dto, "primary_category_slug", None),
+    )

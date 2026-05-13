@@ -8,6 +8,7 @@ from custom_components.sberhome.sbermap.spec.ha_mapping import (
     CATEGORY_TO_HA_PLATFORMS,
     IMAGE_TYPE_MAP,
     resolve_category,
+    resolve_device_category,
 )
 
 
@@ -220,3 +221,72 @@ class TestImageTypeMapInvariants:
     def test_no_duplicate_image_types(self):
         keys = list(IMAGE_TYPE_MAP.keys())
         assert len(keys) == len(set(keys))
+
+
+class TestSlugFirstResolution:
+    """resolve_category(slug=...) — приоритет 0 (выше image_set_type)."""
+
+    def test_known_slug_wins_over_image_set_type(self):
+        """Slug из Sber API — единственный источник истины при exact match."""
+        assert resolve_category("xyz_unknown", slug="valve") == "valve"
+
+    def test_known_slug_works_when_image_set_type_empty(self):
+        """Колонкам Sber приходит slug=default + image_set_type — slug=default
+        не валидный, но slug=hvac_fan валидный без помощи image_set_type."""
+        assert resolve_category(None, slug="hvac_fan") == "hvac_fan"
+        assert resolve_category("", slug="led_strip") == "led_strip"
+
+    def test_unknown_slug_falls_back_to_image_set_type(self):
+        """`slug="default"` (SberBoom Home) — не в CATEGORY_TO_HA_PLATFORMS,
+        идём в fallback по image_set_type."""
+        # SberBoom Home: full_categories=[{"slug":"default"}], но
+        # image_set_type=dt_boom_r2_dark_blue_s → substring → sber_speaker.
+        assert resolve_category("dt_boom_r2_dark_blue_s", slug="default") == "sber_speaker"
+
+    def test_slug_none_uses_image_set_type(self):
+        """slug=None → классическая логика по image_set_type."""
+        assert resolve_category("bulb_sber", slug=None) == "light"
+
+    def test_invalid_slug_does_not_break_resolution(self):
+        """Неизвестный slug не блокирует image_set_type fallback."""
+        assert resolve_category("dt_curtain", slug="some_future_category") == "curtain"
+
+
+class TestResolveDeviceCategory:
+    """resolve_device_category(dto) — удобная обёртка для DeviceDto."""
+
+    def test_dto_with_slug_uses_slug_first(self):
+        """Если у DTO есть primary_category_slug — используется он."""
+
+        class FakeDto:
+            image_set_type = "dt_unknown_xyz"
+            primary_category_slug = "valve"
+
+        assert resolve_device_category(FakeDto()) == "valve"
+
+    def test_dto_without_slug_uses_image_set_type(self):
+        """primary_category_slug=None → fallback на image_set_type."""
+
+        class FakeDto:
+            image_set_type = "cat_valve_l"
+            primary_category_slug = None
+
+        assert resolve_device_category(FakeDto()) == "valve"
+
+    def test_dto_with_default_slug_uses_image_set_type(self):
+        """slug=default (колонки Sber) — fallback на image_set_type."""
+
+        class FakeDto:
+            image_set_type = "dt_boom_r2_dark_blue_s"
+            primary_category_slug = "default"
+
+        assert resolve_device_category(FakeDto()) == "sber_speaker"
+
+    def test_dto_missing_both_returns_none(self):
+        """Совсем нет данных — None."""
+
+        class FakeDto:
+            image_set_type = None
+            primary_category_slug = None
+
+        assert resolve_device_category(FakeDto()) is None

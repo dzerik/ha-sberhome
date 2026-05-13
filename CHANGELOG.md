@@ -1,5 +1,50 @@
 # Changelog
 
+## [5.1.7] — 2026-05-13
+
+### Fixed
+
+- **`full_categories` теперь парсится как массив объектов** (`list[
+  DeviceCategoryDto]`), а не как массив строк. До v5.1.7 поле было
+  типизировано неверно — `list[str]` — и `_serde.from_dict` молча
+  игнорировал реальный JSON. Из-за этого slug категории, который Sber
+  отдаёт явно (`full_categories[0].slug` = `"valve"` / `"led_strip"` /
+  `"hvac_fan"`), не использовался при определении типа устройства.
+- **`resolve_category()` теперь принимает `slug=` как авторитативный
+  источник** (приоритет 0 над `image_set_type`). Если slug совпадает
+  с известной категорией из `CATEGORY_TO_HA_PLATFORMS` — возвращается
+  напрямую, без эвристического substring-парсинга `image_set_type`.
+
+### Added
+
+- **`DeviceDto.primary_category_slug`** — геттер, возвращающий
+  `full_categories[0].slug` (первая категория) или `None`. Для
+  multi-категорийных устройств (LED-ленты приходят как
+  `[{slug:"led_strip"}, {slug:"light"}]`) возвращается первый
+  элемент — основная категория устройства.
+- **`resolve_device_category(dto)`** — удобный shortcut: достаёт
+  оба источника (slug + image_set_type) и резолвит. Все call-sites
+  (`light.py`, `climate.py`, `coordinator.py`, `websocket_api/*`,
+  `sbermap/transform/mapper.py`) переключены на него.
+- **`DeviceCategoryDto`** расширен полями `default_name`,
+  `image_set_type`, `sort_weight` — соответствует реальной shape API.
+
+### Compat
+
+- Колонки Sber (SberBoom Home / SberPortal / SberBox) приходят с
+  `slug="default"`. Это не валидная категория — резолвер
+  автоматически идёт в fallback по `image_set_type`
+  (`dt_boom_r2_*` → substring → `sber_speaker`). Поведение
+  сохранено.
+- Старая сигнатура `resolve_category(image_set_type)` продолжает
+  работать без аргумента `slug`.
+
+### Tests
+
+- 12 новых тестов: парсинг `full_categories` объектов, slug-приоритет,
+  fallback на `image_set_type` для `slug="default"`,
+  `resolve_device_category(dto)` обёртка.
+
 ## [5.1.6] — 2026-05-13
 
 ### Mobile adaptation — все view-компоненты панели

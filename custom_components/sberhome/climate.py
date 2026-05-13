@@ -25,7 +25,7 @@ from .sbermap import (
     climate_config_for,
     climate_state_from_dto,
     map_hvac_mode,
-    resolve_category,
+    resolve_device_category,
 )
 
 
@@ -37,7 +37,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[SberClimateEntity] = []
     for device_id, dto in coordinator.devices.items():
-        category = resolve_category(dto.image_set_type)
+        category = resolve_device_category(dto)
         if category is None:
             continue
         config = climate_config_for(category)

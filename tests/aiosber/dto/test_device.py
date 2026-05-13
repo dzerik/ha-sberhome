@@ -32,7 +32,18 @@ SAMPLE_BULB = {
         "list_off": "https://img.iot.sberdevices.ru/bulb_off.png",
         "photo": "https://img.iot.sberdevices.ru/bulb_photo.png",
     },
-    "full_categories": ["light", "on_off", "light_brightness", "light_colour"],
+    # Реальный shape API: массив объектов с slug/name/image_set_type.
+    # До v5.1.7 типизировался как list[str] (ошибка — _serde игнорировал).
+    "full_categories": [
+        {
+            "id": "light",
+            "name": "Лампы",
+            "slug": "light",
+            "default_name": "Лампа",
+            "image_set_type": "cat_bulb_m",
+            "sort_weight": 0,
+        }
+    ],
     "sw_version": "1.0.5",
     "sort_weight_int": 100,
     "reported_state": [
@@ -81,9 +92,38 @@ def test_images_dto_nested():
     assert d.images.cards_3d_on is None  # отсутствовало в payload
 
 
-def test_device_full_categories():
+def test_device_full_categories_parses_objects():
     d = DeviceDto.from_dict(SAMPLE_BULB)
-    assert d.full_categories == ["light", "on_off", "light_brightness", "light_colour"]
+    assert d.full_categories is not None
+    assert len(d.full_categories) == 1
+    cat = d.full_categories[0]
+    assert cat.id == "light"
+    assert cat.slug == "light"
+    assert cat.name == "Лампы"
+    assert cat.image_set_type == "cat_bulb_m"
+
+
+def test_device_primary_category_slug_helper():
+    d = DeviceDto.from_dict(SAMPLE_BULB)
+    assert d.primary_category_slug == "light"
+
+
+def test_device_primary_category_slug_none_when_no_categories():
+    d = DeviceDto.from_dict({"id": "x"})
+    assert d.primary_category_slug is None
+
+
+def test_device_primary_category_slug_returns_first_for_multi():
+    """LED-ленты приходят как [{slug:led_strip}, {slug:light}] — берём первый."""
+    payload = {
+        "id": "x",
+        "full_categories": [
+            {"slug": "led_strip", "image_set_type": "cat_ledstrip_m"},
+            {"slug": "light", "image_set_type": "cat_bulb_m"},
+        ],
+    }
+    d = DeviceDto.from_dict(payload)
+    assert d.primary_category_slug == "led_strip"
 
 
 def test_device_reported_state_parsed_as_attributes():

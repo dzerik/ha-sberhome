@@ -569,11 +569,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Отбирается по sbermap-resolve_category. Включает только
         категории из HUB_CATEGORIES.
         """
-        from .sbermap import resolve_category
+        from .sbermap import resolve_device_category
 
         result: list[str] = []
         for dev_id, dto in self.state_cache.get_all_devices().items():
-            cat = resolve_category(dto.image_set_type)
+            cat = resolve_device_category(dto)
             if cat in HUB_CATEGORIES:
                 result.append(dev_id)
         return result

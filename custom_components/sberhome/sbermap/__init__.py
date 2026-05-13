@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from .exceptions import CodecError, MappingError, SbermapError, SpecError
-from .spec.ha_mapping import IMAGE_TYPE_MAP, resolve_category
+from .spec.ha_mapping import IMAGE_TYPE_MAP, resolve_category, resolve_device_category
 from .transform import (
     TV_SOURCES,
     ClimateConfig,
@@ -107,4 +107,5 @@ __all__ = [
     "map_hvac_mode",
     "map_hvac_mode_to_sber",
     "resolve_category",
+    "resolve_device_category",
 ]

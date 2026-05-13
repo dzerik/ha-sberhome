@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Self
 
 from ._serde import dataclass_to_dict, from_dict
+from .category import DeviceCategoryDto
 from .enums import ConnectionType, VendorType
 from .feature import DeviceFeatureDto
 from .values import AttributeValueDto
@@ -264,7 +265,12 @@ class DeviceDto:
     images: ImagesDto | None = None
 
     attributes: list[DeviceFeatureDto] | None = None
-    full_categories: list[str] | None = None  # field key: массив строк (slug'и категорий)
+    # `full_categories` — массив объектов DeviceCategoryDto. `slug` —
+    # стабильный машинный идентификатор категории, авторитативный source
+    # для resolve_category() (см. `primary_category_slug` ниже).
+    # До v5.1.7 типизировалось как `list[str]` (что было ошибкой —
+    # _serde игнорировал поле, потому что приходил массив объектов).
+    full_categories: list[DeviceCategoryDto] | None = None
 
     sw_version: str | None = None
     coprocessor_fw_version: str | None = None
@@ -303,6 +309,24 @@ class DeviceDto:
         """Удобный геттер: значение reported по ключу или None."""
         av = self.reported(key)
         return av.value if av is not None else None
+
+    @property
+    def primary_category_slug(self) -> str | None:
+        """Slug первой категории из `full_categories` (если есть).
+
+        Sber передаёт стабильный машинный идентификатор категории в
+        `full_categories[0].slug` (`"valve"`, `"led_strip"`, `"hvac_fan"`,
+        ...). Это **авторитативный источник категории** — использовать
+        его надёжнее, чем эвристически парсить `image_set_type`.
+
+        Для multi-категорийных устройств (например LED-ленты, которые
+        приходят как `[{"slug": "led_strip"}, {"slug": "light"}]`)
+        возвращается первый элемент — основная категория устройства.
+        """
+        if not self.full_categories:
+            return None
+        first = self.full_categories[0]
+        return first.slug if first is not None else None
 
     @property
     def vendor(self) -> VendorType | None:

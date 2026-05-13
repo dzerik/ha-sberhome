@@ -28,7 +28,7 @@ from ..intents import (
     IntentSpec,
     schema_dict,
 )
-from ..sbermap import resolve_category
+from ..sbermap import resolve_device_category
 from ._common import get_coordinator
 
 
@@ -268,7 +268,7 @@ def ws_devices_for_picker(
 
     out: list[dict[str, Any]] = []
     for device_id, dto in coord.state_cache.get_all_devices().items():
-        cat = resolve_category(dto.image_set_type)
+        cat = resolve_device_category(dto)
         if category_filter is not None and cat not in category_filter:
             continue
         out.append(

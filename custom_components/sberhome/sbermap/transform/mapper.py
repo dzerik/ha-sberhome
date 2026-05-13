@@ -15,7 +15,7 @@ from homeassistant.const import STATE_OFF, STATE_ON, Platform
 
 from ...aiosber.dto import AttributeValueDto, ColorValue
 from ...aiosber.dto.enums import AttributeValueType
-from ..spec.ha_mapping import resolve_category
+from ..spec.ha_mapping import resolve_device_category
 from ._types import HaEntityData
 from .category_specs import CATEGORY_SPECS, build_primary_entity
 from .feature_specs import FEATURE_SPECS, is_applicable
@@ -84,7 +84,7 @@ def map_device_to_entities(dto: DeviceDto) -> list[HaEntityData]:
     1. Primary entity from CategorySpec (composite: LIGHT, CLIMATE, COVER, etc.)
     2. Extra entities auto-discovered from reported_state via FeatureSpec
     """
-    category = resolve_category(dto.image_set_type)
+    category = resolve_device_category(dto)
     if category is None:
         return []
 

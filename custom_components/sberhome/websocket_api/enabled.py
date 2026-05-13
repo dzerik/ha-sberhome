@@ -9,7 +9,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from ..sbermap import resolve_category
+from ..sbermap import resolve_device_category
 from ._common import find_ha_device, get_coordinator
 
 
@@ -25,7 +25,7 @@ def _unsupported_device_ids(coord, device_ids) -> list[str]:
         dto = coord.devices.get(dev_id)
         if dto is None:
             continue
-        if resolve_category(dto.image_set_type) is None:
+        if resolve_device_category(dto) is None:
             bad.append(dev_id)
     return bad
 
