@@ -156,6 +156,7 @@ __all__ = [
     "ws_get_settings",
     "ws_get_status",
     "ws_inject_ws_message",
+    "ws_list_listeners",
     "ws_message_log",
     "ws_refetch_device",
     "ws_replay_ws_message",
