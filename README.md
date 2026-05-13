@@ -511,6 +511,79 @@ URL: `https://github.com/dzerik/ha-sberhome`, Category: *Integration*.
 7. Готово — в панели SberHome в сайдбаре выбирайте устройства которые
    хотите завести в HA.
 
+## Voice intents через YAML (v5.2.0+)
+
+Помимо UI-вкладки «Voice Intents», голосовые сценарии можно
+описывать декларативно в `configuration.yaml` — удобно для
+version-control'а и воспроизводимых deployments.
+
+```yaml
+sberhome:
+  intents:
+    - slug: morning                       # optional, autogen из name (Cyrillic OK)
+      name: "Доброе утро"
+      phrases:
+        - "доброе утро"
+        - "проснуться"
+      enabled: true
+      description: "Утренний сценарий"     # optional
+      actions:
+        - type: ha_event_only              # просто fire HA-event sberhome_intent
+        - type: tts                        # озвучивание через колонки
+          phrase: "Доброе утро!"
+          device_ids: ["speaker-id-1"]
+        - type: device_command             # отправка команды устройству
+          device_id: "light-id-1"
+          attributes:
+            - key: on_off
+              type: BOOL
+              bool_value: true
+
+    - slug: bedtime
+      name: "Спокойной ночи"
+      phrases: ["спокойной ночи"]
+      actions:
+        - type: ha_event_only
+```
+
+Поведение:
+
+- **Additive** — YAML только создаёт/обновляет, **не удаляет** intent'ы
+  созданные руками через UI или приложение «Салют!».
+- **Ownership marker** — каждый созданный из YAML сценарий помечается в
+  `description` префиксом `🤖 HA-managed (sberhome): slug=<slug>` —
+  пользователь в приложении «Салют!» видит, что сценарий управляется
+  HA, и знает, что правки будут перезаписаны.
+- **Sync conflict** — если пользователь отредактировал HA-managed
+  сценарий в приложении «Салют!», следующий reload **перезатрёт** его
+  YAML-версией. Этот выбор согласован архитектурой: YAML — единственный
+  источник истины для интентов с маркером.
+- **Orphans** — HA-managed сценарии в Sber без YAML-counterpart
+  **не удаляются автоматически** (additive). В логи пишется warning;
+  удалять руками через приложение «Салют!» если они больше не нужны.
+
+После правки YAML — вызовите сервис `sberhome.reload_intents` через
+Developer Tools → Services, без перезапуска HA. Он перечитает
+`configuration.yaml` и применит изменения.
+
+В качестве trigger в HA-автоматизации:
+
+```yaml
+- trigger:
+    platform: event
+    event_type: sberhome_intent
+    event_data:
+      name: "Доброе утро"
+  action:
+    - service: light.turn_on
+      target:
+        entity_id: light.bedroom
+```
+
+Поддерживаемые action-типы (v5.2.0): `ha_event_only`, `tts`,
+`device_command`. Расширения (`regime_command`, `condition_branch` и
+т.п.) — в следующих релизах; до тех пор остаются доступны через UI.
+
 ## Архитектура
 
 Проект разделён на два слоя:

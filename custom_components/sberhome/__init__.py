@@ -30,7 +30,30 @@ from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
 from .const import CONF_AUTH_METHOD, CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
+from .intents.reconciler import reconcile_intents
+from .intents.service import IntentService
+from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
 from .websocket_api import async_setup_websocket_api
+
+# YAML-config для voice intents — опциональная декларативная альтернатива
+# UI-вкладке «Voice Intents». См. intents/yaml_loader.py для shape.
+CONF_INTENTS = "intents"
+
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Optional(CONF_INTENTS, default=[]): INTENTS_SCHEMA,
+            }
+        ),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+# Ключ в hass.data для хранения распарсенных YAML intent'ов между
+# `async_setup()` (где config доступен) и `async_setup_entry()` /
+# service reload (где доступа к config-arg нет).
+_HASS_DATA_YAML_INTENTS = f"{DOMAIN}_yaml_intents"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -52,6 +75,42 @@ PLATFORMS: list[Platform] = [
 
 _PANEL_URL_PATH = "sberhome"
 _PANEL_STATIC_PATH = "/sberhome_panel"
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """YAML-секция `sberhome:` — парсим и кэшируем для reconcile.
+
+    Вызывается HA до setup_entry. Если в `configuration.yaml` есть
+    блок `sberhome.intents:`, парсим его в `IntentSpec`-ы и сохраняем
+    в `hass.data` для последующей применения через reconcile_intents().
+
+    Парсинг — fail-soft: ошибка в YAML логируется, но не блокирует
+    setup интеграции (config_entry-flow всё ещё работает).
+    """
+    domain_config = config.get(DOMAIN) or {}
+    raw_intents = domain_config.get(CONF_INTENTS) or []
+    if not raw_intents:
+        hass.data[_HASS_DATA_YAML_INTENTS] = []
+        return True
+
+    try:
+        specs = load_intents_from_config(raw_intents)
+    except (vol.Invalid, ValueError) as err:
+        LOGGER.error(
+            "Ошибка в configuration.yaml sberhome.intents: %s. "
+            "YAML-intents игнорируются до исправления.",
+            err,
+        )
+        hass.data[_HASS_DATA_YAML_INTENTS] = []
+        return True
+
+    hass.data[_HASS_DATA_YAML_INTENTS] = specs
+    LOGGER.info(
+        "YAML sberhome.intents: загружено %d intent(s) — будут "
+        "синхронизированы с Sber после первого refresh.",
+        len(specs),
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> bool:
@@ -161,7 +220,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # один раз (первый setup'ом) — idempotent через hass.data-маркер.
     _async_register_services(hass)
 
+    # YAML-driven intents reconcile — best-effort, не блокирует setup
+    # при ошибке. Применяется после первого успешного refresh, чтобы
+    # state_cache.get_homes() уже знал все дома (нужен intent service
+    # для populate last_fired_at).
+    await _async_reconcile_yaml_intents(hass, coordinator)
+
     return True
+
+
+async def _async_reconcile_yaml_intents(
+    hass: HomeAssistant, coordinator: SberHomeCoordinator
+) -> None:
+    """Применить кэшированные в hass.data YAML-intents к Sber.
+
+    Best-effort: ошибка не блокирует setup интеграции. Подробный отчёт
+    о create/update/orphan/failed уходит в LOGGER.info / warning.
+    """
+    yaml_specs = hass.data.get(_HASS_DATA_YAML_INTENTS) or []
+    if not yaml_specs:
+        return
+    try:
+        service = IntentService(coordinator)
+        report = await reconcile_intents(service, yaml_specs)
+        LOGGER.info("YAML intents reconciled: %s", report.summary_line())
+    except Exception:  # noqa: BLE001 — best-effort
+        LOGGER.exception(
+            "YAML intents reconcile failed — продолжаем без них. "
+            "После исправления вызовите service `sberhome.reload_intents`."
+        )
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -251,6 +338,67 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "refresh",
         _refresh,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def _reload_intents(call: ServiceCall) -> dict[str, object]:
+        """Перечитать `configuration.yaml:sberhome.intents` + reconcile.
+
+        Не требует рестарта HA — удобно после правки YAML.
+        Возвращает отчёт ReconcileReport.to_dict() для каждого
+        loaded entry. Additive: orphan'ы только логируются, не
+        удаляются.
+        """
+        from homeassistant.config import load_yaml_config_file
+
+        try:
+            # HA helper: возвращает уже распарсенный configuration.yaml.
+            yaml_path = hass.config.path("configuration.yaml")
+            yaml_config = await hass.async_add_executor_job(load_yaml_config_file, yaml_path)
+        except (FileNotFoundError, OSError) as err:
+            return {"ok": False, "error": f"YAML недоступен: {err}"}
+        except Exception as err:  # noqa: BLE001 — yaml parse error etc.
+            return {"ok": False, "error": f"YAML parse failed: {err}"}
+
+        # Валидируем через CONFIG_SCHEMA
+        try:
+            validated = CONFIG_SCHEMA({DOMAIN: yaml_config.get(DOMAIN) or {}})
+        except vol.Invalid as err:
+            return {"ok": False, "error": f"YAML schema invalid: {err}"}
+
+        raw_intents = validated[DOMAIN].get(CONF_INTENTS) or []
+        try:
+            specs = load_intents_from_config(raw_intents)
+        except (vol.Invalid, ValueError) as err:
+            return {"ok": False, "error": str(err)}
+
+        hass.data[_HASS_DATA_YAML_INTENTS] = specs
+
+        # Применяем ко всем loaded entry — обычно один.
+        results: dict[str, object] = {}
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            coord: SberHomeCoordinator | None = entry.runtime_data
+            if coord is None:
+                continue
+            service = IntentService(coord)
+            try:
+                report = await reconcile_intents(service, specs)
+                results[entry.entry_id] = report.to_dict()
+            except Exception as err:  # noqa: BLE001
+                LOGGER.exception("reload_intents reconcile failed")
+                results[entry.entry_id] = {"error": str(err)}
+
+        LOGGER.info(
+            "Service sberhome.reload_intents: %d intent(s) processed across %d entry(ies)",
+            len(specs),
+            len(results),
+        )
+        return {"ok": True, "intents_count": len(specs), "results": results}
+
+    hass.services.async_register(
+        DOMAIN,
+        "reload_intents",
+        _reload_intents,
         supports_response=SupportsResponse.OPTIONAL,
     )
 

@@ -1,5 +1,71 @@
 # Changelog
 
+## [5.2.0] — 2026-05-13
+
+### Added — YAML-driven voice intents
+
+Голосовые сценарии (intent'ы) теперь можно описывать декларативно в
+`configuration.yaml`. Удобно для version-control, воспроизводимых
+deployments и pair-programming с YAML-документацией.
+
+```yaml
+sberhome:
+  intents:
+    - slug: morning
+      name: "Доброе утро"
+      phrases: ["доброе утро", "проснуться"]
+      actions:
+        - type: ha_event_only
+        - type: tts
+          phrase: "Доброе утро!"
+          device_ids: ["speaker-id-1"]
+        - type: device_command
+          device_id: "light-id-1"
+          attributes:
+            - { key: on_off, type: BOOL, bool_value: true }
+```
+
+**Поведение:**
+
+- **Additive** — YAML только создаёт/обновляет, не удаляет
+  user-created сценарии.
+- **Ownership marker** — `description` Sber-сценария помечается
+  префиксом `🤖 HA-managed (sberhome): slug=<slug>` + warning о
+  перезаписи. Виден пользователю в приложении «Салют!».
+- **Sync conflict** — изменения в Sber-app перезатираются YAML-версией
+  при следующем reconcile (по согласованию с пользователем при
+  проектировании).
+- **Orphans** — HA-managed сценарии без YAML-counterpart **не
+  удаляются автоматически**, только warning в логи.
+
+**Сервис `sberhome.reload_intents`** — перечитывает
+`configuration.yaml` и применяет без рестарта HA.
+
+**Action-типы (минимум для v5.2.0):**
+- `ha_event_only` — fire HA-event `sberhome_intent` (просто триггер
+  для автоматизаций).
+- `tts` — Sber произносит phrase через выбранные колонки.
+- `device_command` — отправка команды устройству (любые
+  AttributeValueDto).
+
+Расширения (`regime_command`, `condition_branch`, ...) — в следующих
+релизах; до тех пор остаются доступны через UI.
+
+**Реализация:**
+
+- `intents/yaml_loader.py` — voluptuous schema + парсинг → `IntentSpec`-ы
+  с автогенерируемым slug (Cyrillic-friendly transliteration).
+- `intents/marker.py` — HA-managed description-маркер
+  (build/parse/is_managed).
+- `intents/reconciler.py` — additive diff: для каждого YAML-intent
+  — create или update; orphan'ы только логируются.
+- `__init__.py` — `async_setup(hass, config)` парсит YAML и кэширует;
+  после `async_setup_entry` запускается reconcile; зарегистрирован
+  service `sberhome.reload_intents`.
+
+**Тесты:** 37 новых (loader 16 + marker 11 + reconciler 7 +
+edge cases). Все 1202 теста проходят, lint + format чистые.
+
 ## [5.1.7] — 2026-05-13
 
 ### Fixed
