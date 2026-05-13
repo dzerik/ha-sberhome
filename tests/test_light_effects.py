@@ -41,7 +41,7 @@ def _bulb_dto(*, modes: list[str], with_scene_feature: bool = True) -> DeviceDto
 
 def _coord_with_dto(dto: DeviceDto, *, effects: list[dict] | None = None) -> MagicMock:
     cache = StateCache()
-    cache._devices = {dto.id: dto}
+    cache.update_from_devices({dto.id: dto})
     cache.set_light_effects(effects or [])
     coord = MagicMock()
     coord.devices = {dto.id: dto}
@@ -164,6 +164,8 @@ async def test_unknown_effect_name_falls_back_to_plain_on(caplog):
     args = coord.async_send_device_state.await_args.args
     sent_dict = {a.key: a for a in args[1]}
     assert "light_scene" not in sent_dict
+    assert sent_dict.get("on_off") is not None
+    assert sent_dict["on_off"].bool_value is True
     assert any("Несуществующий" in rec.message for rec in caplog.records)
 
 
