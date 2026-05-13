@@ -1,5 +1,23 @@
 # Changelog
 
+## [5.5.1] — 2026-05-13
+
+### Fixed (review follow-up)
+
+- `sberhome.reload_intents` service теперь перечитывает и applies также
+  и `sberhome.listeners` блок (раньше — только intents, listeners
+  требовали полный restart HA). Response payload получает поле
+  `listeners_count`.
+- `coordinator.async_inject_ws_message` теперь корректно диспатчит
+  `SCENARIO_WIDGETS` topic в `_on_ws_scenario_widgets` — DevTools Replay
+  может тестировать listener pipeline. Раньше эти сообщения уходили
+  в catch-all handler без `_fire_intent_event`.
+- Убран dead constant `EVENT_SOURCE_INTENT` из `const.py` (был заявлен
+  в v5.5.0 для будущей HA-managed intent emission, но никогда не
+  эмитился). При появлении реального consumer'а константа может быть
+  возвращена. `EVENT_SOURCE_LISTENER` и `EVENT_SOURCE_SBER_ONLY`
+  работают как и в v5.5.0.
+
 ## [5.5.0] — 2026-05-13
 
 ### Added — YAML listeners для не-фразовых триггеров

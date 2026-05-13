@@ -468,6 +468,20 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
         hass.data[_HASS_DATA_YAML_INTENTS] = specs
 
+        # Listeners (v5.5.0+) перечитываем в той же service-команде.
+        # Cross-collection slug collision: intents reserved первыми.
+        raw_listeners = validated[DOMAIN].get(CONF_LISTENERS) or []
+        try:
+            reserved_slugs = {
+                s.raw_extras.get("yaml_slug") for s in specs if s.raw_extras.get("yaml_slug")
+            }
+            listener_specs = load_listeners_from_config(
+                raw_listeners, reserved_slugs=reserved_slugs
+            )
+        except (vol.Invalid, ValueError) as err:
+            return {"ok": False, "error": f"listeners: {err}"}
+        hass.data[_HASS_DATA_YAML_LISTENERS] = listener_specs
+
         # Применяем ко всем loaded entry — обычно один.
         results: dict[str, object] = {}
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
@@ -482,13 +496,26 @@ def _async_register_services(hass: HomeAssistant) -> None:
             except Exception as err:  # noqa: BLE001
                 LOGGER.exception("reload_intents reconcile failed")
                 results[entry.entry_id] = {"error": str(err)}
+            # Listeners применяются отдельно от reconcile — home_id резолв
+            # из state_cache + replace в coordinator.listener_registry.
+            try:
+                _async_apply_yaml_listeners(hass, coord)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("reload_intents: listeners apply failed")
 
         LOGGER.info(
-            "Service sberhome.reload_intents: %d intent(s) processed across %d entry(ies)",
+            "Service sberhome.reload_intents: %d intent(s) + %d listener(s) "
+            "processed across %d entry(ies)",
             len(specs),
+            len(listener_specs),
             len(results),
         )
-        return {"ok": True, "intents_count": len(specs), "results": results}
+        return {
+            "ok": True,
+            "intents_count": len(specs),
+            "listeners_count": len(listener_specs),
+            "results": results,
+        }
 
     hass.services.async_register(
         DOMAIN,

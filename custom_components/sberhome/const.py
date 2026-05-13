@@ -32,10 +32,13 @@ REDIRECT_URI = "companionapp://host"
 USER_AGENT = "Salute+prod%2F24.08.1.15602+%28Android+34%3B+Google+sdk_gphone64_arm64%29"
 
 # Источник события `sberhome_intent`:
-# - "intent": HA-managed voice-intent (slug известен через description-marker)
-# - "listener": HA-side listener match (slug из YAML listeners[])
-# - "sber_only": Sber-only сценарий без HA-side маппинга
-EVENT_SOURCE_INTENT = "intent"
+# - "listener": HA-side YAML listener match (slug из YAML listeners[])
+# - "sber_only": Sber-side сценарий, не сматченный listener'ами
+#
+# В v5.5.x base event всегда `sber_only` (slug=None). HA-managed
+# intent emission ("intent" source) с автоматической идентификацией
+# через description-marker — кандидат на будущий релиз когда будет
+# реальный consumer.
 EVENT_SOURCE_LISTENER = "listener"
 EVENT_SOURCE_SBER_ONLY = "sber_only"
 

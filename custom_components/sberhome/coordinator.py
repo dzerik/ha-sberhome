@@ -979,6 +979,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._on_ws_devman_event(msg)
         elif topic == Topic.GROUP_STATE:
             await self._on_ws_group_state(msg)
+        elif topic == Topic.SCENARIO_WIDGETS:
+            await self._on_ws_scenario_widgets(msg)
         else:
             await self._on_ws_other_topic(msg)
 
