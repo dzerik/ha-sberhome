@@ -131,6 +131,19 @@ class DeviceService:
             else:
                 self._cache.set_enums(enums)
 
+        # Best-effort: подтянуть каталог световых эффектов. Не валим refresh
+        # если упал — графический dropdown в Lovelace просто не рендерится.
+        if not self._cache.get_light_effects():
+            try:
+                from ..api.effects import LightEffectsAPI
+
+                effects_api = LightEffectsAPI(self._api._transport)
+                effects = await effects_api.list()
+            except Exception:  # noqa: BLE001
+                pass
+            else:
+                self._cache.set_light_effects(effects)
+
     async def _fetch_devices_with_raw(self) -> tuple[list[DeviceDto], dict[str, dict]]:
         """`/devices?pagination` → (DTO list, raw_by_id) одним вызовом."""
         resp = await self._api._transport.get(

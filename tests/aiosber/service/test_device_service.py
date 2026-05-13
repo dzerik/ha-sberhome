@@ -246,6 +246,8 @@ async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
             return _make_devices_resp([])
         if path == "/devices/enums":
             raise RuntimeError("enums endpoint dead")
+        if path == "/light/effects":
+            raise RuntimeError("effects endpoint dead")
         raise AssertionError(f"unexpected GET: {path}")
 
     api._transport.get = AsyncMock(side_effect=fake_transport_get)
@@ -260,3 +262,77 @@ async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
     # Не должно бросить — enums-failure не валит refresh.
     await svc.refresh()
     assert cache.get_enums() == {}
+
+
+# ---------------------------------------------------------------------------
+# refresh() — best-effort fetch /light/effects
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_refresh_loads_light_effects_when_empty(monkeypatch):
+    """После успешного refresh каталог effects попадает в state_cache."""
+    cache = StateCache()
+    api = MagicMock()
+    api._transport = MagicMock()
+
+    effects_resp = MagicMock()
+    effects_resp.json = MagicMock(
+        return_value={"result": [{"id": "rainbow", "name": "Радуга"}]}
+    )
+
+    async def fake_transport_get(path, params=None, **kwargs):
+        if path == "/devices":
+            return _make_devices_resp([])
+        if path == "/devices/enums":
+            r = MagicMock()
+            r.json = MagicMock(return_value={"result": {}})
+            return r
+        if path == "/light/effects":
+            return effects_resp
+        raise AssertionError(f"unexpected GET: {path}")
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
+    api.enums = AsyncMock(return_value={})
+
+    async def fake_list(self, *, group_type=None, limit=1000):
+        return []
+
+    monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
+
+    svc = DeviceService(api=api, cache=cache)
+    await svc.refresh()
+
+    assert cache.get_light_effects() == [{"id": "rainbow", "name": "Радуга"}]
+
+
+@pytest.mark.asyncio
+async def test_refresh_light_effects_failure_does_not_block(monkeypatch):
+    """Если /light/effects вернул ошибку — refresh не падает, кэш пуст."""
+    cache = StateCache()
+    api = MagicMock()
+    api._transport = MagicMock()
+
+    async def fake_transport_get(path, params=None, **kwargs):
+        if path == "/devices":
+            return _make_devices_resp([])
+        if path == "/devices/enums":
+            r = MagicMock()
+            r.json = MagicMock(return_value={"result": {}})
+            return r
+        if path == "/light/effects":
+            raise RuntimeError("server down")
+        raise AssertionError(f"unexpected GET: {path}")
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
+    api.enums = AsyncMock(return_value={})
+
+    async def fake_list(self, *, group_type=None, limit=1000):
+        return []
+
+    monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
+
+    svc = DeviceService(api=api, cache=cache)
+    # Не должно бросить — failure /light/effects не валит refresh.
+    await svc.refresh()
+    assert cache.get_light_effects() == []
