@@ -259,6 +259,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # одна history-fetch достаточна. Lock держим на время fetch'а.
         self._intent_dispatch_lock = asyncio.Lock()
 
+        # Listener registry (v5.5.0): YAML-managed map Sber-events → HA events.
+        # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
+        # До setup'а — пустой registry, find_matching возвращает [].
+        from .listeners import ListenerRegistry
+
+        self.listener_registry: ListenerRegistry = ListenerRegistry()
+
     @property
     def devices(self) -> dict[str, DeviceDto]:
         """Typed device cache — делегирует к StateCache."""
@@ -1180,42 +1187,63 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _fire_intent_event(self, event: ScenarioEventDto) -> None:
         """Fire ``EVENT_SBERHOME_INTENT`` в HA event bus.
 
-        Payload содержит то, что Sber реально отдаёт в
-        ``ScenarioEventDto.data`` (`EventExecutionDetailsDto`):
+        Семантика (v5.5.0+):
+        1. Всегда fire base event с ``source="sber_only"`` (или
+           ``"intent"`` если в будущем будем определять HA-managed).
+        2. Прогоняем event через ``listener_registry.find_matching``.
+        3. Для каждого matching listener — fire дополнительный event
+           с ``slug=<listener.slug>`` и ``source="listener"``.
 
-        - ``name``, ``scenario_id``, ``event_time``, ``type`` — основа
-          для trigger-фильтрации в HA-automations.
-        - ``trigger_type`` — что именно запустило сценарий:
-          ``"PHRASES"`` (голос), ``"TIME"`` (расписание), ``"DEVICE"``
-          (sensor), ``"CONDITIONS"`` (composite), ``"GEO_TIME"``
-          (geofence + time), ``"CHECK_DEVICE"`` / ``"CHECK_SCENARIO"``,
-          либо ``None`` если Sber не указал.
-        - ``home_id``, ``account_id``, ``event_id`` — для маршрутизации
-          multi-home / dedup.
-        - ``description`` — пользовательское описание сценария (например
-          установленное через YAML).
-
-        **Ограничение Sber API**: распознанный STT-текст (что именно
-        сказал пользователь голосом) **в event'е не приходит** —
-        ScenarioEventDto содержит только сам факт срабатывания + тип
-        триггера. Сценарии, у которых разные фразы должны вести к
-        разным HA-action'ам, реализуются как N отдельных
-        intent'ов/сценариев — у каждого свой ``name``, и HA-automation
-        фильтрует по нему.
+        Матчинг wrapped в try/except — exception в matcher НЕ должен
+        блокировать base event firing.
         """
-        data = {
+        from .const import EVENT_SOURCE_LISTENER, EVENT_SOURCE_SBER_ONLY
+        from .listeners import EventMeta
+
+        trigger_type = _extract_trigger_type(event)
+
+        base_data: dict[str, Any] = {
+            "slug": None,
+            "source": EVENT_SOURCE_SBER_ONLY,
             "name": (event.name or "").strip(),
             "scenario_id": event.object_id,
             "event_time": event.event_time,
             "type": event.type,
-            "trigger_type": _extract_trigger_type(event),
+            "trigger_type": trigger_type,
             "home_id": event.home_id or None,
             "account_id": event.account_id,
             "event_id": event.id,
             "description": event.description or None,
         }
-        LOGGER.debug("Firing %s with data=%s", EVENT_SBERHOME_INTENT, data)
-        self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, data)
+        LOGGER.debug("Firing %s base with data=%s", EVENT_SBERHOME_INTENT, base_data)
+        self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, base_data)
+
+        # Listener matching — best-effort, не должен ломать base event.
+        try:
+            event_meta = EventMeta(
+                scenario_id=event.object_id,
+                scenario_name=(event.name or "").strip() or None,
+                trigger_type=trigger_type,
+                home_id=event.home_id or None,
+            )
+            matches = self.listener_registry.find_matching(event_meta)
+        except Exception:  # noqa: BLE001
+            LOGGER.debug("Listener matching raised — base event already fired", exc_info=True)
+            return
+
+        for spec in matches:
+            listener_data = dict(base_data)
+            listener_data["slug"] = spec.slug
+            listener_data["source"] = EVENT_SOURCE_LISTENER
+            LOGGER.debug(
+                "Firing %s for listener %r with slug=%r",
+                EVENT_SBERHOME_INTENT,
+                spec.name,
+                spec.slug,
+            )
+            self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, listener_data)
+            if event.event_time:
+                self.listener_registry.mark_fired(spec, event.event_time)
 
     @staticmethod
     def _extract_trigger_type_static(event: ScenarioEventDto) -> str | None:

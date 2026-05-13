@@ -31,6 +31,14 @@ REDIRECT_URI = "companionapp://host"
 
 USER_AGENT = "Salute+prod%2F24.08.1.15602+%28Android+34%3B+Google+sdk_gphone64_arm64%29"
 
+# Источник события `sberhome_intent`:
+# - "intent": HA-managed voice-intent (slug известен через description-marker)
+# - "listener": HA-side listener match (slug из YAML listeners[])
+# - "sber_only": Sber-only сценарий без HA-side маппинга
+EVENT_SOURCE_INTENT = "intent"
+EVENT_SOURCE_LISTENER = "listener"
+EVENT_SOURCE_SBER_ONLY = "sber_only"
+
 # min_cifra_root_ca.cer — Russian Trusted Root CA
 ROOT_CA_PEM = """-----BEGIN CERTIFICATE-----
 MIIFwjCCA6qgAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwcDELMAkGA1UEBhMCUlUx
