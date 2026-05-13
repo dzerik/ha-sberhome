@@ -611,3 +611,21 @@ async def test_update_data_switches_to_long_interval_when_ws_connected(coordinat
     await coordinator._async_update_data()
 
     assert coordinator.update_interval == timedelta(seconds=600)
+
+
+@pytest.mark.asyncio
+async def test_group_state_push_triggers_listeners_update(coordinator):
+    """GROUP_STATE WS push дёргает async_update_listeners (для group-switches)."""
+    from custom_components.sberhome.aiosber import SocketMessageDto
+
+    msg = MagicMock(spec=SocketMessageDto)
+    msg.topic = MagicMock(value="group_state")
+    msg.to_dict = MagicMock(return_value={})
+    msg.target_device_id = "grp-1"
+    msg.group_state = None
+
+    coordinator.hass.async_create_task = MagicMock()
+
+    with patch.object(coordinator, "async_update_listeners") as mock_update:
+        await coordinator._on_ws_group_state(msg)
+    mock_update.assert_called_once()

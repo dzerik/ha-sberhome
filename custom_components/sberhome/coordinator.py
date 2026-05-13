@@ -1062,7 +1062,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_set_updated_data(patched_data)
 
     async def _on_ws_group_state(self, msg: SocketMessageDto) -> None:
-        """GROUP_STATE → полный refresh для обновления tree/room mapping."""
+        """GROUP_STATE → полный refresh для обновления tree/room mapping.
+
+        Также дёргает async_update_listeners — SberGroupSwitch entities
+        пересчитают агрегацию из state_cache (который патчится через
+        обычный DEVICE_STATE flow для каждого device группы) без ожидания
+        следующего polling tick.
+        """
         group_id = msg.target_device_id
         LOGGER.debug("WS GROUP_STATE for %s", group_id)
         self._record_ws_message(
@@ -1072,6 +1078,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         # Group changes can affect room↔device mapping — trigger full refresh.
         self.hass.async_create_task(self.async_request_refresh())
+        # Triggers SberGroupSwitch (и другие group-aware entities) пересчитать
+        # агрегацию немедленно — refresh выше отработает асинхронно, но листенерам
+        # нужен сигнал прямо сейчас.
+        self.async_update_listeners()
 
     async def _on_ws_scenario_widgets(self, msg: SocketMessageDto) -> None:
         """Phase 10: voice-intent dispatcher.
