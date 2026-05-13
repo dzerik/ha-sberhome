@@ -38,6 +38,7 @@ from .intents import (
     ws_test_intent,
     ws_update_intent,
 )
+from .listeners import ws_list_listeners
 from .log import ws_clear_message_log, ws_message_log, ws_subscribe_messages
 from .pairing import (
     ws_get_wifi_credentials,
@@ -104,6 +105,8 @@ _COMMANDS = (
     ws_delete_intent,
     ws_test_intent,
     ws_devices_for_picker,
+    # v5.5.0 — YAML-decl listeners (read-only)
+    ws_list_listeners,
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,
