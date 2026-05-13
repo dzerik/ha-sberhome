@@ -45,6 +45,8 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    EVENT_SOURCE_LISTENER,
+    EVENT_SOURCE_SBER_ONLY,
     LOGGER,
     WS_CONNECTED_SCAN_INTERVAL,
 )
@@ -54,6 +56,7 @@ from .exceptions import (
     SberConnectionError,
     SberSmartHomeError,
 )
+from .listeners import EventMeta, ListenerRegistry
 from .sbermap import (
     HaEntityData,
     map_device_to_entities,
@@ -262,8 +265,6 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Listener registry (v5.5.0): YAML-managed map Sber-events → HA events.
         # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
         # До setup'а — пустой registry, find_matching возвращает [].
-        from .listeners import ListenerRegistry
-
         self.listener_registry: ListenerRegistry = ListenerRegistry()
 
     @property
@@ -1197,9 +1198,6 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Матчинг wrapped в try/except — exception в matcher НЕ должен
         блокировать base event firing.
         """
-        from .const import EVENT_SOURCE_LISTENER, EVENT_SOURCE_SBER_ONLY
-        from .listeners import EventMeta
-
         trigger_type = _extract_trigger_type(event)
 
         base_data: dict[str, Any] = {
