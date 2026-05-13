@@ -1,5 +1,26 @@
 # Changelog
 
+## [5.7.1] — 2026-05-13
+
+### Fixed — TTS surrogate: stale cache handling
+
+Два связанных бага вылезли когда пользователь вручную удалил
+surrogate-сценарий в приложении «Салют!»:
+
+- **«Unauthorized after refresh: PUT /scenario/v2/scenario/<id>»** при
+  попытке озвучить через notify-call. Sber отдаёт 401 (а не 404) для
+  удалённого/чужого scenario_id. Retry-loop в `TtsSurrogateService.send`
+  теперь ловит и `AuthError` («scenario gone after token refresh»), и
+  `SberApiError` со статусом 401/403/404 — инвалидирует cache,
+  rediscover'ит/пересоздаёт surrogate, retry один раз.
+- **UI «🔊 TTS» показывал «✓ создан» по stale cache** даже после
+  удаления surrogate'а в Sber app. WS endpoint `sberhome/tts_surrogate/status`
+  теперь делает authoritative discovery через `scenarios.list()` и матчит
+  по marker'у — кеш `coord.tts_surrogates` синхронизируется с реальностью.
+  Fallback на кеш если list упал (network) — UI не падает.
+
++3 regression-теста.
+
 ## [5.7.0] — 2026-05-13
 
 ### Architecture batch (audit follow-up)

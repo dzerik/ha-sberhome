@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import HomeAssistantError
 
+from ..aiosber.exceptions import AuthError as _AiosberAuthError
 from ..exceptions import SberApiError
 from ..intents.encoder import encode_scenario
 from ..intents.spec import IntentAction, IntentSpec
@@ -120,7 +121,11 @@ class TtsSurrogateService:
     ) -> None:
         """Edit-then-run: PUT pronounce_data → POST /run.
 
-        На 404 при PUT — инвалидируем cache, recreate, retry один раз.
+        На «scenario gone» (404 OR 401/403 после refresh) — инвалидируем
+        cache, rediscover/recreate, retry один раз. Sber отдаёт 401 а не
+        404 для удалённого/чужого scenario_id (наблюдалось в production:
+        юзер вручную удалил surrogate в приложении «Салют!»).
+
         Concurrency не контролируется (accepted limitation).
         """
         if not device_ids:
@@ -133,20 +138,35 @@ class TtsSurrogateService:
 
         try:
             await self._coord.client.scenarios.update(scenario_id, body)
-        except SberApiError as err:
-            status = getattr(err, "status_code", None) or getattr(err, "status", None)
-            if status == 404:
-                _LOGGER.warning(
-                    "TTS surrogate %s returned 404 — invalidating cache, recreating",
-                    scenario_id,
-                )
-                self._coord.tts_surrogates.pop(home_id, None)
-                scenario_id = await self.get_surrogate_id(home_id)
-                await self._coord.client.scenarios.update(scenario_id, body)
-            else:
+        except (SberApiError, _AiosberAuthError) as err:
+            if not self._is_scenario_gone(err):
                 raise
+            _LOGGER.warning(
+                "TTS surrogate %s gone (%s) — invalidating cache, recreating",
+                scenario_id,
+                type(err).__name__,
+            )
+            self._coord.tts_surrogates.pop(home_id, None)
+            scenario_id = await self.get_surrogate_id(home_id)
+            await self._coord.client.scenarios.update(scenario_id, body)
 
         await self._coord.client.scenarios.run(scenario_id)
+
+    @staticmethod
+    def _is_scenario_gone(err: Exception) -> bool:
+        """True если ошибка означает «scenario_id не существует у Sber».
+
+        Sber-specific: для удалённого/чужого scenario_id Sber отдаёт
+        - 404 (Not Found) — typical REST behavior
+        - 401/403 после auth refresh-retry (`AuthError "Unauthorized
+          after refresh"` в transport/http.py) — наблюдалось когда юзер
+          вручную удалил surrogate в приложении «Салют!».
+        Оба случая → invalidate cache + recreate.
+        """
+        if isinstance(err, _AiosberAuthError):
+            return True
+        status = getattr(err, "status_code", None) or getattr(err, "status", None)
+        return status in (401, 403, 404)
 
     def _build_body(self, home_id: str, message: str, device_ids: list[str]) -> dict[str, Any]:
         """Body для POST/PUT — через существующий ``encode_scenario``.

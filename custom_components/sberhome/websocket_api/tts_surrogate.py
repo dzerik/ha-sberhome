@@ -54,14 +54,37 @@ async def ws_status_tts_surrogate(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Per-home состояние surrogate + список колонок."""
+    """Per-home состояние surrogate + список колонок.
+
+    Authoritative discovery: дёргаем ``scenarios.list()`` и матчим по marker'у.
+    Кеш ``coord.tts_surrogates`` подсинхронизировывается с результатом —
+    если юзер вручную удалил surrogate в приложении «Салют!», UI больше
+    не покажет «✓ создан» по stale-кешу.
+
+    Fallback: если ``scenarios.list()`` упал (network), используем кеш —
+    UI получает потенциально stale state, но не падает.
+    """
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_result(msg["id"], {"homes": []})
         return
 
     from ..sbermap.spec.ha_mapping import resolve_category
+    from ..tts_surrogate.marker import match_surrogate
     from ..tts_surrogate.service import SBER_SPEAKER_CATEGORY
+
+    # Authoritative list — корректирует stale cache. Best-effort fallback на
+    # кеш при ошибке list'а: лучше показать stale state чем падать.
+    scenarios: list[Any] = []
+    cache_fallback = False
+    try:
+        scenarios = await coord.client.scenarios.list()
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "scenarios.list() failed in status endpoint — falling back to cache",
+            exc_info=True,
+        )
+        cache_fallback = True
 
     cache = coord.state_cache
     devices = cache.get_all_devices()
@@ -80,11 +103,27 @@ async def ws_status_tts_surrogate(
             cat = resolve_category(dto.image_set_type, slug=slug)
             if cat == SBER_SPEAKER_CATEGORY:
                 speakers.append(_serialize_speaker(dto, device_id))
+
+        # Resolve scenario_id authoritatively (или из кеша при fallback'е).
+        sc_id: str | None
+        if cache_fallback:
+            sc_id = coord.tts_surrogates.get(home.id)
+        else:
+            sc_id = next(
+                (s.id for s in scenarios if match_surrogate(s, home.id) and s.id),
+                None,
+            )
+            # Sync cache с authoritative результатом.
+            if sc_id:
+                coord.tts_surrogates[home.id] = sc_id
+            else:
+                coord.tts_surrogates.pop(home.id, None)
+
         homes_payload.append(
             {
                 "home_id": home.id,
                 "name": home.name or "",
-                "scenario_id": coord.tts_surrogates.get(home.id),
+                "scenario_id": sc_id,
                 "speakers": speakers,
             }
         )

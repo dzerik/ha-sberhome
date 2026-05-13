@@ -252,3 +252,34 @@ async def test_concurrent_get_surrogate_id_does_not_double_create():
     assert sid1 == sid2
     # create вызван ровно один раз — second caller увидел заполненный cache.
     assert coord.client.scenarios.create.await_count == 1
+
+
+async def test_send_auth_error_on_update_triggers_recreate_and_retry():
+    """Sber отдаёт AuthError ("Unauthorized after refresh") когда surrogate
+    был удалён в приложении «Салют!» — наш retry должен сработать так же
+    как на 404."""
+    from custom_components.sberhome.aiosber.exceptions import AuthError
+
+    coord = _make_coord_with_home("home-1")
+    coord.tts_surrogates["home-1"] = "stale-sc-id"
+
+    # Speakers нужны для recreate.
+    spk = MagicMock()
+    spk.id = "spk-1"
+    spk.image_set_type = "dt_boom"
+    spk.full_categories = None
+    coord.state_cache.get_all_devices.return_value = {"spk-1": spk}
+    coord.state_cache.device_home_id = MagicMock(return_value="home-1")
+
+    auth_err = AuthError("Unauthorized after refresh: PUT /scenario/v2/scenario/stale-sc-id")
+    coord.client.scenarios.update = AsyncMock(side_effect=[auth_err, {"ok": True}])
+    coord.client.scenarios.list = AsyncMock(return_value=[])
+    coord.client.scenarios.create = AsyncMock(return_value={"id": "new-sc"})
+
+    svc = TtsSurrogateService(coord)
+    await svc.send("home-1", "hello", ["spk-1"])
+
+    assert coord.client.scenarios.update.await_count == 2
+    assert coord.tts_surrogates["home-1"] == "new-sc"
+    coord.client.scenarios.create.assert_awaited_once()
+    coord.client.scenarios.run.assert_awaited_once_with("new-sc")
