@@ -135,3 +135,60 @@ async def test_group_switch_optimistic_patch_after_turn_on():
         desired = {av.key: av for av in dto.desired_state}
         assert "on_off" in desired
         assert desired["on_off"].bool_value is True
+
+
+@pytest.mark.asyncio
+async def test_switch_platform_includes_group_switches():
+    """async_setup_entry форвардит SberGroupSwitch для каждой непустой Sber-group."""
+    from custom_components.sberhome.switch import async_setup_entry
+
+    coord = _make_coord(
+        group_id="grp-1",
+        group_name="Освещение прихожей",
+        devices=[_dev("d1", on=False)],
+    )
+    coord.devices = coord.state_cache.get_all_devices()
+    coord.entities = {}  # пустые entities — никаких device-switches
+
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.runtime_data = coord
+    added = []
+
+    def fake_add(entities, _update_before_add=True):
+        added.extend(entities)
+
+    await async_setup_entry(hass, entry, fake_add)
+    group_switches = [e for e in added if isinstance(e, SberGroupSwitch)]
+    assert len(group_switches) == 1
+    assert group_switches[0].unique_id == "sber_group_grp-1"
+
+
+@pytest.mark.asyncio
+async def test_empty_group_not_exposed():
+    """Группа без устройств не создаёт SberGroupSwitch."""
+    from custom_components.sberhome.switch import async_setup_entry
+
+    cache = StateCache()
+    cache.update_from_flat(
+        homes=[],
+        rooms=[],
+        groups=[UnionDto(id="grp-empty", name="Пусто", group_type=UnionType.GROUP)],
+        devices=[],
+    )
+    coord = MagicMock()
+    coord.state_cache = cache
+    coord.devices = {}
+    coord.entities = {}
+
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.runtime_data = coord
+    added = []
+
+    def fake_add(entities, _update_before_add=True):
+        added.extend(entities)
+
+    await async_setup_entry(hass, entry, fake_add)
+    group_switches = [e for e in added if isinstance(e, SberGroupSwitch)]
+    assert group_switches == []

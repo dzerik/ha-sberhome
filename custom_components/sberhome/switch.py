@@ -10,10 +10,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .aiosber.dto.union import UnionType
 from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData, build_switch_command
+from .switch_groups import SberGroupSwitch
 
 
 async def async_setup_entry(
@@ -28,6 +30,14 @@ async def async_setup_entry(
             if ent.platform is Platform.SWITCH:
                 entities.append(SberSbermapSwitch(coordinator, device_id, ent))
     entities.append(SberAtHomeSwitch(coordinator))
+    # Sber custom-groups (group_type=GROUP) как bulk-switch entities.
+    # Группы без devices пропускаются — не создаём пустых toggle'ов.
+    for group_id, group in coordinator.state_cache.get_all_groups().items():
+        if group.group_type is not UnionType.GROUP:
+            continue
+        if not coordinator.state_cache.get_group_devices(group_id):
+            continue
+        entities.append(SberGroupSwitch(coordinator, group_id))
     async_add_entities(entities)
 
 
