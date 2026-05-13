@@ -43,6 +43,7 @@ from typing import Any
 
 import voluptuous as vol
 
+from ..yaml_utils import slugify
 from .spec import IntentAction, IntentSpec
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,54 +142,6 @@ _INTENT_SCHEMA = vol.Schema(
 INTENTS_SCHEMA = vol.Schema([_INTENT_SCHEMA])
 
 
-def _slugify(name: str) -> str:
-    """Сгенерировать slug из name (Latin transliteration + lower).
-
-    Базовая транслитерация Cyrillic → Latin, потом lowercase + замена
-    всего non-alphanum на ``_``, ужатие повторяющихся ``_``.
-    """
-    cyr_to_lat = {
-        "а": "a",
-        "б": "b",
-        "в": "v",
-        "г": "g",
-        "д": "d",
-        "е": "e",
-        "ё": "yo",
-        "ж": "zh",
-        "з": "z",
-        "и": "i",
-        "й": "y",
-        "к": "k",
-        "л": "l",
-        "м": "m",
-        "н": "n",
-        "о": "o",
-        "п": "p",
-        "р": "r",
-        "с": "s",
-        "т": "t",
-        "у": "u",
-        "ф": "f",
-        "х": "h",
-        "ц": "ts",
-        "ч": "ch",
-        "ш": "sh",
-        "щ": "sch",
-        "ъ": "",
-        "ы": "y",
-        "ь": "",
-        "э": "e",
-        "ю": "yu",
-        "я": "ya",
-    }
-    s = name.lower()
-    s = "".join(cyr_to_lat.get(c, c) for c in s)
-    s = re.sub(r"[^a-z0-9]+", "_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s or "intent"
-
-
 def load_intents_from_config(raw: list[dict[str, Any]]) -> list[IntentSpec]:
     """Распарсить already-validated YAML-список в `IntentSpec`-ы.
 
@@ -207,7 +160,7 @@ def load_intents_from_config(raw: list[dict[str, Any]]) -> list[IntentSpec]:
 
     for entry in raw:
         name = entry["name"]
-        slug = entry.get("slug") or _slugify(name)
+        slug = entry.get("slug") or slugify(name)
         if slug in seen_slugs:
             raise ValueError(
                 f"YAML: duplicate slug {slug!r}: "
