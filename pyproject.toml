@@ -1,9 +1,20 @@
 [project]
 name = "ha-sberhome"
-version = "5.7.1"
+version = "5.7.2"
 description = "Home Assistant integration for Sber smart home (Салют)"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
+
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+# setuptools auto-discovery находит и `specs/` (committed v5.4.0 design doc),
+# и `custom_components/` как top-level пакеты — flat-layout конфликт. Явно
+# говорим что наш пакет один.
+[tool.setuptools.packages.find]
+include = ["custom_components*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

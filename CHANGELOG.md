@@ -1,5 +1,38 @@
 # Changelog
 
+## [5.7.2] — 2026-05-13
+
+### Fixed — CI Tests + Community Standards
+
+- **CI Tests падали на `pip install -e .`** — setuptools auto-discovery
+  видела `specs/` (с коммитнутым design doc'ом v5.4.0) и
+  `custom_components/` как конкурирующие top-level пакеты («Multiple
+  top-level packages discovered in a flat-layout»). Добавлен
+  `[tool.setuptools.packages.find] include = ["custom_components*"]`
+  в `pyproject.toml`. Plus миграция `license = {text = "MIT"}` →
+  `license = "MIT"` + `license-files = ["LICENSE"]` (SPDX, требует
+  setuptools≥77 — закреплено в `[build-system]`).
+
+### Added — Community Standards / contributor experience
+
+GitHub Community profile поднят с 42% → 100%:
+
+- **`CODE_OF_CONDUCT.md`** (Contributor Covenant 2.1, RU).
+- **`CONTRIBUTING.md`** — dev environment, тесты, lint, архитектура,
+  процесс PR, conventional commits.
+- **`.github/ISSUE_TEMPLATE/bug_report.yml`** — структурированный
+  template с обязательными полями (версия, логи, шаги воспроизведения,
+  напоминание убрать токены/UUIDs).
+- **`.github/ISSUE_TEMPLATE/feature_request.yml`** — отдельная
+  ветка для запроса поддержки нового устройства (просит
+  `image_set_type` + JSON payload).
+- **`.github/ISSUE_TEMPLATE/config.yml`** — disable blank issues +
+  contact links на USAGE.md, CHANGELOG.md, Discussions.
+- **`.github/PULL_REQUEST_TEMPLATE.md`** — checklist (тесты, lint,
+  bump версии, CHANGELOG, aiosber/-purity).
+- **`.github/dependabot.yml`** — weekly Monday PR'ы на обновление
+  pip-deps и GitHub Actions.
+
 ## [5.7.1] — 2026-05-13
 
 ### Fixed — TTS surrogate: stale cache handling

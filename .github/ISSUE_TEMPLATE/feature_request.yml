@@ -1,0 +1,75 @@
+name: 💡 Feature request
+description: Предложить новую функциональность или поддержку нового устройства
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за идею. Если просите поддержку нового устройства —
+        обязательно укажите его `image_set_type` (можно посмотреть в
+        панели SberHome → Debug → Devices → expand device → image_set_type).
+
+  - type: dropdown
+    id: feature_type
+    attributes:
+      label: Тип запроса
+      options:
+        - Поддержка нового устройства / категории
+        - Новая HA-платформа (sensor / climate / etc.)
+        - Расширение существующей фичи
+        - YAML / configuration новая опция
+        - UI / Panel улучшение
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решает?
+      description: Что вы хотите сделать в HA, но сейчас не можете?
+      placeholder: |
+        Хочу автоматически открывать рулонные шторы Sber по таймеру, но
+        в HA для них нет cover entity ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Как это могло бы работать
+      description: Конкретное предложение реализации (если есть).
+      placeholder: |
+        Добавить категорию `cover_blinds` с features `position` + `set_position`.
+        Image_set_type у моего устройства — `cat_blinds_xy`.
+
+  - type: input
+    id: image_set_type
+    attributes:
+      label: image_set_type (если запрашиваете новое устройство)
+      description: |
+        Из панели SberHome → Debug → Devices. Точная строка как пришла от Sber.
+      placeholder: "cat_blinds_xy"
+
+  - type: textarea
+    id: device_payload
+    attributes:
+      label: Полный JSON устройства (если запрашиваете новое устройство)
+      description: |
+        Из панели SberHome → Debug → expand device → копируйте JSON.
+        Уберите serial_number / mac_address.
+      render: json
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы которые вы рассматривали
+      placeholder: |
+        Пробовал управлять через generic switch, но шторы открываются только
+        полностью, без position control ...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Дополнительный контекст
+      description: Скриншоты, ссылки, связанные issues — всё что поможет понять.

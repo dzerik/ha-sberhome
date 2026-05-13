@@ -1,0 +1,115 @@
+name: 🐛 Bug report
+description: Сообщить об ошибке в работе интеграции
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо что нашли время сообщить о баге. Чем подробнее опишете,
+        тем быстрее разберёмся.
+
+        Перед отправкой проверьте:
+        - [CHANGELOG.md](https://github.com/dzerik/ha-sberhome/blob/main/CHANGELOG.md)
+          — баг мог быть исправлен в свежей версии.
+        - [Existing issues](https://github.com/dzerik/ha-sberhome/issues)
+          — кейс возможно уже обсуждается.
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Версия интеграции
+      description: HACS → SberHome → отображённая версия. Или содержимое `manifest.json:version`.
+      placeholder: "5.7.1"
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Версия Home Assistant
+      description: Settings → About
+      placeholder: "2025.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Метод установки
+      options:
+        - HACS
+        - Manual copy в custom_components/
+        - Git clone
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: Что произошло
+      description: Опишите наблюдаемое поведение.
+      placeholder: |
+        При попытке включить свет через notify.sberhome_moy_dom падает с ошибкой...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+      placeholder: |
+        Колонка SberBoom должна была произнести фразу...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Открыть панель SberHome → вкладка TTS
+        2. Выбрать дом "Мой дом"
+        3. Нажать "Озвучить"
+        4. Появляется ошибка ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: |
+        HA debug-логи (`logger.default: warning` + `logger.logs.custom_components.sberhome: debug`).
+        Сначала очистите старые логи, потом воспроизведите баг — приложите только релевантные строки.
+
+        **ВАЖНО**: уберите из логов любые токены, UUIDs, телефонные номера, email'ы.
+      render: shell
+      placeholder: |
+        2026-05-13 12:34:56 ERROR (MainThread) [custom_components.sberhome.coordinator] ...
+
+  - type: textarea
+    id: device_info
+    attributes:
+      label: Информация об устройствах Sber (если относится)
+      description: |
+        Из панели SberHome → Debug → копируйте JSON соответствующего устройства.
+        Уберите serial_number / mac_address если они есть в payload.
+      render: json
+
+  - type: textarea
+    id: yaml
+    attributes:
+      label: configuration.yaml (если используется YAML конфиг)
+      description: |
+        Только секция `sberhome:` (intents/listeners). Если не используете — пропустите.
+      render: yaml
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Подтверждение
+      options:
+        - label: Я проверил CHANGELOG.md и существующие issues.
+          required: true
+        - label: Я убрал из логов и payload'ов токены/UUIDs/personal data.
+          required: true

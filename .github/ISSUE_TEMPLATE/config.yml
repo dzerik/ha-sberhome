@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 USAGE.md — справочник по сущностям
+    url: https://github.com/dzerik/ha-sberhome/blob/main/USAGE.md
+    about: Описание всех создаваемых сущностей, YAML примеры, services.
+  - name: 📋 CHANGELOG.md
+    url: https://github.com/dzerik/ha-sberhome/blob/main/CHANGELOG.md
+    about: Список изменений по версиям — возможно ваш кейс уже исправлен.
+  - name: 💬 GitHub Discussions
+    url: https://github.com/dzerik/ha-sberhome/discussions
+    about: Вопросы по использованию, обмен опытом, обсуждение идей.
