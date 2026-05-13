@@ -35,6 +35,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..aiosber.dto.union import UnionDto
 from .marker import build_description, parse_slug_from_description
 from .spec import IntentSpec
 
@@ -72,8 +73,51 @@ class ReconcileReport:
         )
 
 
-def _prepare_for_sber(spec: IntentSpec, slug: str) -> IntentSpec:
-    """Подготовить YAML-spec для отправки в Sber: подставить description-маркер.
+def _resolve_home_id(spec: IntentSpec, homes: list[UnionDto]) -> tuple[str | None, str | None]:
+    """Резолвим target home_id для YAML intent'а.
+
+    Приоритет:
+    1. `raw_extras["yaml_home_id"]` (явно задан) — берётся как есть,
+       проверка существования делается на ловкость Sber (он сам отвергнёт
+       если id невалидный).
+    2. `raw_extras["yaml_home_name"]` — резолв по `home.name` среди
+       `homes`. Регистр игнорируется, trailing whitespace тоже.
+    3. Иначе — default home: первый в списке (это и есть «Мой дом» для
+       большинства аккаунтов; для multi-home — первый по порядку
+       state_cache.get_homes()).
+
+    Returns:
+        Кортеж `(home_id, warning)`. `warning` ставится если YAML
+        просил конкретный дом, который не нашёлся — reconciler
+        включит его в `report.failed[slug] = warning`.
+    """
+    extras = spec.raw_extras
+
+    explicit_id = extras.get("yaml_home_id")
+    if explicit_id:
+        return str(explicit_id), None
+
+    name_hint = extras.get("yaml_home_name")
+    if name_hint:
+        needle = name_hint.strip().casefold()
+        for home in homes:
+            if home.id and home.name and home.name.strip().casefold() == needle:
+                return home.id, None
+        # Запрошенный дом не найден — это user-config error, не молчим.
+        return None, (f"home={name_hint!r} not found among {[h.name for h in homes if h.name]}")
+
+    # Default = первый дом (см. websocket_api/rooms.py: default = homes[0]).
+    # Если домов нет совсем (пустой state_cache / тест) — возвращаем
+    # None без warning'а: пользователь не просил явный home, и Sber
+    # сам подставит default-дом на стороне сервера.
+    if homes:
+        return homes[0].id, None
+    return None, None
+
+
+def _prepare_for_sber(spec: IntentSpec, slug: str, home_id: str | None) -> IntentSpec:
+    """Подготовить YAML-spec для отправки в Sber: подставить description-маркер
+    и target home_id.
 
     Возвращаем новый instance (мутации избегаем — IntentSpec.actions
     содержит references на оригиналы).
@@ -86,6 +130,7 @@ def _prepare_for_sber(spec: IntentSpec, slug: str) -> IntentSpec:
         actions=list(spec.actions),
         enabled=spec.enabled,
         description=build_description(slug, user_desc),
+        home_id=home_id,
         raw_extras=dict(spec.raw_extras),
     )
 
@@ -108,6 +153,9 @@ def _spec_equivalent(yaml_spec: IntentSpec, sber_spec: IntentSpec) -> bool:
         return False
     if yaml_spec.enabled != sber_spec.enabled:
         return False
+    # home_id — None считаем эквивалентным любому (default-home semantics).
+    if yaml_spec.home_id and sber_spec.home_id and yaml_spec.home_id != sber_spec.home_id:
+        return False
     # Actions: type + data; порядок важен (исполняются последовательно).
     if len(yaml_spec.actions) != len(sber_spec.actions):
         return False
@@ -122,6 +170,7 @@ def _spec_equivalent(yaml_spec: IntentSpec, sber_spec: IntentSpec) -> bool:
 async def reconcile_intents(
     service: IntentService,
     yaml_specs: list[IntentSpec],
+    homes: list[UnionDto] | None = None,
 ) -> ReconcileReport:
     """Применить YAML-конфигурацию intents к Sber.
 
@@ -130,11 +179,15 @@ async def reconcile_intents(
             `coordinator.client.scenarios`).
         yaml_specs: список IntentSpec из ``yaml_loader.load_intents_from_config``
             с ``raw_extras["yaml_slug"]``.
+        homes: список домов из state_cache.get_homes() для резолюции
+            `yaml_home`/`yaml_home_id`. Если None — все intent'ы пойдут
+            без явного home_id (Sber выберет default-дом сам).
 
     Returns:
         ReconcileReport: детальный отчёт по операциям.
     """
     report = ReconcileReport()
+    homes = homes or []
 
     # 1. Снапшот всех intent'ов из Sber.
     try:
@@ -163,7 +216,18 @@ async def reconcile_intents(
             report.failed.append(("?", "yaml_slug missing — loader bug"))
             continue
 
-        prepared = _prepare_for_sber(spec, slug)
+        home_id, home_warning = _resolve_home_id(spec, homes)
+        if home_warning is not None:
+            # User указал явный home, который не найден — failed.
+            report.failed.append((slug, home_warning))
+            _LOGGER.warning(
+                "YAML intent slug=%s: %s — пропуск reconcile.",
+                slug,
+                home_warning,
+            )
+            continue
+
+        prepared = _prepare_for_sber(spec, slug, home_id)
         existing_spec = managed_by_slug.get(slug)
 
         try:

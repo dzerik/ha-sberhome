@@ -154,6 +154,87 @@ class TestFireIntentEvent:
         assert data["scenario_id"] == "sc-42"
         assert data["event_time"] == "2026-04-27T12:50:00Z"
         assert data["type"] == "SUCCESS"
+        # v5.3.0: расширенный payload — добавлены trigger_type, home_id,
+        # event_id, description. Без data → trigger_type = None.
+        assert data["trigger_type"] is None
+        assert data["event_id"] == "e-2026-04-27T12:50:00Z"
+        assert "home_id" in data
+        assert "description" in data
+
+    def test_emits_trigger_type_phrases_for_voice(self):
+        """Голосовое срабатывание — trigger_type='PHRASES'."""
+        coord = _coord_with_home()
+        event = ScenarioEventDto(
+            id="e-1",
+            event_time="2026-05-13T08:00:00Z",
+            object_id="sc-morning",
+            name="Доброе утро",
+            type="SUCCESS",
+            data={
+                "scenario_cancel_time": None,
+                "start_scenario_reason": {
+                    "type": "PHRASES",
+                    "time_data": None,
+                },
+            },
+        )
+        SberHomeCoordinator._fire_intent_event(coord, event)
+        _, data = coord.hass.bus.async_fire.call_args[0]
+        assert data["trigger_type"] == "PHRASES"
+
+    def test_emits_trigger_type_time_for_schedule(self):
+        """Расписание — trigger_type='TIME'."""
+        coord = _coord_with_home()
+        event = ScenarioEventDto(
+            id="e-2",
+            event_time="2026-05-13T08:00:00Z",
+            object_id="sc-timer",
+            name="Утренний таймер",
+            type="SUCCESS",
+            data={
+                "start_scenario_reason": {
+                    "type": "TIME",
+                    "time_data": {"execute_at": "08:00", "rrule": "FREQ=DAILY"},
+                },
+            },
+        )
+        SberHomeCoordinator._fire_intent_event(coord, event)
+        _, data = coord.hass.bus.async_fire.call_args[0]
+        assert data["trigger_type"] == "TIME"
+
+    def test_emits_home_id(self):
+        coord = _coord_with_home()
+        event = ScenarioEventDto(
+            id="e-3",
+            event_time="2026-05-13T08:00:00Z",
+            object_id="sc-1",
+            name="X",
+            type="SUCCESS",
+            home_id="home-dacha",
+        )
+        SberHomeCoordinator._fire_intent_event(coord, event)
+        _, data = coord.hass.bus.async_fire.call_args[0]
+        assert data["home_id"] == "home-dacha"
+
+    def test_malformed_data_returns_none_trigger_type(self):
+        """Если data корявая (не dict / без reason) — trigger_type=None, не падаем."""
+        from custom_components.sberhome.coordinator import _extract_trigger_type
+
+        # data не dict
+        e1 = ScenarioEventDto(id="x", data="garbage")
+        assert _extract_trigger_type(e1) is None
+
+        # data без reason
+        e2 = ScenarioEventDto(id="x", data={"some_other_field": 1})
+        assert _extract_trigger_type(e2) is None
+
+        # reason не dict
+        e3 = ScenarioEventDto(id="x", data={"start_scenario_reason": "x"})
+        assert _extract_trigger_type(e3) is None
+
+        # reason без type
+        e4 = ScenarioEventDto(id="x", data={"start_scenario_reason": {}})
+        assert _extract_trigger_type(e4) is None
 
 
 # ---------------------------------------------------------------------------

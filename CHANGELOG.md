@@ -1,5 +1,74 @@
 # Changelog
 
+## [5.3.0] — 2026-05-13
+
+### Added — Home selector в YAML
+
+Дом для YAML-intent'а теперь можно указать явно — по имени или UUID:
+
+```yaml
+sberhome:
+  intents:
+    - slug: morning
+      name: "Доброе утро"
+      home: "Мой дом"          # резолв по имени (case/whitespace tolerant)
+      phrases: ["доброе утро"]
+      actions:
+        - type: ha_event_only
+
+    - slug: dacha_morning
+      name: "Утро на даче"
+      home_id: "<uuid>"         # либо явный UUID для опытных
+      phrases: ["утро"]
+      actions:
+        - type: ha_event_only
+
+    - slug: anywhere
+      name: "Без указания дома"
+      # ни `home`, ни `home_id` → default = первый дом аккаунта
+      phrases: ["..."]
+      actions:
+        - type: ha_event_only
+```
+
+Приоритет: `home_id` (явный UUID) → `home` (резолв по имени) →
+default (первый дом). Если запрошенный `home` не найден среди реальных
+домов аккаунта — intent попадает в `report.failed`, в Sber ничего
+не отправляется.
+
+### Changed — расширенный `sberhome_intent` event payload
+
+В HA event-payload `sberhome_intent` добавлены поля, которые Sber
+реально отдаёт через `ScenarioEventDto.data` (структура восстановлена
+из декомпиляции мобильного приложения «Салют!»):
+
+- `trigger_type` — что именно запустило сценарий:
+  - `"PHRASES"` — голосовая команда;
+  - `"TIME"` — расписание;
+  - `"DEVICE"` — sensor trigger;
+  - `"CONDITIONS"` — составное условие;
+  - `"GEO_TIME"` — geofence + time;
+  - `"CHECK_DEVICE"` / `"CHECK_SCENARIO"` — checks;
+  - `null` — Sber не указал.
+- `home_id` — UUID дома, где сработал сценарий.
+- `event_id` — UUID события для dedup на HA-side.
+- `description` — пользовательское описание (включая HA-managed
+  маркер для YAML-управляемых intent'ов).
+
+### Constraint
+
+**Sber API не передаёт распознанный STT-текст** в `ScenarioEventDto`
+— только `trigger_type=PHRASES` сигнализирует «была голосовая
+команда». Какая именно из заданных в сценарии фраз сработала —
+неизвестно. Workaround: один intent на одну фразу (HA-automation
+фильтрует по `name`).
+
+### Tests
+
+19 новых: `_extract_trigger_type` (4), payload-расширение (4),
+`_resolve_home_id` (7) + reconcile c homes (3) + edge cases.
+Всего **1216 / 1216** проходят, lint + format чистые.
+
 ## [5.2.0] — 2026-05-13
 
 ### Added — YAML-driven voice intents

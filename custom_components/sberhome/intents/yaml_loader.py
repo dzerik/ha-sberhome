@@ -128,6 +128,12 @@ _INTENT_SCHEMA = vol.Schema(
         vol.Required("phrases"): vol.All([str], vol.Length(min=1)),
         vol.Optional("enabled", default=True): bool,
         vol.Optional("description", default=""): str,
+        # Дом, в который попадёт сценарий. Можно указать либо `home` (по
+        # имени из приложения «Салют!», как видно в state_cache.get_homes()),
+        # либо `home_id` (точный uuid). Если ничего не задано, reconciler
+        # выберет default-дом (первый в списке — обычно «Мой дом»).
+        vol.Optional("home"): vol.All(str, vol.Length(min=1)),
+        vol.Optional("home_id"): vol.All(str, vol.Length(min=1)),
         vol.Required("actions"): vol.All([_action_dispatcher], vol.Length(min=1)),
     }
 )
@@ -218,6 +224,14 @@ def load_intents_from_config(raw: list[dict[str, Any]]) -> list[IntentSpec]:
             for a in entry["actions"]
         ]
 
+        # Home hint — резолвим к фактическому home_id в reconciler'е,
+        # потому что state_cache ещё не готов на момент парсинга YAML.
+        yaml_home_hint: dict[str, str] = {}
+        if "home_id" in entry:
+            yaml_home_hint["yaml_home_id"] = str(entry["home_id"])
+        if "home" in entry:
+            yaml_home_hint["yaml_home_name"] = str(entry["home"])
+
         spec = IntentSpec(
             id=None,  # будет заполнен после первого create
             name=name,
@@ -225,7 +239,7 @@ def load_intents_from_config(raw: list[dict[str, Any]]) -> list[IntentSpec]:
             actions=actions,
             enabled=entry["enabled"],
             description=entry.get("description", ""),
-            raw_extras={"yaml_slug": slug},
+            raw_extras={"yaml_slug": slug, **yaml_home_hint},
         )
         specs.append(spec)
 

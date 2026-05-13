@@ -6,8 +6,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from custom_components.sberhome.aiosber.dto.union import UnionDto
 from custom_components.sberhome.intents.marker import build_description
-from custom_components.sberhome.intents.reconciler import reconcile_intents
+from custom_components.sberhome.intents.reconciler import (
+    _resolve_home_id,
+    reconcile_intents,
+)
 from custom_components.sberhome.intents.spec import IntentAction, IntentSpec
 
 
@@ -158,3 +162,99 @@ class TestReconcileFailureIsolation:
         report = await reconcile_intents(svc, yamls)
         assert len(report.failed) == 2
         assert all("list_intents failed" in reason for _, reason in report.failed)
+
+
+# ---------------------------------------------------------------------------
+# Home selector tests (YAML `home` / `home_id`)
+# ---------------------------------------------------------------------------
+
+
+HOMES = [
+    UnionDto(id="home-main", name="Мой дом"),
+    UnionDto(id="home-dacha", name="Дача"),
+]
+
+
+class TestResolveHomeId:
+    def test_explicit_id_used_directly(self):
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_id"] = "home-explicit"
+        home_id, warning = _resolve_home_id(spec, HOMES)
+        assert home_id == "home-explicit"
+        assert warning is None
+
+    def test_name_resolves_by_exact_match(self):
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_name"] = "Дача"
+        home_id, warning = _resolve_home_id(spec, HOMES)
+        assert home_id == "home-dacha"
+        assert warning is None
+
+    def test_name_resolves_case_and_whitespace_tolerant(self):
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_name"] = "  ДАЧА  "
+        home_id, warning = _resolve_home_id(spec, HOMES)
+        assert home_id == "home-dacha"
+        assert warning is None
+
+    def test_name_not_found_returns_warning(self):
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_name"] = "Несуществующий дом"
+        home_id, warning = _resolve_home_id(spec, HOMES)
+        assert home_id is None
+        assert warning is not None
+        assert "Несуществующий дом" in warning
+
+    def test_default_is_first_home(self):
+        """Без явного home/home_id — берётся первый дом списка."""
+        spec = _yaml_spec("X", "x")
+        home_id, warning = _resolve_home_id(spec, HOMES)
+        assert home_id == "home-main"
+        assert warning is None
+
+    def test_empty_homes_returns_none(self):
+        """Если домов нет — пустой результат без warning'а
+        (Sber подставит default сам)."""
+        spec = _yaml_spec("X", "x")
+        home_id, warning = _resolve_home_id(spec, [])
+        assert home_id is None
+        assert warning is None
+
+    def test_explicit_id_priority_over_name(self):
+        """Если оба заданы — id побеждает."""
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_id"] = "home-via-id"
+        spec.raw_extras["yaml_home_name"] = "Мой дом"
+        home_id, _ = _resolve_home_id(spec, HOMES)
+        assert home_id == "home-via-id"
+
+
+class TestReconcileWithHomes:
+    @pytest.mark.asyncio
+    async def test_default_home_applied_to_new_intent(self):
+        svc = _make_service(existing=[])
+        yamls = [_yaml_spec("X", "x")]
+        await reconcile_intents(svc, yamls, homes=HOMES)
+        # В create_intent должен попасть spec с home_id default-дома.
+        sent_spec = svc.create_intent.await_args[0][0]
+        assert sent_spec.home_id == "home-main"
+
+    @pytest.mark.asyncio
+    async def test_explicit_home_name_applied(self):
+        svc = _make_service(existing=[])
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_name"] = "Дача"
+        await reconcile_intents(svc, [spec], homes=HOMES)
+        sent_spec = svc.create_intent.await_args[0][0]
+        assert sent_spec.home_id == "home-dacha"
+
+    @pytest.mark.asyncio
+    async def test_unknown_home_marks_failed_skips_create(self):
+        svc = _make_service(existing=[])
+        spec = _yaml_spec("X", "x")
+        spec.raw_extras["yaml_home_name"] = "Не существует"
+        report = await reconcile_intents(svc, [spec], homes=HOMES)
+        assert len(report.failed) == 1
+        assert report.failed[0][0] == "x"
+        assert "Не существует" in report.failed[0][1]
+        svc.create_intent.assert_not_awaited()

@@ -112,6 +112,37 @@ INDICATOR_POLL_INTERVAL_SEC = 3600
 # Zigbee+Matter hub, intercom иногда несёт sub-streams.
 HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
 
+
+def _extract_trigger_type(event: ScenarioEventDto) -> str | None:
+    """Достать тип триггера сценария из ``ScenarioEventDto.data``.
+
+    Sber wire-format (по декомпиляции мобильного приложения «Салют!»):
+
+        data: EventExecutionDetailsDto
+        ├── scenario_cancel_time: str | None
+        └── start_scenario_reason: StartScenarioReasonDto
+            ├── type: ScenarioConditionTypeDto (enum)
+            │       — UNDEFINED_TYPE / TIME / PHRASES / CONDITIONS /
+            │         DEVICE / CHECK_DEVICE / CHECK_SCENARIO / GEO_TIME
+            └── time_data: ScenarioConditionTimeDto
+
+    Этот enum — авторитативный сигнал «что запустило сценарий»:
+    ``PHRASES`` означает голосовую команду, ``TIME`` — расписание,
+    ``DEVICE`` — sensor trigger, ``GEO_TIME`` — geofence+time, и т.п.
+
+    Returns:
+        Строка enum-значения как пришла от Sber (например ``"PHRASES"``)
+        либо ``None`` если поле отсутствует или не парсится.
+    """
+    if not event.data or not isinstance(event.data, dict):
+        return None
+    reason = event.data.get("start_scenario_reason")
+    if not isinstance(reason, dict):
+        return None
+    type_ = reason.get("type")
+    return str(type_) if type_ else None
+
+
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
 
@@ -1139,19 +1170,49 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _fire_intent_event(self, event: ScenarioEventDto) -> None:
         """Fire ``EVENT_SBERHOME_INTENT`` в HA event bus.
 
-        Payload готовится минимальным — только то, что нужно для
-        автоматизации-trigger'а (`name`, `scenario_id`). Полные `data`
-        и `meta` доступны но reduced — чтобы YAML-trigger был чистым.
+        Payload содержит то, что Sber реально отдаёт в
+        ``ScenarioEventDto.data`` (`EventExecutionDetailsDto`):
+
+        - ``name``, ``scenario_id``, ``event_time``, ``type`` — основа
+          для trigger-фильтрации в HA-automations.
+        - ``trigger_type`` — что именно запустило сценарий:
+          ``"PHRASES"`` (голос), ``"TIME"`` (расписание), ``"DEVICE"``
+          (sensor), ``"CONDITIONS"`` (composite), ``"GEO_TIME"``
+          (geofence + time), ``"CHECK_DEVICE"`` / ``"CHECK_SCENARIO"``,
+          либо ``None`` если Sber не указал.
+        - ``home_id``, ``account_id``, ``event_id`` — для маршрутизации
+          multi-home / dedup.
+        - ``description`` — пользовательское описание сценария (например
+          установленное через YAML).
+
+        **Ограничение Sber API**: распознанный STT-текст (что именно
+        сказал пользователь голосом) **в event'е не приходит** —
+        ScenarioEventDto содержит только сам факт срабатывания + тип
+        триггера. Сценарии, у которых разные фразы должны вести к
+        разным HA-action'ам, реализуются как N отдельных
+        intent'ов/сценариев — у каждого свой ``name``, и HA-automation
+        фильтрует по нему.
         """
         data = {
             "name": (event.name or "").strip(),
             "scenario_id": event.object_id,
             "event_time": event.event_time,
             "type": event.type,
+            "trigger_type": _extract_trigger_type(event),
+            "home_id": event.home_id or None,
             "account_id": event.account_id,
+            "event_id": event.id,
+            "description": event.description or None,
         }
         LOGGER.debug("Firing %s with data=%s", EVENT_SBERHOME_INTENT, data)
         self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, data)
+
+    @staticmethod
+    def _extract_trigger_type_static(event: ScenarioEventDto) -> str | None:
+        """См. документацию `_extract_trigger_type` ниже."""
+        # Делегируем module-level функции (хочется чтобы и pytest её
+        # видел напрямую через import).
+        return _extract_trigger_type(event)
 
     async def _on_ws_other_topic(self, msg: SocketMessageDto) -> None:
         """Логирование для topic'ов без специальной обработки.

@@ -242,7 +242,8 @@ async def _async_reconcile_yaml_intents(
         return
     try:
         service = IntentService(coordinator)
-        report = await reconcile_intents(service, yaml_specs)
+        homes = coordinator.state_cache.get_homes()
+        report = await reconcile_intents(service, yaml_specs, homes=homes)
         LOGGER.info("YAML intents reconciled: %s", report.summary_line())
     except Exception:  # noqa: BLE001 — best-effort
         LOGGER.exception(
@@ -382,7 +383,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 continue
             service = IntentService(coord)
             try:
-                report = await reconcile_intents(service, specs)
+                homes = coord.state_cache.get_homes()
+                report = await reconcile_intents(service, specs, homes=homes)
                 results[entry.entry_id] = report.to_dict()
             except Exception as err:  # noqa: BLE001
                 LOGGER.exception("reload_intents reconcile failed")
