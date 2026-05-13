@@ -331,8 +331,7 @@ def _async_apply_yaml_listeners(hass: HomeAssistant, coordinator: SberHomeCoordi
                 spec.name,
                 raw_home,
             )
-            spec.enabled = False
-            resolved_specs.append(spec)
+            resolved_specs.append(replace(spec, enabled=False))
             continue
         new_filter = replace(spec.filter, home_id=resolved_home_id)
         new_spec = replace(spec, filter=new_filter)
