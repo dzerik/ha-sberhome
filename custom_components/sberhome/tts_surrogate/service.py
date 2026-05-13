@@ -15,6 +15,7 @@ DRY: wire-формат не дублируется. ``_build_body`` констр
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +47,18 @@ class TtsSurrogateService:
 
     def __init__(self, coordinator: SberHomeCoordinator) -> None:
         self._coord = coordinator
+        # Per-home lock — guard against concurrent get_surrogate_id calls
+        # creating duplicate scenarios. Single event loop, но без lock'а
+        # два concurrent notify.async_send_message → 2× list+create →
+        # 2 orphan surrogate-сценария в Sber.
+        self._home_locks: dict[str, asyncio.Lock] = {}
+
+    def _lock_for(self, home_id: str) -> asyncio.Lock:
+        lock = self._home_locks.get(home_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._home_locks[home_id] = lock
+        return lock
 
     async def get_surrogate_id(self, home_id: str) -> str:
         """Вернуть scenario_id surrogate для home_id, создавая при необходимости.
@@ -55,39 +68,49 @@ class TtsSurrogateService:
         2. Discover via ``scenarios.list()`` + match by marker.
         3. Create new boilerplate scenario с placeholder фразой и
            реальными device_ids (Sber требует non-empty PRONOUNCE_COMMAND).
+
+        Lock'аем per-home чтобы concurrent calls не создавали дубль.
         """
+        # Fast path без lock'а — typical case (cache hit).
         cached = self._coord.tts_surrogates.get(home_id)
         if cached:
             return cached
 
-        scenarios = await self._coord.client.scenarios.list()
-        for s in scenarios:
-            if match_surrogate(s, home_id) and s.id:
-                self._coord.tts_surrogates[home_id] = s.id
-                _LOGGER.debug("TTS surrogate discovered for home %s: %s", home_id, s.id)
-                return s.id
+        async with self._lock_for(home_id):
+            # Re-check cache after acquiring lock — pre-empted writer мог уже
+            # заполнить cache пока мы ждали lock.
+            cached = self._coord.tts_surrogates.get(home_id)
+            if cached:
+                return cached
 
-        speakers = self._all_speakers_in_home(home_id)
-        if not speakers:
-            home_name = self._home_name(home_id) or home_id
-            raise HomeAssistantError(
-                f"В доме «{home_name}» нет колонок Sber. Surrogate-сценарий "
-                "создаётся с одной PRONOUNCE_COMMAND task (Sber требует "
-                "non-empty device_ids), поэтому нужна хотя бы одна колонка. "
-                "Добавьте SberBoom/Portal/Satellite в этот дом через приложение «Салют!»."
+            scenarios = await self._coord.client.scenarios.list()
+            for s in scenarios:
+                if match_surrogate(s, home_id) and s.id:
+                    self._coord.tts_surrogates[home_id] = s.id
+                    _LOGGER.debug("TTS surrogate discovered for home %s: %s", home_id, s.id)
+                    return s.id
+
+            speakers = self._all_speakers_in_home(home_id)
+            if not speakers:
+                home_name = self._home_name(home_id) or home_id
+                raise HomeAssistantError(
+                    f"В доме «{home_name}» нет колонок Sber. Surrogate-сценарий "
+                    "создаётся с одной PRONOUNCE_COMMAND task (Sber требует "
+                    "non-empty device_ids), поэтому нужна хотя бы одна колонка. "
+                    "Добавьте SberBoom/Portal/Satellite в этот дом через приложение «Салют!»."
+                )
+
+            body = self._build_body(home_id, "Тестовая фраза", speakers)
+            created = await self._coord.client.scenarios.create(body)
+            new_id = created["id"]
+            self._coord.tts_surrogates[home_id] = new_id
+            _LOGGER.info(
+                "TTS surrogate created for home %s (%s): %s",
+                home_id,
+                self._home_name(home_id),
+                new_id,
             )
-
-        body = self._build_body(home_id, "Тестовая фраза", speakers)
-        created = await self._coord.client.scenarios.create(body)
-        new_id = created["id"]
-        self._coord.tts_surrogates[home_id] = new_id
-        _LOGGER.info(
-            "TTS surrogate created for home %s (%s): %s",
-            home_id,
-            self._home_name(home_id),
-            new_id,
-        )
-        return new_id
+            return new_id
 
     async def send(
         self,

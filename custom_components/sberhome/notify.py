@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -65,13 +66,13 @@ class SberHomeTtsNotify(NotifyEntity):
         self._attr_name = f"Sber TTS ({home.name})"
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, f"home:{self._home.id}")},
-            "manufacturer": "Sber",
-            "model": "Home",
-            "name": self._home.name or "",
-        }
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"home:{self._home.id}")},
+            manufacturer="Sber",
+            model="Home",
+            name=self._home.name or "",
+        )
 
     async def async_send_message(
         self,

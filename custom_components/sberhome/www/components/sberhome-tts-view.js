@@ -154,27 +154,47 @@ export class SberhomeTtsView extends LitElement {
     const home = this._selectedHome();
     if (!home) return asString ? "" : html``;
     const slug = this._homeSlug(home.name);
+    // Какие speaker'ы попадут в device_ids: явно выбранные либо все из дома
+    // (default behaviour notify-entity'а). Всегда показываем закомментированными
+    // чтобы юзер мог раскомментировать для override без необходимости копировать
+    // UUID'ы вручную из device picker.
+    const ids =
+      this._selectedDeviceIds && this._selectedDeviceIds.length
+        ? this._selectedDeviceIds
+        : home.speakers.map((s) => s.id);
     const lines = [
       `- service: notify.send_message`,
       `  target:`,
       `    entity_id: notify.sberhome_${slug}`,
       `  data:`,
       `    message: "${this._message.replace(/"/g, '\\"')}"`,
+      `    # device_ids:  # раскомментируйте для override (default = все колонки дома)`,
     ];
-    if (this._selectedDeviceIds && this._selectedDeviceIds.length) {
-      lines.push(`    device_ids:`);
-      this._selectedDeviceIds.forEach((id) => lines.push(`      - ${id}`));
-    } else {
-      lines.push(`    # device_ids: [...]  — optional override`);
-    }
+    ids.forEach((id) => lines.push(`    #   - ${id}`));
     return asString ? lines.join("\n") : html`<pre class="yaml">${lines.join("\n")}</pre>`;
   }
 
+  // Cyrillic → Latin (same as yaml_utils.slugify) — HA генерирует entity_id
+  // из имени, транслитерируя/слагифицируя его. Мы должны делать то же самое,
+  // иначе YAML-сниппет будет ссылаться на несуществующий entity.
+  static _CYR_TO_LAT = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo",
+    ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m",
+    н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u",
+    ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch",
+    ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+  };
+
   _homeSlug(name) {
-    return (name || "home")
-      .toLowerCase()
-      .replace(/[^a-zа-я0-9]+/gi, "_")
-      .replace(/^_+|_+$/g, "");
+    const lower = (name || "home").toLowerCase();
+    const lat = [...lower]
+      .map((ch) => (SberhomeTtsView._CYR_TO_LAT[ch] ?? ch))
+      .join("");
+    return (
+      lat
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "home"
+    );
   }
 
   _toggleSpeaker(deviceId) {

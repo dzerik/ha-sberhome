@@ -52,6 +52,7 @@ def _coord_with_homes(home_ids: list[str]) -> MagicMock:
     coord._fire_intent_event = lambda e: SberHomeCoordinator._fire_intent_event(coord, e)
     coord._last_intent_event_time = {}
     coord._intent_dispatch_lock = asyncio.Lock()
+    coord._intent_dispatch_cooldown_until = 0.0
     coord.state_cache = MagicMock()
     homes = [UnionDto(id=hid) for hid in home_ids]
     coord.state_cache.get_homes = MagicMock(return_value=homes)

@@ -2,6 +2,13 @@
 
 Queries работают из кеша (без HTTP). Commands отправляют HTTP + optimistic
 patch кеша.
+
+DI: `DeviceService` принимает `DeviceAPI` (для команд и enums), `StateCache`
+(для read/patch state), и `HttpTransport` (для прямых endpoints, где
+ещё нет высокоуровневой обёртки — `/devices` flat, `/device_groups/tree`,
+`/device_groups` (group_type filter), `/light/effects`). Эти прямые
+вызовы — implementation detail; со временем их можно завернуть в
+отдельные API-классы и убрать transport из DeviceService.
 """
 
 from __future__ import annotations
@@ -13,15 +20,22 @@ from ..dto import AttributeValueDto, AttrKey
 if TYPE_CHECKING:
     from ..api.devices import DeviceAPI
     from ..dto.device import DeviceDto
+    from ..transport import HttpTransport
     from .state_cache import StateCache
 
 
 class DeviceService:
     """High-level device operations backed by StateCache."""
 
-    def __init__(self, api: DeviceAPI, cache: StateCache) -> None:
+    def __init__(
+        self,
+        api: DeviceAPI,
+        cache: StateCache,
+        transport: HttpTransport,
+    ) -> None:
         self._api = api
         self._cache = cache
+        self._transport = transport
 
     # ------------------------------------------------------------------
     # Queries (from cache, no HTTP)
@@ -107,7 +121,7 @@ class DeviceService:
         from ..api.groups import GroupAPI
 
         # group API: используем тот же transport что и devices.
-        groups_api = GroupAPI(self._api._transport)
+        groups_api = GroupAPI(self._transport)
         try:
             homes, rooms, custom_groups, devices_resp = await asyncio.gather(
                 groups_api.list(group_type="HOME"),
@@ -137,7 +151,7 @@ class DeviceService:
             try:
                 from ..api.effects import LightEffectsAPI
 
-                effects_api = LightEffectsAPI(self._api._transport)
+                effects_api = LightEffectsAPI(self._transport)
                 effects = await effects_api.list()
             except Exception:  # noqa: BLE001
                 pass
@@ -146,7 +160,7 @@ class DeviceService:
 
     async def _fetch_devices_with_raw(self) -> tuple[list[DeviceDto], dict[str, dict]]:
         """`/devices?pagination` → (DTO list, raw_by_id) одним вызовом."""
-        resp = await self._api._transport.get(
+        resp = await self._transport.get(
             "/devices",
             params={"pagination.offset": "0", "pagination.limit": "500"},
         )
@@ -179,7 +193,7 @@ class DeviceService:
         """
         from ..dto.union import UnionTreeDto
 
-        resp = await self._api._transport.get("/device_groups/tree")
+        resp = await self._transport.get("/device_groups/tree")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:
             payload = payload["result"]

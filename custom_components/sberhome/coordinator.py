@@ -260,8 +260,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # push'е из соответствующего дома.
         self._last_intent_event_time: dict[str, str | None] = {}
         # Concurrency: WS пушит UPDATE_WIDGETS дважды подряд за <100ms,
-        # одна history-fetch достаточна. Lock держим на время fetch'а.
+        # одна history-fetch достаточна. Lock держим на время fetch'а;
+        # cooldown — monotonic timestamp до которого новые push'и игнорируются.
         self._intent_dispatch_lock = asyncio.Lock()
+        self._intent_dispatch_cooldown_until: float = 0.0
 
         # Listener registry (v5.5.0): YAML-managed map Sber-events → HA events.
         # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
@@ -978,19 +980,17 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if topic is None:
             return {"topic": None, "handled": False, "device_id": device_id}
 
-        # Dispatch to the same handlers the real WS pipeline uses.  Kept
-        # in sync with _run_ws() — adding a new handler there means adding
-        # a case here too.
-        if topic == Topic.DEVICE_STATE:
-            await self._on_ws_device_state(msg)
-        elif topic == Topic.DEVMAN_EVENT:
-            await self._on_ws_devman_event(msg)
-        elif topic == Topic.GROUP_STATE:
-            await self._on_ws_group_state(msg)
-        elif topic == Topic.SCENARIO_WIDGETS:
-            await self._on_ws_scenario_widgets(msg)
-        else:
-            await self._on_ws_other_topic(msg)
+        # Dispatch to the same handlers the real WS pipeline uses. Single
+        # source of truth — adding a new topic handler в `_run_ws()` →
+        # просто добавить запись в этот dict, не дублируя if/elif.
+        topic_handlers = {
+            Topic.DEVICE_STATE: self._on_ws_device_state,
+            Topic.DEVMAN_EVENT: self._on_ws_devman_event,
+            Topic.GROUP_STATE: self._on_ws_group_state,
+            Topic.SCENARIO_WIDGETS: self._on_ws_scenario_widgets,
+        }
+        handler = topic_handlers.get(topic, self._on_ws_other_topic)
+        await handler(msg)
 
         return {
             "topic": topic.value,
@@ -1137,8 +1137,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             LOGGER.debug("scenario_widgets push, but no homes known yet — skipping intent dispatch")
             return
 
+        # Cooldown via monotonic timestamp вместо sleep-inside-lock.
+        # Sber дублирует UPDATE_WIDGETS push парами с <100ms между ними —
+        # второй push видит recently-completed dispatch и тихо выходит.
+        # Lock держится только на время fetch'а, не на cooldown.
+        now = time.monotonic()
         if self._intent_dispatch_lock.locked():
-            # Дублирующий push (вторая половина пары) — fetch уже идёт.
+            return
+        if now < self._intent_dispatch_cooldown_until:
             return
 
         async with self._intent_dispatch_lock:
@@ -1170,8 +1176,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 self._last_intent_event_time[home.id] = latest
 
-            # Cooldown — guard от повторного fetch'а в follow-up push'е.
-            await asyncio.sleep(INTENT_DISPATCH_COOLDOWN_SEC)
+            # Set cooldown deadline после успешного fetch'а — guard от
+            # повторного fetch'а в follow-up push'е (Sber-paired UPDATE).
+            self._intent_dispatch_cooldown_until = time.monotonic() + INTENT_DISPATCH_COOLDOWN_SEC
 
     def _select_new_intent_events(
         self, home_id: str, events: list[ScenarioEventDto]

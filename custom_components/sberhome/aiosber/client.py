@@ -84,7 +84,7 @@ class SberClient:
         self._scenario_templates = ScenarioTemplatesAPI(transport)
         # Service layer (high-level, typed, with state cache)
         self._state = StateCache()
-        self._device_service = DeviceService(self._devices, self._state)
+        self._device_service = DeviceService(self._devices, self._state, transport)
         self._group_service = GroupService(self._groups, self._state)
         self._scenario_service = ScenarioService(self._scenarios)
 

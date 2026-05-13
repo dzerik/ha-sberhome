@@ -214,3 +214,41 @@ async def test_send_404_on_update_triggers_recreate_and_retry():
     assert coord.tts_surrogates["home-1"] == "new-sc"
     coord.client.scenarios.create.assert_awaited_once()
     coord.client.scenarios.run.assert_awaited_once_with("new-sc")
+
+
+async def test_concurrent_get_surrogate_id_does_not_double_create():
+    """Race regression: 2 concurrent get_surrogate_id → 1 create, не 2."""
+    import asyncio
+
+    coord = _make_coord_with_home("home-1", home_name="X")
+    coord.client.scenarios.list = AsyncMock(return_value=[])
+
+    # Speakers нужны для create.
+    spk = MagicMock()
+    spk.id = "spk-1"
+    spk.image_set_type = "dt_boom"
+    spk.full_categories = None
+    coord.state_cache.get_all_devices.return_value = {"spk-1": spk}
+    coord.state_cache.device_home_id = MagicMock(return_value="home-1")
+
+    call_count = {"n": 0}
+
+    async def slow_create(_body):
+        # Симулируем latency Sber API чтобы concurrent calls могли
+        # начать оба до завершения первого create.
+        call_count["n"] += 1
+        await asyncio.sleep(0.01)
+        return {"id": f"sc-{call_count['n']}"}
+
+    coord.client.scenarios.create = AsyncMock(side_effect=slow_create)
+
+    svc = TtsSurrogateService(coord)
+    sid1, sid2 = await asyncio.gather(
+        svc.get_surrogate_id("home-1"),
+        svc.get_surrogate_id("home-1"),
+    )
+
+    # Оба вызова должны вернуть один и тот же id.
+    assert sid1 == sid2
+    # create вызван ровно один раз — second caller увидел заполненный cache.
+    assert coord.client.scenarios.create.await_count == 1

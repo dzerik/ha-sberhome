@@ -43,20 +43,20 @@ def _make_cache() -> StateCache:
 
 def test_get():
     cache = _make_cache()
-    svc = DeviceService(api=MagicMock(), cache=cache)
+    svc = DeviceService(api=MagicMock(), cache=cache, transport=MagicMock())
     assert svc.get("d1") is not None
     assert svc.get("nonexistent") is None
 
 
 def test_list_all():
     cache = _make_cache()
-    svc = DeviceService(api=MagicMock(), cache=cache)
+    svc = DeviceService(api=MagicMock(), cache=cache, transport=MagicMock())
     assert len(svc.list_all()) == 3
 
 
 def test_list_by_room():
     cache = _make_cache()
-    svc = DeviceService(api=MagicMock(), cache=cache)
+    svc = DeviceService(api=MagicMock(), cache=cache, transport=MagicMock())
     kitchen = svc.list_by_room("Кухня")
     assert len(kitchen) == 2
     assert all(d.id in ("d1", "d2") for d in kitchen)
@@ -64,14 +64,14 @@ def test_list_by_room():
 
 def test_list_by_category():
     cache = _make_cache()
-    svc = DeviceService(api=MagicMock(), cache=cache)
+    svc = DeviceService(api=MagicMock(), cache=cache, transport=MagicMock())
     lights = svc.list_by_category("bulb")
     assert len(lights) == 2
 
 
 def test_has_feature():
     cache = _make_cache()
-    svc = DeviceService(api=MagicMock(), cache=cache)
+    svc = DeviceService(api=MagicMock(), cache=cache, transport=MagicMock())
     assert svc.has_feature("d1", "on_off") is True
     assert svc.has_feature("d1", "nonexistent") is False
     assert svc.has_feature("nonexistent", "on_off") is False
@@ -81,7 +81,7 @@ def test_has_feature():
 async def test_set_state():
     cache = _make_cache()
     api = AsyncMock()
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=MagicMock())
     attrs = [AttributeValueDto.of_bool("on_off", False)]
     await svc.set_state("d1", attrs)
     api.set_state.assert_called_once_with("d1", attrs)
@@ -94,7 +94,7 @@ async def test_set_state():
 async def test_turn_on():
     cache = _make_cache()
     api = AsyncMock()
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=MagicMock())
     await svc.turn_on("d1")
     api.set_state.assert_called_once()
 
@@ -103,7 +103,7 @@ async def test_turn_on():
 async def test_turn_off():
     cache = _make_cache()
     api = AsyncMock()
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=MagicMock())
     await svc.turn_off("d1")
     api.set_state.assert_called_once()
 
@@ -181,7 +181,7 @@ async def test_refresh_uses_flat_endpoints(monkeypatch):
     # Расширенный enums() — нормализованный возврат.
     api.enums = AsyncMock(return_value={"hvac_work_mode": ["cool", "heat"]})
 
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
     await svc.refresh()
 
     # Devices + связи в state.
@@ -232,7 +232,7 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
 
     api._transport.get = AsyncMock(side_effect=fake_transport_get)
 
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
     await svc.refresh()
 
     # Tree-fallback заполнил cache.
@@ -265,7 +265,7 @@ async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
 
     monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
 
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
     # Не должно бросить — enums-failure не валит refresh.
     await svc.refresh()
     assert cache.get_enums() == {}
@@ -305,7 +305,7 @@ async def test_refresh_loads_light_effects_when_empty(monkeypatch):
 
     monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
 
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
     await svc.refresh()
 
     assert cache.get_light_effects() == [{"id": "rainbow", "name": "Радуга"}]
@@ -337,7 +337,7 @@ async def test_refresh_light_effects_failure_does_not_block(monkeypatch):
 
     monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
 
-    svc = DeviceService(api=api, cache=cache)
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
     # Не должно бросить — failure /light/effects не валит refresh.
     await svc.refresh()
     assert cache.get_light_effects() == []

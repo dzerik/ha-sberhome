@@ -1,5 +1,63 @@
 # Changelog
 
+## [5.7.0] — 2026-05-13
+
+### Architecture batch (audit follow-up)
+
+Финальный architecture audit v5.6.3 выявил 2 critical + 5 important. Этот
+релиз закрывает все критичные и большинство важных. Без breaking changes
+для пользователя — внутренние улучшения correctness/maintainability.
+
+#### Critical fixes
+
+- **`TtsSurrogateService.get_surrogate_id` — race on concurrent create.**
+  Два одновременных `notify.async_send_message` (например, две HA-automation
+  одновременно) могли создать ДВА surrogate-сценария в Sber (orphan). Добавлен
+  per-home `asyncio.Lock` с double-check после acquire. +1 regression-тест
+  `test_concurrent_get_surrogate_id_does_not_double_create`.
+- **`DeviceService` bypass `_api._transport` private field.** Нарушал DI
+  (CLAUDE.md Rule #3) — service напрямую доставал private attribute
+  `DeviceAPI`. Теперь `HttpTransport` инжектится через constructor рядом
+  с `DeviceAPI` и `StateCache`. Чище DI-граф, нет private-attr leak.
+
+#### Important fixes
+
+- **`_on_ws_scenario_widgets` sleep-inside-lock.** `await asyncio.sleep(1.0)`
+  держал `_intent_dispatch_lock` на лишнюю секунду. Cooldown переведён на
+  monotonic-timestamp guard (`_intent_dispatch_cooldown_until`) — lock
+  держится только на время fetch'а.
+- **`async_inject_ws_message` OCP violation.** Топик-диспатч через if/elif
+  лесенку требовал ручной синхронизации с `_run_ws()`. Перенесён в
+  dict-dispatch (`{Topic.X: self._handler_x, ...}`) — добавление нового
+  handler'а не требует править два места.
+- **`_get_coord` в `websocket_api/tts_surrogate.py` дублировал
+  `_common.get_coordinator`.** Заменено на импорт общего helper'а.
+  +правильный type hint (`SberHomeCoordinator | None` вместо `Any | None`).
+
+#### Minor fixes
+
+- `notify.SberHomeTtsNotify.device_info` теперь возвращает типизированный
+  `DeviceInfo` вместо `dict[str, Any]`.
+- `_serialize_speaker` в `websocket_api/tts_surrogate.py` использует
+  `hasattr` + direct call вместо callable-guard duck-typing.
+
+### Tests
+
++1 новый (concurrency regression), всего 1304 passed. Lint + format чистые.
+`aiosber/` остаётся standalone.
+
+### Backwards compatibility
+
+Без breaking changes. `DeviceService` constructor signature расширен
+(`transport` обязательный) — все callers внутри пакета обновлены, public
+API не нарушен.
+
+### Deferred (выходит за scope v5.7.0)
+
+- Extract `IntentDispatcher` из coordinator (god-object refactor) — отдельный sub-project.
+- `_REGISTRY` module-global → DI-based в `intents/` — требует API change.
+- `async_set_enabled_device_ids` self-reload risk — нужно проверить в production.
+
 ## [5.6.5] — 2026-05-13
 
 ### Fixed — TTS surrogate guard phrase must be Cyrillic

@@ -13,24 +13,9 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN
+from ._common import get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _get_coord(hass: HomeAssistant) -> Any | None:
-    """Get loaded SberHome coordinator with tts_service attached.
-
-    Uses `async_loaded_entries` (not `async_entries`) to skip stale/disabled
-    entries without `runtime_data`.
-    """
-    entries = hass.config_entries.async_loaded_entries(DOMAIN)
-    if not entries:
-        return None
-    coord = entries[0].runtime_data
-    if coord is None or not hasattr(coord, "tts_service"):
-        return None
-    return coord
 
 
 def _name_to_str(name: Any) -> str:
@@ -54,11 +39,11 @@ def _name_to_str(name: Any) -> str:
 
 
 def _serialize_speaker(dto: Any, device_id: str) -> dict[str, Any]:
+    """DeviceDto + id → JSON-friendly dict для UI."""
     name = _name_to_str(getattr(dto, "name", None)) or device_id
-    online = None
-    reported = getattr(dto, "reported_value", None)
-    if callable(reported):
-        online = reported("online")
+    # `reported_value` — реальный method на DeviceDto; для unit-test mocks
+    # (где dto = MagicMock) тоже работает по сигнатуре.
+    online = dto.reported_value("online") if hasattr(dto, "reported_value") else None
     return {"id": device_id, "name": name, "online": online}
 
 
@@ -70,7 +55,7 @@ async def ws_status_tts_surrogate(
     msg: dict[str, Any],
 ) -> None:
     """Per-home состояние surrogate + список колонок."""
-    coord = _get_coord(hass)
+    coord = get_coordinator(hass)
     if coord is None:
         connection.send_result(msg["id"], {"homes": []})
         return
@@ -119,7 +104,7 @@ async def ws_ensure_tts_surrogate(
     msg: dict[str, Any],
 ) -> None:
     """Создать (или найти) surrogate-сценарий для указанного дома."""
-    coord = _get_coord(hass)
+    coord = get_coordinator(hass)
     if coord is None:
         connection.send_result(msg["id"], {"ok": False, "error": "integration not loaded"})
         return
@@ -147,7 +132,7 @@ async def ws_test_tts_surrogate(
     msg: dict[str, Any],
 ) -> None:
     """Тестовая озвучка: PUT scenario + POST /run + latency measurement."""
-    coord = _get_coord(hass)
+    coord = get_coordinator(hass)
     if coord is None:
         connection.send_result(msg["id"], {"ok": False, "error": "integration not loaded"})
         return
