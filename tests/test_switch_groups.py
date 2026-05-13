@@ -32,18 +32,14 @@ def _dev(id_: str, *, online: bool = True, on: bool | None = None) -> DeviceDto:
 
 def _make_coord(*, group_id: str, group_name: str, devices: list[DeviceDto]) -> MagicMock:
     cache = StateCache()
+    devices_with_groups = [_replace(d, group_ids=[group_id]) for d in devices]
     cache.update_from_flat(
         homes=[],
         rooms=[],
         groups=[UnionDto(id=group_id, name=group_name, group_type=UnionType.GROUP)],
-        devices=devices,
+        devices=devices_with_groups,
     )
-    # Все devices привязаны к группе через group_ids — нужно прописать вручную.
-    for d in devices:
-        d_in_cache = cache._devices[d.id]
-        cache._devices[d.id] = _replace(d_in_cache, group_ids=[group_id])
-    # Перестроить reverse-index
-    cache._devices_by_group = {group_id: [d.id for d in devices]}
+    # No private mutation needed — reverse-index built by update_from_flat.
 
     coord = MagicMock()
     coord.state_cache = cache

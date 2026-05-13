@@ -33,7 +33,7 @@ async def async_setup_entry(
     # Sber custom-groups (group_type=GROUP) как bulk-switch entities.
     # Группы без devices пропускаются — не создаём пустых toggle'ов.
     for group_id, group in coordinator.state_cache.get_all_groups().items():
-        if group.group_type is not UnionType.GROUP:
+        if group.group_type != UnionType.GROUP:
             continue
         if not coordinator.state_cache.get_group_devices(group_id):
             continue
