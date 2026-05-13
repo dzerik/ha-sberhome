@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
     ATTR_HS_COLOR,
     ATTR_WHITE,
     ColorMode,
@@ -25,8 +26,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .aiosber.dto import IndicatorColor
-from .const import DOMAIN
+from .aiosber.dto import AttributeValueDto, AttrKey, IndicatorColor
+from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import (
@@ -193,7 +194,52 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         catalog = self.coordinator.state_cache.get_light_effects()
         return [e["name"] for e in catalog if e.get("name")]
 
+    @property
+    def effect(self) -> str | None:
+        """Имя текущего эффекта или None.
+
+        Логика: если `light_mode == "scene"` и `light_scene` указывает на
+        известный id из каталога — возвращаем `effect.name`. Иначе None.
+        """
+        if not self._detect_effect_support():
+            return None
+        dto = self._device_dto
+        if dto is None:
+            return None
+        mode = dto.reported_value("light_mode")
+        if mode != "scene":
+            return None
+        scene_id = dto.reported_value("light_scene")
+        if not scene_id:
+            return None
+        for effect in self.coordinator.state_cache.get_light_effects():
+            if effect.get("id") == scene_id:
+                return effect.get("name")
+        return None
+
     async def async_turn_on(self, **kwargs: Any) -> None:
+        # Effect short-circuit: если HA дал effect-name и устройство умеет
+        # scene-mode — отправляем тройку (light_mode=scene, light_scene=<id>,
+        # on_off=true). Если имя не нашли в каталоге — warning + fall-through
+        # на обычный turn_on (plain on без эффекта).
+        if (effect_name := kwargs.get(ATTR_EFFECT)) and self._detect_effect_support():
+            effect_id = self._resolve_effect_id(effect_name)
+            if effect_id is None:
+                LOGGER.warning(
+                    "Unknown effect %r for %s — fallback to plain on",
+                    effect_name,
+                    self._device_id,
+                )
+                # fall-through to plain on below
+            else:
+                attrs = [
+                    AttributeValueDto.of_enum(AttrKey.LIGHT_MODE, "scene"),
+                    AttributeValueDto.of_string(AttrKey.LIGHT_SCENE, effect_id),
+                    AttributeValueDto.of_bool(AttrKey.ON_OFF, True),
+                ]
+                await self._async_send_attrs(attrs)
+                return
+
         # Текущее состояние передаём в build_light_command, чтобы
         # brightness-only решения принимались context-aware (в colour
         # mode brightness идёт через light_colour.v, в white — через
@@ -209,6 +255,13 @@ class SberLightEntity(SberBaseEntity, LightEntity):
             current_state=self._state(),
         )
         await self._async_send_attrs(bundle)
+
+    def _resolve_effect_id(self, name: str) -> str | None:
+        """Найти id эффекта в каталоге по имени."""
+        for effect in self.coordinator.state_cache.get_light_effects():
+            if effect.get("name") == name:
+                return effect.get("id")
+        return None
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         bundle = build_light_command(self._config, self._device_id, is_on=False)
