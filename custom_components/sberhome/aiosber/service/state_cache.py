@@ -192,8 +192,11 @@ class StateCache:
 
         Вызывается из `DeviceService.refresh()` best-effort'ом. Пустой
         list тоже валидное значение (значит API не вернул эффекты).
+
+        Элементы копируются по отдельности (dict copy на каждом item),
+        чтобы caller не мог случайно мутировать stored catalog.
         """
-        self._light_effects = list(catalog)
+        self._light_effects = [dict(item) for item in catalog]
 
     # ------------------------------------------------------------------
     # Write — full refresh from tree

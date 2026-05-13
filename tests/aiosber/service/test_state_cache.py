@@ -437,3 +437,22 @@ def test_state_cache_stores_light_effects():
     ]
     cache.set_light_effects(catalog)
     assert cache.get_light_effects() == catalog
+
+
+def test_set_light_effects_replaces_completely():
+    """Повторный set_light_effects полностью заменяет catalog, не добавляет."""
+    cache = StateCache()
+    cache.set_light_effects([{"id": "rainbow", "name": "Радуга"}])
+    cache.set_light_effects([{"id": "candle", "name": "Свеча"}])
+    effects = cache.get_light_effects()
+    assert effects == [{"id": "candle", "name": "Свеча"}]
+    assert len(effects) == 1
+
+
+def test_set_light_effects_isolates_inner_dicts():
+    """Мутация исходного catalog после set не должна затрагивать stored."""
+    cache = StateCache()
+    catalog = [{"id": "rainbow", "name": "Радуга"}]
+    cache.set_light_effects(catalog)
+    catalog[0]["name"] = "MUTATED"
+    assert cache.get_light_effects() == [{"id": "rainbow", "name": "Радуга"}]
