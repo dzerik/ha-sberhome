@@ -160,6 +160,7 @@ async def test_unknown_effect_name_falls_back_to_plain_on(caplog):
     with caplog.at_level("WARNING"):
         await light.async_turn_on(effect="Несуществующий эффект")
 
+    coord.async_send_device_state.assert_awaited_once()
     args = coord.async_send_device_state.await_args.args
     sent_dict = {a.key: a for a in args[1]}
     assert "light_scene" not in sent_dict
