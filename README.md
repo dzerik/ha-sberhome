@@ -551,6 +551,60 @@ Aggregated state:
 
 `available=False` если все устройства группы offline.
 
+## YAML Listeners (v5.5.0+)
+
+Помимо `intents:` (создающих Sber-сценарии с голосовыми фразами)
+можно объявить **listeners** — pure HA-side подписку на Sber-event'ы
+с **любым** триггером (TIME / DEVICE / GEO_TIME / CONDITIONS / …):
+
+```yaml
+sberhome:
+  listeners:
+    - slug: morning_time
+      name: "Утренние time-сценарии"
+      filter:
+        trigger_type: TIME
+        scenario_name: "Доброе утро"
+```
+
+При срабатывании Sber-сценария «Доброе утро» (по time-триггеру), HA
+получит event `sberhome_intent` с `event_data.slug=morning_time` —
+HA-automation биндится по slug:
+
+```yaml
+automation:
+  - alias: "Morning time scenario fired"
+    trigger:
+      platform: event
+      event_type: sberhome_intent
+      event_data:
+        slug: morning_time
+    action: ...
+```
+
+Listeners — **read-only**. Они не создают и не изменяют Sber-сценарии.
+Sber-сценарий с TIME/DEVICE/GEO_TIME-триггером должен быть заранее
+создан в приложении «Салют!».
+
+### Filter поля
+
+- `trigger_type` — string или list. Допустимы: `PHRASES`, `TIME`,
+  `DEVICE`, `GEO_TIME`, `CONDITIONS`, `CHECK_DEVICE`, `CHECK_SCENARIO`,
+  `UNDEFINED_TYPE`.
+- `scenario_name` — exact match (case/whitespace tolerant).
+- `scenario_id` — Sber UUID, exact.
+- `home` (имя) / `home_id` (UUID) — для multi-home setup'ов.
+
+Минимум одно поле обязательно. AND между полями; OR внутри списка
+`trigger_type: [...]`.
+
+### Лимиты v5.5.0
+
+- Listeners перечитываются только при полной перезагрузке HA
+  (`reload_intents` service не затрагивает listeners).
+- Создание не-фразовых триггеров через Sber API не поддержано —
+  wire-формат неизвестен. Listeners — только read-only маппинг.
+
 ## Voice intents через YAML (v5.2.0+)
 
 Помимо UI-вкладки «Voice Intents», голосовые сценарии можно

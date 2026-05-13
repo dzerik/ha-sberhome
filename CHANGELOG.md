@@ -1,5 +1,86 @@
 # Changelog
 
+## [5.5.0] — 2026-05-13
+
+### Added — YAML listeners для не-фразовых триггеров
+
+Новый top-level YAML-блок `sberhome.listeners` — read-only маппинг
+Sber-side scenario events (любого `trigger_type`: TIME / DEVICE /
+GEO_TIME / CONDITIONS / CHECK_DEVICE / CHECK_SCENARIO) на HA event
+`sberhome_intent` с пользовательским slug.
+
+```yaml
+sberhome:
+  listeners:
+    - slug: morning_time
+      name: "Утренние time-сценарии"
+      filter:
+        trigger_type: TIME
+        scenario_name: "Доброе утро"   # optional, case/whitespace tolerant
+        home: "Мой дом"                 # optional (или home_id)
+
+    - slug: any_geo_or_device
+      name: "Гео или device"
+      filter:
+        trigger_type: [GEO_TIME, DEVICE]  # OR в пределах поля
+```
+
+**Что фарится:**
+- Существующий base `sberhome_intent` event — без изменений
+  (backwards-compatible). Добавлены поля `slug=None` / `source="sber_only"`.
+- Для каждого matching listener — **дополнительный** `sberhome_intent`
+  event с `event_data.slug=<listener.slug>` и `event_data.source="listener"`.
+- AND между полями filter'а; OR в `trigger_type: [...]` list'е.
+
+Listeners — pure HA-side. **Никаких** API-вызовов в Sber, никаких
+изменений Sber-сценариев. Sber-сценарий с TIME/DEVICE/GEO_TIME-триггером
+должен быть заранее создан в приложении «Салют!».
+
+### Changed — UI
+
+- Вкладка «Voice Intents» переименована в «Automations».
+- Внутри «Automations» — segmented control «🎤 Intents / ⚡ Listeners».
+  Listeners — read-only список с filter summary + last_fired_at.
+
+### Internal
+
+- Новый подпакет `custom_components/sberhome/listeners/`: spec.py,
+  matcher.py (pure), yaml_loader.py (voluptuous), registry.py.
+- Общий `yaml_utils.py` — вынесенный `slugify()` (intents +
+  listeners используют одну реализацию).
+- WS endpoint `sberhome/listeners/list` (read-only).
+- `coordinator._fire_intent_event` теперь добавляет в payload
+  `slug` (None для базовых) + `source` («intent» / «listener» /
+  «sber_only»).
+- Cross-collection slug collision: intents парсятся первыми, их slugs
+  reserved; listener с конфликтующим slug disabled с warning.
+- Home name → UUID резолв в setup_entry (когда state_cache готов).
+
+### Tests
+
++30 новых тестов (yaml_utils +3, listeners/yaml_loader +8, listeners/
+matcher +10, listeners/registry +6, websocket_api/listeners +3,
+coordinator +4 integration), 1275 total. Lint + format чистые,
+`aiosber/` остаётся standalone (zero HA-импортов).
+
+### Backwards compatibility
+
+Без breaking changes. Существующие конфиги YAML (только `intents:`)
+работают как раньше. Base `sberhome_intent` event сохраняет прежнюю
+структуру + получает новые поля `slug=None` / `source="sber_only"`
+(или `"intent"`).
+
+### Known limitations (out of scope)
+
+- **Reload service** перечитывает только intents, не listeners.
+  Изменение `listeners:` в YAML требует перезагрузки HA. Будет
+  адресовано в v5.5.x.
+- **Translations** для нового tab name — UI показывает «Automations»
+  во всех 5 локалях (панель использует hardcoded strings). i18n
+  возможен в будущем.
+- **Создание не-фразовых триггеров** через Sber API — wire-формат
+  неизвестен. Поэтому listeners — read-only. См. v5.8.0 roadmap.
+
 ## [5.4.1] — 2026-05-13
 
 ### Performance
