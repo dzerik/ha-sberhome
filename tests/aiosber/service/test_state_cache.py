@@ -419,3 +419,21 @@ def test_set_enums_replaces_completely():
     cache.set_enums({"b": ["y"]})
     assert cache.get_enums() == {"b": ["y"]}
     assert cache.get_enum_values("a") == []
+
+
+# ---------------------------------------------------------------------------
+# Light effects catalog
+# ---------------------------------------------------------------------------
+
+
+def test_state_cache_stores_light_effects():
+    """Каталог light-effects сохраняется и читается через accessor."""
+    cache = StateCache()
+    assert cache.get_light_effects() == []  # default empty
+
+    catalog = [
+        {"id": "rainbow", "name": "Радуга", "preview": "/p/rainbow.png"},
+        {"id": "candle", "name": "Свеча"},
+    ]
+    cache.set_light_effects(catalog)
+    assert cache.get_light_effects() == catalog

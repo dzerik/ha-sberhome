@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..dto.device import DeviceDto
@@ -45,6 +45,10 @@ class StateCache:
         # возвращается пустым. Best-effort populated в
         # `DeviceService.refresh()` при первом успешном refresh.
         self._enums: dict[str, list[str]] = {}
+        # Light effects catalog — `/light/effects` каталог сцен. Best-effort
+        # lazy-loaded в `DeviceService.refresh()`. Каждый элемент содержит
+        # `{id, name, preview?, category?}`.
+        self._light_effects: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Read — devices
@@ -171,6 +175,25 @@ class StateCache:
     def set_enums(self, enums: dict[str, list[str]]) -> None:
         """Заменить enum-словарь полностью (вызывается из refresh)."""
         self._enums = dict(enums)
+
+    # ------------------------------------------------------------------
+    # Light effects catalog (best-effort, lazy-loaded в DeviceService.refresh)
+    # ------------------------------------------------------------------
+    def get_light_effects(self) -> list[dict[str, Any]]:
+        """Каталог световых эффектов из `/light/effects`.
+
+        Возвращает копию (не пустую только если refresh когда-то успешно
+        её загрузил). Каждый элемент содержит `{id, name, preview?, category?}`.
+        """
+        return list(self._light_effects)
+
+    def set_light_effects(self, catalog: list[dict[str, Any]]) -> None:
+        """Сохранить каталог light-effects.
+
+        Вызывается из `DeviceService.refresh()` best-effort'ом. Пустой
+        list тоже валидное значение (значит API не вернул эффекты).
+        """
+        self._light_effects = list(catalog)
 
     # ------------------------------------------------------------------
     # Write — full refresh from tree
