@@ -18,6 +18,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 const DEFAULT_PAYLOAD = JSON.stringify(
   {
@@ -238,7 +239,7 @@ class SberHomeReplayView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);
@@ -310,7 +311,7 @@ class SberHomeReplayView extends LitElement {
       .topic { font-family: monospace; width: 130px; }
       .device { font-family: monospace; width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .preview { font-family: monospace; color: var(--primary-text-color); word-break: break-all; }
-    `;
+    `, mobileBase];
   }
 }
 

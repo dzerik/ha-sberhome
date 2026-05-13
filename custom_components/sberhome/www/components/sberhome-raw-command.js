@@ -8,6 +8,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 // Sber serialized format: color_value использует короткие ключи {h, s, v}.
 // Диапазон — per-device: для dt_bulb_e27_m (Beken cb2l) s/v идут в 0..1000,
@@ -156,7 +157,7 @@ class SberHomeRawCommand extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .hint {
         font-size: 12px;
@@ -265,7 +266,7 @@ class SberHomeRawCommand extends LitElement {
         z-index: 10;
         font-size: 13px;
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

@@ -7,6 +7,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 async function copyJson(obj) {
   const text = JSON.stringify(obj, null, 2);
@@ -112,7 +113,7 @@ class SberHomeLogView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .toolbar {
         display: flex;
@@ -238,7 +239,7 @@ class SberHomeLogView extends LitElement {
         z-index: 10;
         font-size: 13px;
       }
-    `;
+    `, mobileBase];
   }
 
   _formatTs(ts) {

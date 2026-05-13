@@ -15,6 +15,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 const STATUS_LABEL = {
   pending: "Pending",
@@ -198,7 +199,7 @@ class SberHomeCommandsView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);
@@ -297,7 +298,7 @@ class SberHomeCommandsView extends LitElement {
       .key-row.missing .mark { color: var(--secondary-text-color); }
       .k { width: 200px; color: var(--primary-text-color); }
       .v { color: var(--secondary-text-color); word-break: break-all; }
-    `;
+    `, mobileBase];
   }
 }
 

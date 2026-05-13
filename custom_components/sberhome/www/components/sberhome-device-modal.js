@@ -862,6 +862,98 @@ class SberHomeDeviceModal extends LitElement {
         line-height: 1.5;
         margin: 0 0 12px;
       }
+
+      /* ── Mobile (≤768px) — full-screen-ish modal + cards-вместо-таблиц ── */
+      @media (max-width: 768px) {
+        :host {
+          padding: 0;
+          align-items: stretch;
+        }
+        .dialog {
+          border-radius: 0;
+          min-height: 100vh;
+          max-height: 100vh;
+          width: 100%;
+        }
+        header {
+          padding: 12px 14px;
+          gap: 12px;
+        }
+        header img.photo {
+          width: 56px;
+          height: 56px;
+        }
+        header h2 {
+          font-size: 16px;
+        }
+        header .subtitle {
+          font-size: 12px;
+        }
+        nav {
+          padding: 0 6px;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        nav::-webkit-scrollbar {
+          display: none;
+        }
+        nav .tab {
+          padding: 10px 12px;
+          font-size: 12px;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        .body {
+          padding: 14px;
+          max-height: calc(100vh - 200px);
+        }
+        /* Info-table: пары th/td становятся вертикальными блоками */
+        table.info-table tr {
+          display: block;
+          margin-bottom: 10px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid var(--divider-color);
+        }
+        table.info-table tr:last-child {
+          border-bottom: none;
+          margin-bottom: 0;
+        }
+        table.info-table th,
+        table.info-table td {
+          display: block;
+          width: auto;
+          padding: 2px 0;
+          white-space: normal;
+        }
+        table.info-table th {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+        table.info-table td {
+          font-size: 14px;
+        }
+        /* Attr-table: горизонтальный scroll-wrapper родного table */
+        table.attr-table {
+          font-size: 12px;
+        }
+        table.attr-table th,
+        table.attr-table td {
+          padding: 6px 8px;
+        }
+        .actions {
+          padding: 10px 14px;
+          flex-wrap: wrap;
+        }
+        .gallery {
+          grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+          gap: 8px;
+        }
+        .gallery img {
+          height: 88px;
+        }
+      }
     `;
   }
 

@@ -13,6 +13,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 const VERDICT_LABEL = {
   ok: "Clean",
@@ -137,7 +138,7 @@ class SberHomeDiagnoseView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);
@@ -264,7 +265,7 @@ class SberHomeDiagnoseView extends LitElement {
         overflow: auto;
         max-height: 300px;
       }
-    `;
+    `, mobileBase];
   }
 }
 

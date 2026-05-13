@@ -193,6 +193,119 @@ class SberHomeDevicePicker extends LitElement {
         opacity: 0.9;
       }
       tr.unsupported-row td:not(.icon-cell) { opacity: 0.55; }
+
+      /* ── Mobile (≤768px): table → cards ── */
+      @media (max-width: 768px) {
+        :host { padding: 8px; }
+        .toolbar {
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        input[type="search"] {
+          flex: 1 1 100%;
+        }
+        select {
+          flex: 1 1 auto;
+        }
+        .counter {
+          flex: 1 1 100%;
+          font-size: 12px;
+        }
+        table, thead, tbody, tr, td {
+          display: block;
+        }
+        thead {
+          display: none;
+        }
+        table {
+          background: transparent;
+          border-radius: 0;
+          overflow: visible;
+        }
+        tbody tr {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px 10px;
+          padding: 12px;
+          margin-bottom: 8px;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 10px;
+          background: var(--card-background-color, #fff);
+          position: relative;
+        }
+        tbody tr:hover {
+          background: var(--card-background-color, #fff);
+        }
+        tr.disabled-row {
+          opacity: 1;  /* убираем глобальный opacity, метки сами справятся */
+        }
+        tr.disabled-row .cell-name,
+        tr.disabled-row .cell-room,
+        tr.disabled-row .cell-cat {
+          opacity: 0.55;
+        }
+        tr.unsupported-row td:not(.icon-cell) { opacity: 1; }
+        tr.unsupported-row .cell-name,
+        tr.unsupported-row .cell-room {
+          opacity: 0.55;
+        }
+        td {
+          padding: 0;
+          border-bottom: none;
+          font-size: 13px;
+        }
+        /* Иконка устройства слева, отдельный block-pseudo "колонка" */
+        .cell-icon {
+          flex: 0 0 auto;
+          width: 44px;
+          padding: 0;
+        }
+        .device-icon {
+          width: 40px;
+          height: 40px;
+        }
+        /* Имя — основная строка справа от иконки, full-width после */
+        .cell-name {
+          flex: 1 1 auto;
+          font-size: 15px;
+          font-weight: 500;
+          min-width: 0;
+          word-break: break-word;
+        }
+        /* Меты — компактная строка под именем */
+        .cell-room,
+        .cell-cat,
+        .cell-status {
+          flex: 0 0 auto;
+          font-size: 12px;
+        }
+        .cell-room::before,
+        .cell-cat::before,
+        .cell-status::before {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          color: var(--secondary-text-color);
+          margin-right: 4px;
+          font-weight: 500;
+        }
+        .cell-room::before { content: "комната"; }
+        .cell-cat::before { content: "категория"; }
+        .cell-status::before { content: "статус"; }
+        .cell-room,
+        .cell-cat,
+        .cell-status {
+          display: inline-flex;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        /* badge сжимается, чтобы не разрывал строку */
+        .badge {
+          font-size: 11px;
+          padding: 2px 6px;
+        }
+      }
     `;
   }
 
@@ -256,7 +369,6 @@ class SberHomeDevicePicker extends LitElement {
                   <th>Имя</th>
                   <th>Комната Sber</th>
                   <th>Категория</th>
-                  <th>Модель</th>
                   <th>Статус</th>
                 </tr>
               </thead>
@@ -279,21 +391,21 @@ class SberHomeDevicePicker extends LitElement {
                       @click=${() => this._openDetail(d.device_id)}
                       title=${rowTitle}
                     >
-                      <td class="icon-cell">${this._renderDeviceIcon(d)}</td>
-                      <td>
+                      <td class="icon-cell cell-icon">${this._renderDeviceIcon(d)}</td>
+                      <td class="cell-name">
                         <a class="device-link">${d.name}</a>
                       </td>
-                      <td>
+                      <td class="cell-room">
                         ${d.room_name
                           ? html`<span class="badge room">${d.room_name}</span>`
                           : html`<span style="color:var(--secondary-text-color)">—</span>`}
                       </td>
-                      <td>
+                      <td class="cell-cat">
                         <span class="badge ${d.category ? "" : "unknown"}">
                           ${d.category || "unknown"}
                         </span>
                       </td>
-                      <td>
+                      <td class="cell-status">
                         ${unsupported
                           ? html`<span class="badge unsupported">не поддерживается</span>`
                           : d.enabled

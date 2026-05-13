@@ -3,6 +3,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeSettings extends LitElement {
   static get properties() {
@@ -47,7 +48,7 @@ class SberHomeSettings extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; max-width: 480px; }
       .field { margin-bottom: 16px; }
       label {
@@ -78,7 +79,7 @@ class SberHomeSettings extends LitElement {
         color: var(--primary-text-color);
         border: 1px solid var(--divider-color);
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

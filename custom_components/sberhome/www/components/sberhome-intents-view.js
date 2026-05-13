@@ -13,6 +13,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeIntentsView extends LitElement {
   static get properties() {
@@ -198,7 +199,7 @@ class SberHomeIntentsView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .toolbar {
         display: flex; gap: 12px; align-items: center;
@@ -284,7 +285,7 @@ class SberHomeIntentsView extends LitElement {
         font-size: 12px;
         color: var(--secondary-text-color);
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

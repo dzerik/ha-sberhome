@@ -1,5 +1,44 @@
 # Changelog
 
+## [5.1.6] — 2026-05-13
+
+### Mobile adaptation — все view-компоненты панели
+
+Завершение mobile-адаптации, начатой в v5.1.5 (шапка + табы). Теперь
+адаптируется **внутреннее содержимое** каждого таба:
+
+**Главная таблица устройств** (`sberhome-device-picker`):
+- На ≤768 px таблица превращается в **карточки**: `thead` скрыт,
+  каждая `<tr>` — flex-block с иконкой устройства слева и информацией
+  справа. Имя устройства занимает full-width на собственной строке,
+  ниже — компактные badge-метки «комната», «категория», «статус» с
+  заголовками через `::before`.
+- Длинные имена не разрывают layout (`word-break: break-word`).
+- Toolbar (поиск + dropdown категорий + counter) переносится на
+  несколько строк через `flex-wrap`.
+
+**Модальное окно устройства** (`sberhome-device-modal`):
+- На ≤768 px — **полноэкранный** modal (`border-radius: 0`,
+  `min-height: 100vh`), без padding-overlay.
+- Header компактнее (photo 56 px вместо 72, h2 16 px).
+- Под-табы внутри modal горизонтально-скроллируемые.
+- `info-table` (пары th/td) → вертикальные блоки с metadata над
+  значением.
+
+**Все остальные view** (status / monitor / debug / settings /
+intents / log / state-diff / diagnose / replay / commands /
+validation / raw-command / rooms):
+- Подключён shared mobile-CSS helper (`www/mobile-css.js`) через
+  `static get styles() { return [css\`...\`, mobileBase]; }`.
+  Baseline применяется ко всем стандартным контейнерам:
+  - `.toolbar`, `.header`, `.filters`, `.row`, `.actions`,
+    `.controls` — `flex-wrap: wrap; gap: 8px`.
+  - inputs / selects / textareas — `font-size: 13px; min-width: 0`.
+  - buttons — `min-height: 36px` (тач-target).
+  - `pre`, `code` — `font-size: 11px; overflow-x: auto;
+    word-break: break-word`.
+  - generic `table` — `font-size: 12px; th/td padding 6/8 px`.
+
 ## [5.1.5] — 2026-05-12
 
 ### Changed

@@ -17,6 +17,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeStateDiffView extends LitElement {
   static get properties() {
@@ -198,7 +199,7 @@ class SberHomeStateDiffView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);
@@ -376,7 +377,7 @@ class SberHomeStateDiffView extends LitElement {
       .row-added .op { color: var(--success-color, #4caf50); }
       .row-removed .op { color: var(--error-color, #f44336); }
       .row-removed .from { text-decoration: line-through; }
-    `;
+    `, mobileBase];
   }
 }
 

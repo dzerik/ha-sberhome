@@ -12,6 +12,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeValidationView extends LitElement {
   static get properties() {
@@ -217,7 +218,7 @@ class SberHomeValidationView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);
@@ -297,7 +298,7 @@ class SberHomeValidationView extends LitElement {
       .badge-info { background: rgba(3, 169, 244, 0.15); color: var(--primary-color, #03a9f4); }
       .badge-clean { background: rgba(76, 175, 80, 0.15); color: var(--success-color, #4caf50); }
       .sev-warning .desc { color: var(--warning-color, #ff9800); }
-    `;
+    `, mobileBase];
   }
 }
 

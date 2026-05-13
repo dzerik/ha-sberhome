@@ -6,6 +6,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeMonitorView extends LitElement {
   static get properties() {
@@ -16,11 +17,11 @@ class SberHomeMonitorView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host {
         display: block;
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

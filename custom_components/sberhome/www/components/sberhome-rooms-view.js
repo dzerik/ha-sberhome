@@ -6,6 +6,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeRoomsView extends LitElement {
   static get properties() {
@@ -51,7 +52,7 @@ class SberHomeRoomsView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .summary {
         display: flex;
@@ -117,7 +118,7 @@ class SberHomeRoomsView extends LitElement {
         padding: 48px;
         color: var(--secondary-text-color);
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

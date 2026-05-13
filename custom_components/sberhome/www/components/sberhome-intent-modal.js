@@ -7,6 +7,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 class SberHomeIntentModal extends LitElement {
   static get properties() {
@@ -246,7 +247,7 @@ class SberHomeIntentModal extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host {
         position: fixed;
         inset: 0;
@@ -379,7 +380,7 @@ class SberHomeIntentModal extends LitElement {
       .switch-row {
         display: flex; align-items: center; gap: 8px;
       }
-    `;
+    `, mobileBase];
   }
 
   render() {

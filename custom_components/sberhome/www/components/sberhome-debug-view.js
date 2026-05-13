@@ -8,6 +8,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 const PRESETS = [
   {
@@ -158,7 +159,7 @@ class SberHomeDebugView extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .top-selector {
         display: flex;
@@ -287,7 +288,7 @@ class SberHomeDebugView extends LitElement {
         z-index: 20;
         font-size: 13px;
       }
-    `;
+    `, mobileBase];
   }
 
   _renderPayload() {

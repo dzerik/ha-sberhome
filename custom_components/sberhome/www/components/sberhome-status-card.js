@@ -3,6 +3,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import { mobileBase } from "../mobile-css.js";
 
 function _fmtTs(ts) {
   if (!ts) return "—";
@@ -22,7 +23,7 @@ class SberHomeStatusCard extends LitElement {
   }
 
   static get styles() {
-    return css`
+    return [css`
       :host { display: block; padding: 16px; }
       .grid {
         display: grid;
@@ -47,7 +48,7 @@ class SberHomeStatusCard extends LitElement {
       .value { font-weight: 500; }
       .ok { color: var(--success-color, #4caf50); }
       .bad { color: var(--error-color, #f44336); }
-    `;
+    `, mobileBase];
   }
 
   render() {
