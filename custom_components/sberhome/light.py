@@ -18,6 +18,7 @@ from homeassistant.components.light import (
     ATTR_WHITE,
     ColorMode,
     LightEntity,
+    LightEntityFeature,
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -66,10 +67,33 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         # Config извлекается один раз — он зависит от device.attributes
         # (которые от refresh к refresh обычно не меняются).
         self._config: LightConfig = self._compute_config()
+        # EFFECT auto-detect: firmware с light_mode enum, содержащим "scene",
+        # умеет проигрывать динамические сцены (`/light/effects` catalog).
+        # Если firmware не умеет — feature не включается, dropdown не появляется.
+        self._supports_effects: bool = self._detect_effect_support()
 
     def _compute_config(self) -> LightConfig:
         dto = self._device_dto
         return light_config_from_dto(dto) if dto is not None else LightConfig()
+
+    def _detect_effect_support(self) -> bool:
+        """Поддерживает ли firmware режим динамических сцен.
+
+        Признак — атрибут `light_mode` в `device.attributes[]` содержит
+        enum-value `"scene"`. Reflection-based: если firmware не умеет —
+        feature не включится, dropdown в HA не появится.
+        """
+        dto = self._device_dto
+        if dto is None or not dto.attributes:
+            return False
+        for attr in dto.attributes:
+            if attr.key != "light_mode":
+                continue
+            ev = attr.enum_values
+            values = ev.values if ev is not None else None
+            if values and "scene" in values:
+                return True
+        return False
 
     def _state(self) -> dict[str, Any]:
         dto = self._device_dto
@@ -146,6 +170,32 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         if ColorMode.BRIGHTNESS in supported:
             return ColorMode.BRIGHTNESS
         return next(iter(supported))
+
+    @property
+    def supported_features(self) -> LightEntityFeature:
+        """LightEntityFeature flags. EFFECT включается только когда firmware
+        умеет `light_mode=scene` (см. `_detect_effect_support`).
+
+        НЕ путать с `supported_color_modes` — это разные оси: color modes
+        описывают HS/COLOR_TEMP/BRIGHTNESS/ONOFF (как красить), features —
+        EFFECT/FLASH/TRANSITION (что ещё умеет лампа поверх цвета).
+        """
+        if self._supports_effects:
+            return LightEntityFeature.EFFECT
+        return LightEntityFeature(0)
+
+    @property
+    def effect_list(self) -> list[str] | None:
+        """Список имён эффектов из каталога `/light/effects`.
+
+        Возвращает None если устройство не умеет scene-mode (тогда HA
+        даже не показывает dropdown). Возвращает пустой list если каталог
+        ещё не загружен или Sber вернул нулевой список.
+        """
+        if not self._supports_effects:
+            return None
+        catalog = self.coordinator.state_cache.get_light_effects()
+        return [e["name"] for e in catalog if e.get("name")]
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         # Текущее состояние передаём в build_light_command, чтобы
