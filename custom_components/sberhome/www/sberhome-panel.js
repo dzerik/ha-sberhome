@@ -20,7 +20,11 @@ await Promise.all([
   import(`./components/sberhome-debug-view.js${_q}`),
   import(`./components/sberhome-device-modal.js${_q}`),
   import(`./components/sberhome-settings.js${_q}`),
-  import(`./components/sberhome-intents-view.js${_q}`),
+  // sberhome-intents-view.js НЕ импортируем напрямую — он подтягивается
+  // изнутри sberhome-automations-view.js (без `?v=` query). Двойной импорт
+  // (один с querystring, один без) ESM считает разными модулями, и второй
+  // `customElements.define("sberhome-intents-view")` упадёт с
+  // "name already used".
   import(`./components/sberhome-automations-view.js${_q}`),
   import(`./components/sberhome-intent-modal.js${_q}`),
   import(`./components/sberhome-home-switcher.js${_q}`),

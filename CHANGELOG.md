@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.5.2] — 2026-05-13
+
+### Fixed — UI panel hotfix
+
+- **Двойная регистрация `sberhome-intents-view`** при загрузке панели:
+  `DOMException: Failed to execute 'define' on 'CustomElementRegistry':
+  the name "sberhome-intents-view" has already been used`. Panel.js
+  импортировал `sberhome-intents-view.js` с `?v=...` querystring, а
+  внутри `sberhome-automations-view.js` (новая обёртка v5.5.0) был
+  static-import того же модуля без query — ESM считал их разными,
+  оба запускали `customElements.define`. Убран дубликат-импорт в
+  `sberhome-panel.js`. Та же проблема и решение уже были задокументированы
+  для `sberhome-home-switcher` строкой ниже.
+
 ## [5.5.1] — 2026-05-13
 
 ### Fixed (review follow-up)
