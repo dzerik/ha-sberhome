@@ -145,11 +145,18 @@ async def test_refresh_uses_flat_endpoints(monkeypatch):
     enums_resp = MagicMock()
     enums_resp.json = MagicMock(return_value={"result": {"hvac_work_mode": ["cool", "heat"]}})
 
+    # /light/effects — best-effort, пустой каталог достаточен (purpose теста —
+    # аудит набора endpoint'ов, а не контракт effects).
+    effects_resp = MagicMock()
+    effects_resp.json = MagicMock(return_value={"result": []})
+
     async def fake_transport_get(path, params=None, **kwargs):
         if path == "/devices":
             return _make_devices_resp([raw_d1, raw_d2])
         if path == "/devices/enums":
             return enums_resp
+        if path == "/light/effects":
+            return effects_resp
         raise AssertionError(f"unexpected GET: {path}")
 
     api._transport.get = AsyncMock(side_effect=fake_transport_get)
@@ -277,9 +284,7 @@ async def test_refresh_loads_light_effects_when_empty(monkeypatch):
     api._transport = MagicMock()
 
     effects_resp = MagicMock()
-    effects_resp.json = MagicMock(
-        return_value={"result": [{"id": "rainbow", "name": "Радуга"}]}
-    )
+    effects_resp.json = MagicMock(return_value={"result": [{"id": "rainbow", "name": "Радуга"}]})
 
     async def fake_transport_get(path, params=None, **kwargs):
         if path == "/devices":
