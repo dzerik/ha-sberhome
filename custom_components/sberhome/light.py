@@ -65,9 +65,11 @@ class SberLightEntity(SberBaseEntity, LightEntity):
 
     def __init__(self, coordinator: SberHomeCoordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)
-        # Config извлекается один раз — он зависит от device.attributes
-        # (которые от refresh к refresh обычно не меняются).
+        # Config и EFFECT-support извлекаются один раз — оба зависят от
+        # device.attributes (capability spec), который меняется только при
+        # полном refresh / re-pair устройства.
         self._config: LightConfig = self._compute_config()
+        self._supports_effects: bool = self._detect_effect_support()
 
     def _compute_config(self) -> LightConfig:
         dto = self._device_dto
@@ -177,7 +179,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         описывают HS/COLOR_TEMP/BRIGHTNESS/ONOFF (как красить), features —
         EFFECT/FLASH/TRANSITION (что ещё умеет лампа поверх цвета).
         """
-        if self._detect_effect_support():
+        if self._supports_effects:
             return LightEntityFeature.EFFECT
         return LightEntityFeature(0)
 
@@ -189,7 +191,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         даже не показывает dropdown). Возвращает пустой list если каталог
         ещё не загружен или Sber вернул нулевой список.
         """
-        if not self._detect_effect_support():
+        if not self._supports_effects:
             return None
         catalog = self.coordinator.state_cache.get_light_effects()
         return [e["name"] for e in catalog if e.get("name")]
@@ -201,7 +203,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         Логика: если `light_mode == "scene"` и `light_scene` указывает на
         известный id из каталога — возвращаем `effect.name`. Иначе None.
         """
-        if not self._detect_effect_support():
+        if not self._supports_effects:
             return None
         dto = self._device_dto
         if dto is None:
@@ -222,7 +224,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         # scene-mode — отправляем тройку (light_mode=scene, light_scene=<id>,
         # on_off=true). Если имя не нашли в каталоге — warning + fall-through
         # на обычный turn_on (plain on без эффекта).
-        if (effect_name := kwargs.get(ATTR_EFFECT)) and self._detect_effect_support():
+        if (effect_name := kwargs.get(ATTR_EFFECT)) and self._supports_effects:
             effect_id = self._resolve_effect_id(effect_name)
             if effect_id is None:
                 LOGGER.warning(

@@ -1,5 +1,15 @@
 # Changelog
 
+## [5.4.1] — 2026-05-13
+
+### Performance
+
+- `SberLightEntity._supports_effects` теперь вычисляется один раз в `__init__`
+  (раньше — на каждое чтение `supported_features` / `effect_list` / `effect` /
+  `async_turn_on`, что давало 4 итерации по `attributes[]` за state-write cycle).
+  Capability spec из `dto.attributes[]` меняется только при полном refresh
+  устройства — кеш безопасен.
+
 ## [5.4.0] — 2026-05-13
 
 ### Added — Light effects + Sber-groups
