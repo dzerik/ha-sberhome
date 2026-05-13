@@ -551,6 +551,69 @@ Aggregated state:
 
 `available=False` если все устройства группы offline.
 
+## TTS surrogate — произношение через Sber-колонки (v5.6.0+, 🧪 EXPERIMENTAL)
+
+> **🧪 EXPERIMENTAL.** Каждый вызов = 2–3 API-call'а в облако Sber.
+> Не для частых уведомлений (>1/мин). Sber может изменить wire-формат
+> или начать лимитировать.
+
+Для каждого дома Sber регистрируется HA-entity `notify.sberhome_<home_slug>`.
+Вызов:
+
+```yaml
+automation:
+  - alias: "Уведомление об ужине"
+    trigger:
+      platform: time
+      at: "19:00:00"
+    action:
+      - service: notify.send_message
+        target:
+          entity_id: notify.sberhome_moy_dom
+        data:
+          message: "Ужин готов"
+```
+
+Под капотом: интеграция находит (или создаёт) один Sber-сценарий-болванку
+per home с маркером в description, PUT'ит `pronounce_data.phrase` +
+`device_ids`, POST /run. Sber произносит фразу через указанные колонки.
+
+### Управление и тестирование через UI
+
+Открой панель SberHome → вкладка **Automations** → segment **🔊 TTS**:
+
+- Статус surrogate-сценариев per home (создан / не создан, кнопка
+  «Создать сейчас»).
+- Тестовая форма: дом, фраза, выбор колонок. Показывает реальный
+  latency после вызова.
+- Автогенерированный YAML-сниппет для копи-пасты в `configuration.yaml`.
+
+### Выбор колонок
+
+По умолчанию — все колонки указанного дома (тип `sber_speaker` через
+`image_set_type` / `full_categories[0].slug`).
+
+Override — через `data.device_ids` (raw Sber UUIDs, можно найти в
+UI-табе или в device-table):
+
+```yaml
+data:
+  message: "Только кухня"
+  device_ids:
+    - "<sber-device-uuid-kitchen-speaker>"
+```
+
+HA `target` (media_player entity_id) пока **не резолвится** — будет
+в будущей минорной версии. Используйте `data.device_ids`.
+
+### Лимиты
+
+- 1 surrogate scenario per home создаётся при первом use.
+- Concurrency: при одновременных вызовах на один home — race на edit'е,
+  Sber произнесёт что-то.
+- Latency: ~500ms–2s на вызов.
+- API rate: 2–3 request per call. Не для high-freq.
+
 ## YAML Listeners (v5.5.0+)
 
 Помимо `intents:` (создающих Sber-сценарии с голосовыми фразами)

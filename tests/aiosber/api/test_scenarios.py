@@ -40,6 +40,34 @@ async def test_list_scenarios():
     assert items[0].name == "Утро"
 
 
+async def test_list_scenarios_with_pagination_sibling():
+    """Sber иногда отдаёт `{"result": [...], "pagination": {...}}` (3 ключа)."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "result": [{"id": "s1", "name": "Утро"}],
+                "pagination": {"offset": 0, "limit": 50},
+            },
+        )
+
+    api, _ = _build(h)
+    items = await api.list()
+    assert items[0].name == "Утро"
+
+
+async def test_list_scenarios_with_alt_key_envelope():
+    """Fallback: dict с единственным list-valued key (legacy /scenarios shape)."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"scenarios": [{"id": "s1", "name": "Утро"}]})
+
+    api, _ = _build(h)
+    items = await api.list()
+    assert items[0].name == "Утро"
+
+
 async def test_get_scenario_by_id():
     def h(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"result": {"id": "s1", "name": "Вечер"}})

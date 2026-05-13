@@ -8,7 +8,7 @@ Single source of truth для:
 - **encode**: собираем wire-JSON для POST/PUT. Тащим обратно `raw_extras`,
   чтобы не потерять незнакомые поля при обновлении.
 
-Структура wire (восстановлена live + декомпил):
+Структура wire (восстановлена из live traffic):
 
 ```jsonc
 {

@@ -1,9 +1,11 @@
 /**
- * Automations wrapper — segmented control «Intents | Listeners».
+ * Automations wrapper — segmented control «Intents | Listeners | TTS».
  *
- * Контейнер для двух подвью:
+ * Контейнер для трёх подвью:
  * - sberhome-intents-view — голосовые сценарии Sber (read/write).
  * - sberhome-listeners-view — YAML-описанные триггеры из configuration.yaml.
+ * - sberhome-tts-view — 🧪 EXPERIMENTAL TTS surrogate (run-time edit Sber-сценария
+ *   для произнесения произвольного текста через колонки).
  *
  * Listeners-вью эмитит CustomEvent("listeners-count", {detail: {count}}),
  * чтобы показывать бейдж рядом с табом.
@@ -13,6 +15,7 @@ import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 import "./sberhome-intents-view.js";
 import "./sberhome-listeners-view.js";
+import "./sberhome-tts-view.js";
 
 export class SberhomeAutomationsView extends LitElement {
   static get properties() {
@@ -72,6 +75,10 @@ export class SberhomeAutomationsView extends LitElement {
           class=${this._section === "listeners" ? "active" : ""}
           @click=${() => (this._section = "listeners")}
         >⚡ Listeners<span class="count">${this._listenersCount}</span></button>
+        <button
+          class=${this._section === "tts" ? "active" : ""}
+          @click=${() => (this._section = "tts")}
+        >🔊 TTS</button>
       </div>
 
       ${this._section === "intents"
@@ -80,10 +87,12 @@ export class SberhomeAutomationsView extends LitElement {
             .homes=${this.homes}
             .selectedHomeId=${this.selectedHomeId}
           ></sberhome-intents-view>`
-        : html`<sberhome-listeners-view
+        : this._section === "listeners"
+        ? html`<sberhome-listeners-view
             .hass=${this.hass}
             @listeners-count=${this._onListenersCount}
-          ></sberhome-listeners-view>`}
+          ></sberhome-listeners-view>`
+        : html`<sberhome-tts-view .hass=${this.hass}></sberhome-tts-view>`}
     `;
   }
 }

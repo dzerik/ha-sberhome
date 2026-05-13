@@ -173,8 +173,21 @@ def _unwrap_dict(payload: Any) -> dict[str, Any]:
 
 
 def _unwrap_list(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
-        payload = payload["result"]
+    """Достать список из Sber API response.
+
+    Принимает:
+    - Plain list ``[...]``.
+    - Обёрнутый ``{"result": [...]}`` (sometimes with siblings вроде
+      ``pagination`` — Sber drift'ит, см. ``/scenario/v2/event``).
+    - Dict с единственным list-valued key (например ``{"scenarios": [...]}``).
+    """
+    if isinstance(payload, dict):
+        result = payload.get("result")
+        if isinstance(result, list):
+            return result
+        list_values = [v for v in payload.values() if isinstance(v, list)]
+        if len(list_values) == 1:
+            return list_values[0]
     if isinstance(payload, list):
         return payload
     raise ValueError(f"Expected list, got {type(payload).__name__}")

@@ -65,6 +65,11 @@ from .state_diffs import (
     ws_subscribe_state_diffs,
 )
 from .status import ws_get_status
+from .tts_surrogate import (
+    ws_ensure_tts_surrogate,
+    ws_status_tts_surrogate,
+    ws_test_tts_surrogate,
+)
 from .validation import (
     ws_clear_validation_issues,
     ws_subscribe_validation_issues,
@@ -127,6 +132,10 @@ _COMMANDS = (
     ws_validation_issues,
     ws_clear_validation_issues,
     ws_subscribe_validation_issues,
+    # v5.6.0 — TTS surrogate (status / ensure / test)
+    ws_status_tts_surrogate,
+    ws_ensure_tts_surrogate,
+    ws_test_tts_surrogate,
 )
 
 
@@ -151,6 +160,7 @@ __all__ = [
     "ws_commands",
     "ws_device_detail",
     "ws_diagnose_device",
+    "ws_ensure_tts_surrogate",
     "ws_force_refresh",
     "ws_get_devices",
     "ws_get_settings",
@@ -163,10 +173,12 @@ __all__ = [
     "ws_set_device_area",
     "ws_set_enabled",
     "ws_state_diffs",
+    "ws_status_tts_surrogate",
     "ws_subscribe_commands",
     "ws_subscribe_messages",
     "ws_subscribe_state_diffs",
     "ws_subscribe_validation_issues",
+    "ws_test_tts_surrogate",
     "ws_toggle_device",
     "ws_update_settings",
     "ws_validation_issues",

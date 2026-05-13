@@ -46,6 +46,7 @@ class ScenarioDto:
     name: str | None = None
     type: str | None = None
     enabled: bool | None = None
+    description: str | None = None
     triggers: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
 

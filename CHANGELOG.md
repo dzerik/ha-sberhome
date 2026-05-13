@@ -1,5 +1,146 @@
 # Changelog
 
+## [5.6.5] — 2026-05-13
+
+### Fixed — TTS surrogate guard phrase must be Cyrillic
+
+Sber STT фильтрует phrases на не-кириллических алфавитах — `phrases:
+["ha-tts-surrogate-..."]` отвергался даже при правильном API-shape.
+Заменено на русскую служебную фразу «служебная фраза сурогата хатэтээс»,
+вынесенную в module-level константу `GUARD_PHRASE`. Достаточно
+необычная чтобы пользователь не произнёс её случайно.
+
+## [5.6.4] — 2026-05-13
+
+### Fixed — TTS surrogate: «bad nested condition» + empty-home UX
+
+- **«HTTP 500 (code 2): bad nested condition»** — Sber отвергал создание
+  surrogate-сценария с пустым `conditions: []`. Ранее мы пытались сделать
+  «беспусковой» сценарий через empty conditions, но Sber требует minimum 1.
+  Теперь используем guard-фразу `ha-tts-surrogate-<home_id>` — техническая
+  фраза, которую реальный пользователь не произнесёт. Сценарий технически
+  активируется голосом по этой фразе, но практически — нет.
+- **Дома без колонок** — error message теперь понятный, объясняет почему
+  surrogate нельзя создать без колонок и что делать (добавить SberBoom
+  в этот дом через приложение «Салют!»). В UI «Создать сейчас» заменено
+  на бейдж `без колонок` для таких домов.
+
+## [5.6.3] — 2026-05-13
+
+### Fixed — TTS surrogate: «Expected list, got dict» + DRY refactor
+
+**Root cause:** мы шли в Sber API с body, в котором отсутствовал
+обязательный `image` field (Sber отвечал ошибкой валидации). Существующий
+encoder для обычных voice-intents (`intents/encoder.py:encode_scenario`)
+уже знал про это (`DEFAULT_IMAGE` константа с комментарием «Sber
+отказывает в create без image»), но TTS-surrogate реализовывал свой
+собственный builder с нуля.
+
+**Fix (DRY refactor):**
+
+- Удалён собственный `tts_surrogate/scenario_builder.py` — wire-формат
+  больше не дублируется.
+- `TtsSurrogateService._build_body` теперь конструирует
+  `IntentSpec(phrases=[], actions=[tts_action], description=marker, home_id)`
+  и пропускает через существующий `intents.encoder.encode_scenario`.
+  Один источник правды для wire-формата сценария.
+- Encoder корректно генерирует empty condition при `phrases=[]` (Sber
+  не запустит surrogate голосом) и автоматически включает `DEFAULT_IMAGE`.
+- Lifecycle: `get_surrogate_id` теперь требует non-empty speakers даже
+  на этапе initial create (Sber отказывает в пустых PRONOUNCE_COMMAND).
+  Если в доме нет колонок — `HomeAssistantError` с понятным сообщением.
+
+**Также:**
+
+- `_unwrap_list` в `aiosber/api/scenarios.py` стал tolerant к Sber drift'у:
+  принимает `{"result": [...], "pagination": {...}}` (3+ ключа) и
+  fallback на dict с единственным list-valued key. +2 regression-теста.
+
+## [5.6.2] — 2026-05-13
+
+### Fixed — TTS surrogate UI hotfix (3 бага)
+
+- **Кнопка «Создать сейчас» молча падала** — UI вызывал WS
+  `sberhome/tts_surrogate/ensure`, но не проверял `result.ok`. Если
+  backend возвращал `{ok: false, error: ...}` — UI просто перерисовывал
+  status, не показывая причину. Теперь при `ok=false` пользователь
+  видит alert с текстом ошибки.
+- **`async_entries` → `async_loaded_entries`** в `_get_coord` WS-helper'е
+  TTS endpoints'ов. `async_entries` мог возвращать pending/stale entries
+  с `runtime_data=None`, из-за чего surrogate-операции тихо проваливались
+  сразу после старта HA (до завершения setup).
+- **Speakers list рендерился как `[object Object]`** — WS `status`
+  endpoint брал `DeviceDto.name` напрямую, но в Sber wire это `NameDto`
+  (объект с полями `.name`/`.default_name`/`.names`), не plain string.
+  Добавлен `_name_to_str()` helper, корректно извлекающий
+  человекочитаемое имя.
+
+## [5.6.1] — 2026-05-13
+
+### Internal
+
+- Заменены формулировки в комментариях (`coordinator.py:_extract_trigger_type`
+  и `intents/encoder.py`) — нейтральные «восстановлено из live traffic»
+  вместо предыдущих упоминаний reverse-флоу. Без функциональных изменений.
+
+## [5.6.0] — 2026-05-13
+
+### Added — TTS surrogate (🧪 EXPERIMENTAL)
+
+Новая HA notify-platform: `notify.sberhome_<home_slug>` per Sber-дом
+для произнесения произвольного текста через колонки. Реализовано через
+run-time edit одного surrogate-сценария per home (lookup-or-create по
+description marker, PUT phrase + device_ids, POST /run).
+
+```yaml
+automation:
+  - alias: "Уведомление об ужине"
+    trigger: ...
+    action:
+      - service: notify.send_message
+        target:
+          entity_id: notify.sberhome_moy_dom
+        data:
+          message: "Готовый ужин"
+          # device_ids: [...]  — optional, default = все колонки дома
+```
+
+**🧪 EXPERIMENTAL.** Фича работает за счёт run-time edit'а Sber-сценария-болванки
+перед каждым вызовом. Каждый `notify.sberhome_*` = 2-3 API-call'а в Sber
+(PUT scenario → POST /run, плюс GET для cache miss). Latency: ~500ms–2s.
+Sber может изменить wire-формат или начать лимитировать частые edits.
+**Не использовать для частых уведомлений (>1/мин).** При сбое — degraded
+gracefully (errors в logs).
+
+### Internal
+
+- Новый подпакет `custom_components/sberhome/tts_surrogate/` (marker / scenario_builder / service).
+- Новая HA-platform `custom_components/sberhome/notify.py`.
+- Coordinator расширен: `tts_surrogates: dict[home_id → scenario_id]` cache + `tts_service: TtsSurrogateService`.
+- 3 WS endpoint'а: `sberhome/tts_surrogate/{status,ensure,test}`.
+- UI tab «🔊 TTS» — 3-й segment в Automations panel.
+- Speaker resolution — через существующий `sbermap.spec.ha_mapping.resolve_category` (фильтр по категории `sber_speaker`).
+- `ScenarioDto.description` field добавлен в DTO (Sber wire его уже шлёт; нужен для marker-detection).
+
+### Tests
+
++26 новых: marker (5), scenario_builder (4), service (8), notify (4), WS (5).
+Регрессий 0 (1304 passed / 13 skipped). `aiosber/` остаётся standalone.
+
+### Backwards compatibility
+
+Без breaking changes. Новая платформа NOTIFY — additive в `PLATFORMS`.
+
+### Known limitations
+
+- `target` параметр (HA media_player entity_id → Sber device_id) пока
+  не резолвится — используйте `data.device_ids` (raw Sber UUIDs) для
+  явного override колонок. Default — все колонки дома.
+- Concurrency на edit-then-run не контролируется (accepted limitation).
+- Cache `tts_surrogates` in-memory только — reload = rediscover at next call.
+- Orphan-сценарии (после смены auth account / удаления HA) остаются
+  в Sber — чистить вручную в приложении «Салют!».
+
 ## [5.5.2] — 2026-05-13
 
 ### Fixed — UI panel hotfix

@@ -63,6 +63,7 @@ from .sbermap import (
 )
 from .schema_validator import ValidationCollector
 from .state_diff import DiffCollector
+from .tts_surrogate import TtsSurrogateService
 
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
 # в `async_added_to_hass`, fire HA event bus при получении.
@@ -119,7 +120,7 @@ HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
 def _extract_trigger_type(event: ScenarioEventDto) -> str | None:
     """Достать тип триггера сценария из ``ScenarioEventDto.data``.
 
-    Sber wire-format (по декомпиляции мобильного приложения «Салют!»):
+    Sber wire-format (восстановлен из live traffic мобильного приложения «Салют!»):
 
         data: EventExecutionDetailsDto
         ├── scenario_cancel_time: str | None
@@ -266,6 +267,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
         # До setup'а — пустой registry, find_matching возвращает [].
         self.listener_registry: ListenerRegistry = ListenerRegistry()
+
+        # TTS surrogate (v5.6.0, EXPERIMENTAL):
+        # home_id → surrogate scenario_id cache.  In-memory only, reload =
+        # rediscover at first call.  TtsSurrogateService держит логику
+        # lookup-or-create + edit-then-run.
+        self.tts_surrogates: dict[str, str] = {}
+        self.tts_service: TtsSurrogateService = TtsSurrogateService(self)
 
     @property
     def devices(self) -> dict[str, DeviceDto]:

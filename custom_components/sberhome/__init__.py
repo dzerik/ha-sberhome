@@ -74,6 +74,7 @@ PLATFORMS: list[Platform] = [
     Platform.HUMIDIFIER,
     Platform.LIGHT,
     Platform.MEDIA_PLAYER,
+    Platform.NOTIFY,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
