@@ -1,5 +1,40 @@
 # Changelog
 
+## [5.7.3] — 2026-05-13
+
+### Added — Security posture
+
+GitHub Security tab переведён из «42% community + базовая защита» в
+полноценное состояние:
+
+- **`SECURITY.md`** — security policy: supported versions (только
+  последний minor), приватные каналы для security-репортов (GitHub
+  Security Advisory + email), scope/out-of-scope, response time SLA,
+  обзор security-features интеграции (token storage, TLS pinning,
+  diagnostics redaction).
+- **`.github/workflows/codeql.yml`** — CodeQL static security analysis
+  для Python с `security-extended` queries. Runs: on push to main,
+  on PR to main, weekly Monday 06:00 UTC.
+- **Dependabot security updates** — включено через API. Теперь при
+  обнаружении CVE в зависимостях Dependabot откроет PR с fix'ом
+  автоматически (в дополнение к weekly version-updates из v5.7.2).
+- **Private Vulnerability Reporting** — включено в settings репо.
+  Пользователи могут submit'ить security advisory приватно
+  (https://github.com/dzerik/ha-sberhome/security/advisories/new).
+
+### Security status (для справки)
+
+| Фича | Статус |
+|---|---|
+| Secret scanning | ✅ enabled |
+| Secret scanning push protection | ✅ enabled |
+| Dependabot alerts | ✅ enabled |
+| Dependabot security updates | ✅ enabled (v5.7.3) |
+| Dependabot version updates (weekly) | ✅ enabled (v5.7.2) |
+| CodeQL code scanning | ✅ enabled (v5.7.3) |
+| Private vulnerability reporting | ✅ enabled (v5.7.3) |
+| SECURITY.md | ✅ present (v5.7.3) |
+
 ## [5.7.2] — 2026-05-13
 
 ### Fixed — CI Tests + Community Standards
