@@ -67,10 +67,6 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         # Config извлекается один раз — он зависит от device.attributes
         # (которые от refresh к refresh обычно не меняются).
         self._config: LightConfig = self._compute_config()
-        # EFFECT auto-detect: firmware с light_mode enum, содержащим "scene",
-        # умеет проигрывать динамические сцены (`/light/effects` catalog).
-        # Если firmware не умеет — feature не включается, dropdown не появляется.
-        self._supports_effects: bool = self._detect_effect_support()
 
     def _compute_config(self) -> LightConfig:
         dto = self._device_dto
@@ -180,7 +176,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         описывают HS/COLOR_TEMP/BRIGHTNESS/ONOFF (как красить), features —
         EFFECT/FLASH/TRANSITION (что ещё умеет лампа поверх цвета).
         """
-        if self._supports_effects:
+        if self._detect_effect_support():
             return LightEntityFeature.EFFECT
         return LightEntityFeature(0)
 
@@ -192,7 +188,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         даже не показывает dropdown). Возвращает пустой list если каталог
         ещё не загружен или Sber вернул нулевой список.
         """
-        if not self._supports_effects:
+        if not self._detect_effect_support():
             return None
         catalog = self.coordinator.state_cache.get_light_effects()
         return [e["name"] for e in catalog if e.get("name")]
