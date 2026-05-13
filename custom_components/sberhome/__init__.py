@@ -33,17 +33,22 @@ from .exceptions import SberSmartHomeError
 from .intents.reconciler import reconcile_intents
 from .intents.service import IntentService
 from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
+from .listeners import LISTENERS_SCHEMA, load_listeners_from_config
 from .websocket_api import async_setup_websocket_api
 
 # YAML-config для voice intents — опциональная декларативная альтернатива
 # UI-вкладке «Voice Intents». См. intents/yaml_loader.py для shape.
 CONF_INTENTS = "intents"
+# YAML-config для read-only listeners (Sber scenario events → HA events).
+# См. listeners/yaml_loader.py для shape.
+CONF_LISTENERS = "listeners"
 
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
                 vol.Optional(CONF_INTENTS, default=[]): INTENTS_SCHEMA,
+                vol.Optional(CONF_LISTENERS, default=[]): LISTENERS_SCHEMA,
             }
         ),
     },
@@ -54,6 +59,10 @@ CONFIG_SCHEMA = vol.Schema(
 # `async_setup()` (где config доступен) и `async_setup_entry()` /
 # service reload (где доступа к config-arg нет).
 _HASS_DATA_YAML_INTENTS = f"{DOMAIN}_yaml_intents"
+# Аналогичный ключ для listeners — раздаётся между async_setup и
+# async_setup_entry где coordinator + state_cache уже готовы для резолва
+# `filter.home` (по имени) → home_id (UUID).
+_HASS_DATA_YAML_LISTENERS = f"{DOMAIN}_yaml_listeners"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -89,27 +98,53 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """
     domain_config = config.get(DOMAIN) or {}
     raw_intents = domain_config.get(CONF_INTENTS) or []
-    if not raw_intents:
-        hass.data[_HASS_DATA_YAML_INTENTS] = []
-        return True
+    intent_specs: list = []
+    if raw_intents:
+        try:
+            intent_specs = load_intents_from_config(raw_intents)
+        except (vol.Invalid, ValueError) as err:
+            LOGGER.error(
+                "Ошибка в configuration.yaml sberhome.intents: %s. "
+                "YAML-intents игнорируются до исправления.",
+                err,
+            )
+            intent_specs = []
+        else:
+            LOGGER.info(
+                "YAML sberhome.intents: загружено %d intent(s) — будут "
+                "синхронизированы с Sber после первого refresh.",
+                len(intent_specs),
+            )
+    hass.data[_HASS_DATA_YAML_INTENTS] = intent_specs
 
-    try:
-        specs = load_intents_from_config(raw_intents)
-    except (vol.Invalid, ValueError) as err:
-        LOGGER.error(
-            "Ошибка в configuration.yaml sberhome.intents: %s. "
-            "YAML-intents игнорируются до исправления.",
-            err,
-        )
-        hass.data[_HASS_DATA_YAML_INTENTS] = []
-        return True
+    # Listeners: парсим в том же async_setup. Slugs intents считаем
+    # «зарезервированными» — listener с тем же slug автоматически
+    # будет отключён (см. listeners.yaml_loader).
+    raw_listeners = domain_config.get(CONF_LISTENERS) or []
+    listener_specs: list = []
+    if raw_listeners:
+        reserved_slugs = {
+            s.raw_extras.get("yaml_slug") for s in intent_specs if s.raw_extras.get("yaml_slug")
+        }
+        try:
+            listener_specs = load_listeners_from_config(
+                raw_listeners, reserved_slugs=reserved_slugs
+            )
+        except (vol.Invalid, ValueError) as err:
+            LOGGER.error(
+                "Ошибка в configuration.yaml sberhome.listeners: %s. "
+                "YAML-listeners игнорируются до исправления.",
+                err,
+            )
+            listener_specs = []
+        else:
+            LOGGER.info(
+                "YAML sberhome.listeners: загружено %d listener(s) — "
+                "будут активированы после первого refresh (home_id резолв).",
+                len(listener_specs),
+            )
+    hass.data[_HASS_DATA_YAML_LISTENERS] = listener_specs
 
-    hass.data[_HASS_DATA_YAML_INTENTS] = specs
-    LOGGER.info(
-        "YAML sberhome.intents: загружено %d intent(s) — будут "
-        "синхронизированы с Sber после первого refresh.",
-        len(specs),
-    )
     return True
 
 
@@ -226,6 +261,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # для populate last_fired_at).
     await _async_reconcile_yaml_intents(hass, coordinator)
 
+    # YAML-driven listeners — резолв filter.home (по имени) → home_id
+    # выполняется после первого refresh, когда state_cache знает дома.
+    _async_apply_yaml_listeners(hass, coordinator)
+
     return True
 
 
@@ -250,6 +289,61 @@ async def _async_reconcile_yaml_intents(
             "YAML intents reconcile failed — продолжаем без них. "
             "После исправления вызовите service `sberhome.reload_intents`."
         )
+
+
+def _async_apply_yaml_listeners(hass: HomeAssistant, coordinator: SberHomeCoordinator) -> None:
+    """Подключить YAML-listeners к coordinator.listener_registry.
+
+    Резолв filter.home: если в YAML был ``home`` (имя), ищем UUID
+    среди реальных домов из state_cache. Если не нашли — listener
+    отключается (enabled=False) с warning в лог. Если в YAML был
+    ``home_id`` и он уже UUID реального дома — пропускаем как есть.
+
+    Идемпотентно: ``listener_registry.replace(...)`` полностью
+    заменяет содержимое реестра.
+    """
+    from dataclasses import replace
+
+    yaml_listeners = hass.data.get(_HASS_DATA_YAML_LISTENERS) or []
+    if not yaml_listeners:
+        # Явно очищаем registry — могло остаться от прошлого reload'а.
+        coordinator.listener_registry.replace([])
+        return
+
+    homes = coordinator.state_cache.get_homes()
+    homes_by_id = {h.id for h in homes}
+    homes_by_name = {h.name.strip().casefold(): h.id for h in homes if h.name}
+
+    resolved_specs = []
+    for spec in yaml_listeners:
+        raw_home = spec.filter.home_id
+        if raw_home is None:
+            resolved_specs.append(spec)
+            continue
+        if raw_home in homes_by_id:
+            # Уже UUID реального дома — оставляем как есть.
+            resolved_specs.append(spec)
+            continue
+        resolved_home_id = homes_by_name.get(raw_home.strip().casefold())
+        if resolved_home_id is None:
+            LOGGER.warning(
+                "Listener %r filter.home=%r не найден среди реальных домов — disabled",
+                spec.name,
+                raw_home,
+            )
+            spec.enabled = False
+            resolved_specs.append(spec)
+            continue
+        new_filter = replace(spec.filter, home_id=resolved_home_id)
+        new_spec = replace(spec, filter=new_filter)
+        resolved_specs.append(new_spec)
+
+    coordinator.listener_registry.replace(resolved_specs)
+    LOGGER.info(
+        "YAML listeners применены: %d (enabled=%d) к coordinator.listener_registry",
+        len(resolved_specs),
+        sum(1 for s in resolved_specs if s.enabled),
+    )
 
 
 def _async_register_services(hass: HomeAssistant) -> None:

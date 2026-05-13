@@ -5,9 +5,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from custom_components.sberhome import (
+    CONFIG_SCHEMA,
     _async_register_panel,
     async_migrate_entry,
     async_setup_entry,
@@ -18,6 +20,57 @@ from custom_components.sberhome.exceptions import (
     SberAuthError,
     SberConnectionError,
 )
+
+# -----------------------------------------------------------------------------
+# CONFIG_SCHEMA — listeners block (v5.5.0)
+# -----------------------------------------------------------------------------
+
+
+def test_config_schema_accepts_listeners_block() -> None:
+    config = {
+        "sberhome": {
+            "listeners": [
+                {
+                    "slug": "any_time",
+                    "name": "Any TIME",
+                    "filter": {"trigger_type": "TIME"},
+                }
+            ]
+        }
+    }
+    validated = CONFIG_SCHEMA(config)
+    assert validated["sberhome"]["listeners"][0]["slug"] == "any_time"
+
+
+def test_config_schema_listeners_optional() -> None:
+    """sberhome: с intents но без listeners — ok."""
+    config = {
+        "sberhome": {
+            "intents": [
+                {
+                    "name": "Утро",
+                    "phrases": ["утро"],
+                    "actions": [{"type": "ha_event_only"}],
+                }
+            ]
+        }
+    }
+    validated = CONFIG_SCHEMA(config)
+    # listeners либо отсутствует, либо пустой list
+    listeners = validated["sberhome"].get("listeners", [])
+    assert listeners == []
+
+
+def test_config_schema_invalid_listener_filter_rejected() -> None:
+    config = {
+        "sberhome": {
+            "listeners": [
+                {"slug": "x", "name": "X", "filter": {}},
+            ]
+        }
+    }
+    with pytest.raises(vol.Invalid):
+        CONFIG_SCHEMA(config)
 
 
 @pytest.mark.asyncio
