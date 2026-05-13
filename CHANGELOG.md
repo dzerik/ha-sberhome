@@ -1,5 +1,60 @@
 # Changelog
 
+## [5.4.0] — 2026-05-13
+
+### Added — Light effects + Sber-groups
+
+**Эффекты на лампах/лентах** через нативный HA-API
+`light.turn_on entity_id: light.x effect: "Радуга"`:
+
+- Каталог `/light/effects` догружается best-effort в `DeviceService.refresh()`,
+  кэшируется в `StateCache._light_effects`.
+- Auto-detect support: лампа получает `LightEntityFeature.EFFECT` если в её
+  `attributes[].light_mode.enum_values` есть `"scene"`. Lamp без поддержки
+  scene-режима — без `effect_list` (graceful degradation).
+- Активация: `set_state` с `light_mode=scene` + `light_scene=<id>` + `on_off=true`.
+- `light.effect` property возвращает текущее имя эффекта (резолвится из
+  `light_scene` через каталог) или `None` если режим не scene.
+- Неизвестное имя эффекта → warning в лог + fallback на plain on.
+
+**Sber custom-groups** (`group_type=GROUP`) — как `switch` entity на каждую
+непустую группу:
+
+- `is_on` — aggregated (True если хоть один device on; None для групп без
+  on_off-устройств).
+- `available` — True если хоть один device онлайн.
+- `async_turn_on/off` → bulk-команда через `GroupAPI.set_state` (Sber
+  разъезжает серверной стороной), плюс optimistic patch локальных
+  `desired_state` для каждого device группы.
+- WS `GROUP_STATE` push → `coordinator.async_update_listeners()` (мгновенное
+  обновление агрегации без ожидания polling).
+
+### Internal
+
+- `StateCache._light_effects` + `get_light_effects()` / `set_light_effects()`.
+- `StateCache._devices_by_group` (reverse-index `group_id → [device_id, ...]`)
+  + `get_group_devices()` accessor — строится в `update_from_flat()` /
+  `update_from_tree()` / `update_from_devices()`.
+- `custom_components/sberhome/switch_groups.py` — новый модуль
+  `SberGroupSwitch`.
+- `switch.py:async_setup_entry` форвардит group-switches вместе с
+  device-switches (skip empty groups).
+
+### Tests
+
++22 новых: state_cache (effects + reverse-index + isolation),
+DeviceService refresh, light effects (auto-detect / turn_on / current effect /
+fallback warning), SberGroupSwitch (aggregated state / available / bulk /
+optimistic patch), switch.py platform setup, GROUP_STATE WS handler.
+Итого 1238 тестов, lint + format чистые, `aiosber/` остаётся standalone
+(нет HA-импортов).
+
+### Backwards compatibility
+
+Без breaking changes. Существующие light-entities получают дополнительный
+EFFECT feature flag только при auto-detect (firmware-зависимо).
+Switch-entities не изменены. Новых config-параметров не вводится.
+
 ## [5.3.0] — 2026-05-13
 
 ### Added — Home selector в YAML
