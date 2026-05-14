@@ -99,7 +99,8 @@ class SberAuthCallbackView(HomeAssistantView):
         try:
             await hass.config_entries.flow.async_configure(flow_id, user_input={})
         except Exception:
-            LOGGER.debug("Failed to configure flow %s", flow_id, exc_info=True)
+            safe_flow_id = flow_id.replace("\n", "").replace("\r", "")[:64]
+            LOGGER.debug("Failed to configure flow %s", safe_flow_id, exc_info=True)
             return web.json_response(
                 {"status": "error", "error": "Flow configuration failed"},
                 status=500,
