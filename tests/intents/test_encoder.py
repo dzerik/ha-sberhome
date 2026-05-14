@@ -383,7 +383,10 @@ def test_decode_extracts_description_into_spec_field():
 
 def test_encode_decode_roundtrip_preserves_description():
     spec = IntentSpec(
-        id=None, name="Y", phrases=[], actions=[IntentAction(type="ha_event_only")],
+        id=None,
+        name="Y",
+        phrases=[],
+        actions=[IntentAction(type="ha_event_only")],
         description="marker-token-abc",
     )
     body = encode_scenario(spec)

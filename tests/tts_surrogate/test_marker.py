@@ -1,12 +1,53 @@
-"""Tests for TTS surrogate description marker."""
+"""Tests for TTS surrogate name + description markers."""
 
 from custom_components.sberhome.aiosber.dto.scenario import ScenarioDto
 from custom_components.sberhome.tts_surrogate.marker import (
     MARKER_PREFIX,
     build_marker,
+    build_surrogate_name,
+    home_id_short,
     match_surrogate,
     parse_marker,
 )
+
+
+def test_build_surrogate_name_includes_home_id_short():
+    home_id = "c0o3edhu7jqgr5lbnks0"
+    name = build_surrogate_name(home_id, "Мой дом")
+    assert name.startswith("Sber TTS surrogate")
+    assert "Мой дом" in name
+    assert "[home_id=c0o3edhu]" in name
+
+
+def test_home_id_short_takes_first_8_chars():
+    assert home_id_short("c0o3edhu7jqgr5lbnks0") == "c0o3edhu"
+    assert home_id_short("short") == "short"
+
+
+def test_match_surrogate_by_name_substring():
+    """Primary path: list endpoint возвращает name (без description) —
+    discovery должен работать по name."""
+    home_id = "c0o3edhu7jqgr5lbnks0"
+    s = ScenarioDto(
+        id="sc-1",
+        name=build_surrogate_name(home_id, "Мой дом"),
+        description=None,  # list endpoint не возвращает description
+    )
+    assert match_surrogate(s, home_id) is True
+    # Тот же name, другой home_id → no match.
+    assert match_surrogate(s, "d99zzzzz9zzzzzzzzzzz") is False
+
+
+def test_match_surrogate_fallback_by_description():
+    """Fallback: пользователь переименовал в Sber app — name больше не содержит
+    marker, но description ещё есть. Match по description должен сработать."""
+    s = ScenarioDto(
+        id="sc-1",
+        name="Renamed by user manually",
+        description="🤖 HA TTS surrogate (sberhome): home_id=home-A",
+    )
+    assert match_surrogate(s, "home-A") is True
+    assert match_surrogate(s, "home-B") is False
 
 
 def test_build_marker_format():
@@ -32,19 +73,9 @@ def test_parse_marker_tolerant_to_surrounding_whitespace():
     assert parse_marker(desc) == "home-1"
 
 
-def test_match_surrogate():
-    s1 = ScenarioDto(
-        id="sc-1",
-        description="🤖 HA TTS surrogate (sberhome): home_id=home-A",
-    )
-    s2 = ScenarioDto(
-        id="sc-2",
-        description="🤖 HA TTS surrogate (sberhome): home_id=home-B",
-    )
-    s3 = ScenarioDto(id="sc-3", description=None)
-    s4 = ScenarioDto(id="sc-4", description="Random description")
-    assert match_surrogate(s1, "home-A") is True
-    assert match_surrogate(s1, "home-B") is False
-    assert match_surrogate(s2, "home-B") is True
-    assert match_surrogate(s3, "home-A") is False
-    assert match_surrogate(s4, "home-A") is False
+def test_match_surrogate_no_match():
+    """Сценарии без marker (ни в name, ни в description) не должны матчиться."""
+    s = ScenarioDto(id="sc-3", name="Unrelated", description=None)
+    assert match_surrogate(s, "home-A") is False
+    s2 = ScenarioDto(id="sc-4", name="Random", description="Random description")
+    assert match_surrogate(s2, "home-A") is False

@@ -1,5 +1,39 @@
 # Changelog
 
+## [5.7.5] — 2026-05-14
+
+### Fixed — TTS surrogate discovery по name (а не description)
+
+**Root cause v5.7.4 не помог:** Sber `GET /scenario/v2/scenario` (list
+endpoint) возвращает только summary fields: `id`, `name`, `is_active`,
+`steps`, и т.д. — **без поля `description`**. Description приходит
+только при `GET /scenario/v2/scenario/{id}` (полная карточка).
+
+Поэтому `scenarios.list() + match_surrogate(by description)` всегда
+False, даже после фикса v5.7.4 (encoder теперь записывает description,
+но Sber не возвращает его в list-response).
+
+**Fix:** discovery по **substring в name**. Name surrogate-сценария
+теперь содержит home_id-метку:
+
+```
+Sber TTS surrogate (Мой дом) [home_id=c0o3edhu]
+```
+
+где `c0o3edhu` — первые 8 chars UUID дома (32^8 = 1T комбинаций,
+достаточно в рамках одного аккаунта). Discovery через
+substring match `[home_id=<8-char>]` в `scenario.name`.
+
+Description-marker оставлен как **secondary fallback** — на случай
+если пользователь вручную переименовал surrogate в Sber app (имя
+больше не содержит метку, но description ещё есть).
+
+**После update'а:**
+- Первый send создаст новый surrogate с правильным name-marker.
+- Все последующие — найдут его по name.
+- Старые orphan-сценарии «Sber TTS surrogate — *» из v5.6.0..v5.7.4
+  нужно почистить вручную в приложении «Салют!».
+
 ## [5.7.4] — 2026-05-14
 
 ### Fixed — critical: encoder терял `description` при отправке в Sber

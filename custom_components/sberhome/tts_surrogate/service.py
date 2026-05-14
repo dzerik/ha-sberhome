@@ -26,7 +26,7 @@ from ..exceptions import SberApiError
 from ..intents.encoder import encode_scenario
 from ..intents.spec import IntentAction, IntentSpec
 from ..sbermap.spec.ha_mapping import resolve_category
-from .marker import build_marker, match_surrogate
+from .marker import build_marker, build_surrogate_name, match_surrogate
 
 if TYPE_CHECKING:
     from ..coordinator import SberHomeCoordinator
@@ -185,7 +185,7 @@ class TtsSurrogateService:
         home_name = self._home_name(home_id)
         spec = IntentSpec(
             id=None,
-            name=f"Sber TTS surrogate — {home_name}",
+            name=build_surrogate_name(home_id, home_name),
             phrases=[GUARD_PHRASE],
             actions=[
                 IntentAction(

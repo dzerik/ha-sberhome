@@ -8,7 +8,13 @@ Wire-формат scenario'я не дублируется — `TtsSurrogateServi
 проверенный ``intents.encoder.encode_scenario``.
 """
 
-from .marker import MARKER_PREFIX, build_marker, match_surrogate, parse_marker
+from .marker import (
+    MARKER_PREFIX,
+    build_marker,
+    build_surrogate_name,
+    match_surrogate,
+    parse_marker,
+)
 from .service import SBER_SPEAKER_CATEGORY, TtsSurrogateService
 
 __all__ = [
@@ -16,6 +22,7 @@ __all__ = [
     "SBER_SPEAKER_CATEGORY",
     "TtsSurrogateService",
     "build_marker",
+    "build_surrogate_name",
     "match_surrogate",
     "parse_marker",
 ]
