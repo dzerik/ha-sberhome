@@ -349,3 +349,43 @@ class TestHomeIdRoundtrip:
         body = encode_scenario(spec1)
         spec2 = decode_scenario(body)
         assert spec2.home_id == "home-dacha"
+
+
+def test_encode_writes_description_to_wire_body():
+    """Regression: description (TTS surrogate marker / intent ownership) ДОЛЖНО
+    отправляться в wire body. Раньше терялось — TTS surrogate каждый раз
+    создавал новый сценарий вместо update'а существующего."""
+    spec = IntentSpec(
+        id=None,
+        name="X",
+        phrases=["test"],
+        actions=[IntentAction(type="ha_event_only")],
+        description="🤖 HA TTS surrogate (sberhome): home_id=home-1",
+    )
+    body = encode_scenario(spec)
+    assert body.get("description", "").endswith("home_id=home-1")
+
+
+def test_decode_extracts_description_into_spec_field():
+    """Regression: description парсится в IntentSpec.description, а не теряется в raw_extras."""
+    scenario = {
+        "id": "sc-1",
+        "name": "Surrogate",
+        "description": "🤖 HA TTS surrogate (sberhome): home_id=home-1",
+        "is_active": True,
+        "steps": [],
+    }
+    spec = decode_scenario(scenario)
+    assert spec.description == "🤖 HA TTS surrogate (sberhome): home_id=home-1"
+    # И НЕ дублируется в raw_extras
+    assert "description" not in spec.raw_extras
+
+
+def test_encode_decode_roundtrip_preserves_description():
+    spec = IntentSpec(
+        id=None, name="Y", phrases=[], actions=[IntentAction(type="ha_event_only")],
+        description="marker-token-abc",
+    )
+    body = encode_scenario(spec)
+    decoded = decode_scenario({**body, "id": "sc-1"})
+    assert decoded.description == "marker-token-abc"

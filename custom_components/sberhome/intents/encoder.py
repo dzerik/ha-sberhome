@@ -62,6 +62,7 @@ _KNOWN_TOP_FIELDS = frozenset(
         "id",
         "name",
         "is_active",
+        "description",
         "steps",
         "home_id",
         # эти поля важны но не маппятся на UI напрямую — храним в raw_extras
@@ -117,6 +118,7 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
         phrases=_dedup_keep_order(phrases),
         actions=actions,
         enabled=enabled,
+        description=str(scenario.get("description") or ""),
         is_ha_managed=is_ha_managed,
         home_id=home_id,
         raw_extras=raw_extras,
@@ -242,6 +244,12 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
             }
         ],
     }
+
+    # Description — критично для TTS surrogate (marker для discovery)
+    # и для intents (HA-managed ownership marker через description).
+    # Пустой description пропускаем — Sber default'ит к "".
+    if spec.description:
+        body["description"] = spec.description
 
     # Multi-home: если у IntentSpec задан home_id — пишем в body.
     # Это применимо как для create (Sber кладёт сценарий в нужный дом

@@ -1,5 +1,37 @@
 # Changelog
 
+## [5.7.4] — 2026-05-14
+
+### Fixed — critical: encoder терял `description` при отправке в Sber
+
+**Root cause:** `intents/encoder.py:encode_scenario` строил wire body
+без поля `description`. Symmetрично `decode_scenario` не парсил
+`description` в `IntentSpec.description` — поле уходило в `raw_extras`.
+Это ломало:
+
+- **TTS surrogate** — marker не доходил до Sber, поэтому `scenarios.list()
+  + match_surrogate` всегда возвращал False → **на каждую фразу
+  создавался новый surrogate-сценарий** вместо update'а существующего.
+  В v5.7.1 status endpoint authoritatively синхронизировал cache
+  с list-result'ом, что только ускорило проблему (cache очищался при
+  каждом UI-status load).
+- **Voice intents** — description с ownership-marker не сохранялся в Sber;
+  reconciler полагался на собственный storage (HA `.storage`), поэтому
+  на пользователя не влияло заметно, но round-trip сценария с description
+  тёр поле.
+
+**Fix:**
+
+- `encode_scenario` теперь пишет `body["description"] = spec.description`
+  если description непустой.
+- `decode_scenario` парсит `description` напрямую в
+  `IntentSpec.description` (добавлен в `_KNOWN_TOP_FIELDS`, не уходит
+  в raw_extras).
+- +3 regression-теста на round-trip.
+
+После update'а первый запуск пересоздаст surrogate **один раз** —
+дальше будет переиспользоваться правильно.
+
 ## [5.7.3] — 2026-05-13
 
 ### Added — Security posture
