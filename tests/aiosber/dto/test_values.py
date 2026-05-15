@@ -107,6 +107,22 @@ def test_av_color():
     assert av.value == ColorValue(240, 90, 70)
 
 
+def test_av_from_dict_parses_nested_color_wire_keys():
+    """Regression: AttributeValueDto.from_dict должен распарсить вложенный
+    color_value с wire-ключами {h,s,v}. Раньше generic _serde игнорировал
+    кастомный ColorValue.from_dict → ColorValue(0,0,0) (всегда белый цвет)."""
+    av = AttributeValueDto.from_dict(
+        {
+            "key": "light_colour",
+            "type": "COLOR",
+            "color_value": {"h": 240, "s": 900, "v": 1000},
+        }
+    )
+    assert av is not None
+    assert av.color_value == ColorValue(hue=240, saturation=900, brightness=1000)
+    assert av.value == ColorValue(240, 900, 1000)
+
+
 def test_av_omits_none_fields():
     """to_dict() пропускает все None поля (короткий payload)."""
     av = AttributeValueDto(key="on_off", type=AttributeValueType.BOOL, bool_value=False)

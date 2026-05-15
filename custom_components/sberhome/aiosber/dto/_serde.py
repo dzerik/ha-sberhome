@@ -95,6 +95,16 @@ def _convert(value: Any, tp: Any) -> Any:
                 # чем целый device при парсинге дерева устройств.
                 if not isinstance(value, dict):
                     return None
+                # Уважаем кастомный `from_dict` класса, если он есть. Критично
+                # для ColorValue: wire-формат использует короткие ключи
+                # {h, s, v}, а поля dataclass называются hue/saturation/
+                # brightness — generic from_dict отбросил бы все ключи и вернул
+                # ColorValue(0, 0, 0) (всегда белый цвет). Большинство DTO
+                # имеют тривиальный from_dict-прокси к generic — для них
+                # поведение не меняется.
+                custom = getattr(tp, "from_dict", None)
+                if callable(custom):
+                    return custom(value)
                 return from_dict(tp, value)
         return value
 

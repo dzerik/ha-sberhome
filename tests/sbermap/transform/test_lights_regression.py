@@ -147,8 +147,9 @@ def test_light_state_from_dto_respects_type_field() -> None:
     from custom_components.sberhome.sbermap.transform.lights import _desired_value
 
     assert _desired_value(dto, "light_colour") is None
-    # light_brightness должен дать integer value (тип INTEGER) = "50".
-    assert _desired_value(dto, "light_brightness") == "50"
+    # light_brightness должен дать integer value (тип INTEGER) = 50.
+    # AttributeValueDto.from_dict конвертирует wire-строку "50" → int 50.
+    assert _desired_value(dto, "light_brightness") == 50
     # light_mode должен дать enum value.
     assert _desired_value(dto, "light_mode") == "music"
     # on_off — BOOL.
