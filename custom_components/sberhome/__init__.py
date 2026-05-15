@@ -27,6 +27,8 @@ from .aiosber.auth import (
 from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID
 from .aiosber.transport import HttpTransport
 from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
+from .conflict import ISSUE_ID as CONFLICT_ISSUE_ID
+from .conflict import async_update_conflict_issue
 from .const import CONF_AUTH_METHOD, CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
@@ -265,6 +267,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # YAML-driven listeners — резолв filter.home (по имени) → home_id
     # выполняется после первого refresh, когда state_cache знает дома.
     _async_apply_yaml_listeners(hass, coordinator)
+
+    # Детектор конфликта с альтернативными Sber-интеграциями (issue #10).
+    async_update_conflict_issue(hass)
 
     return True
 
@@ -634,6 +639,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) ->
         with contextlib.suppress(KeyError, ValueError):
             async_remove_panel(hass, _PANEL_URL_PATH)
         hass.data.pop(f"{DOMAIN}_panel_registered", None)
+        # Последняя запись ушла — снимаем repair issue о конфликте.
+        from homeassistant.helpers import issue_registry as ir
+
+        ir.async_delete_issue(hass, DOMAIN, CONFLICT_ISSUE_ID)
 
     return unloaded
 

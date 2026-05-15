@@ -94,5 +94,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "conflicting_integration": {
+      "title": "Boshqa Sber integratsiyasi aniqlandi",
+      "description": "Sber qurilmalari uchun ikkita integratsiya o'rnatilgan: SberHome va {domains}. Bitta Sber hisobi bilan ikkita integratsiyaning bir vaqtda ishlashi nizolarni keltirib chiqarishi mumkin — holat yangilanishlarini ushlab qolish, rejimlarni noto'g'ri ko'rsatish, buyruq poygalari. Ulardan faqat bittasini yoqilgan holda qoldirish tavsiya etiladi."
+    }
   }
 }

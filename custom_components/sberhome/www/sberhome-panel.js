@@ -308,6 +308,15 @@ class SberHomePanel extends LitElement {
         font-size: 13px;
       }
 
+      .warning {
+        padding: 12px 16px;
+        margin: 0 16px 16px;
+        background: var(--warning-color, #ff9800);
+        color: #fff;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+
       /* ── Mobile (планшеты + телефоны) ── */
       @media (max-width: 768px) {
         .top {
@@ -372,6 +381,15 @@ class SberHomePanel extends LitElement {
       </div>
 
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
+      ${this._status?.conflict_integrations?.length
+        ? html`<div class="warning">
+            Обнаружена параллельная интеграция Sber
+            (${this._status.conflict_integrations.join(", ")}). Одновременная
+            работа двух интеграций с одним аккаунтом Sber может вызывать
+            конфликты обновления состояния и команд. Рекомендуется оставить
+            включённой только одну.
+          </div>`
+        : ""}
       <div class="content"
         @toast=${this._onToast}
         @show-device-detail=${this._onShowDeviceDetail}

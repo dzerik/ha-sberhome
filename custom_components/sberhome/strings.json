@@ -93,5 +93,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "conflicting_integration": {
+      "title": "Detected another Sber integration",
+      "description": "Two integrations for Sber devices are installed: SberHome and {domains}. Running two integrations against the same Sber account at once can cause conflicts — intercepted state updates, incorrect mode display, command races. It is recommended to keep only one of them enabled."
+    }
   }
 }

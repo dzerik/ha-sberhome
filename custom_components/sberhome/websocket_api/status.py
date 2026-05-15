@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
+from ..conflict import detect_conflicts
 from ._common import get_config_entry, get_coordinator
 
 
@@ -81,5 +82,8 @@ def ws_get_status(
                 "smart_home_expires_at": smart_home_expires,
             },
             "error_count": coord.error_count,
+            # Домены параллельно установленных Sber-интеграций (issue #10).
+            # Панель рисует предупреждающий баннер если список непустой.
+            "conflict_integrations": detect_conflicts(hass),
         },
     )
