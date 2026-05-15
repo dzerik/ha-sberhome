@@ -40,7 +40,6 @@ from .api import (
     GroupAPI,
     IndicatorAPI,
     InventoryAPI,
-    LightEffectsAPI,
     PairingAPI,
     ScenarioAPI,
     ScenarioTemplatesAPI,
@@ -80,7 +79,6 @@ class SberClient:
         self._pairing = PairingAPI(transport)
         self._indicator = IndicatorAPI(transport)
         self._inventory = InventoryAPI(transport)
-        self._effects = LightEffectsAPI(transport)
         self._scenario_templates = ScenarioTemplatesAPI(transport)
         # Service layer (high-level, typed, with state cache)
         self._state = StateCache()
@@ -113,11 +111,6 @@ class SberClient:
     def inventory(self) -> InventoryAPI:
         """OTA / inventory metadata (`/inventory/*`)."""
         return self._inventory
-
-    @property
-    def effects(self) -> LightEffectsAPI:
-        """Light effects catalog (`/light/effects`)."""
-        return self._effects
 
     @property
     def scenario_templates(self) -> ScenarioTemplatesAPI:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..dto.device import DeviceDto
@@ -45,10 +45,6 @@ class StateCache:
         # возвращается пустым. Best-effort populated в
         # `DeviceService.refresh()` при первом успешном refresh.
         self._enums: dict[str, list[str]] = {}
-        # Light effects catalog — `/light/effects` каталог сцен. Best-effort
-        # lazy-loaded в `DeviceService.refresh()`. Каждый элемент содержит
-        # `{id, name, preview?, category?}`.
-        self._light_effects: list[dict[str, Any]] = []
         # group_id → [device_id, ...] — reverse-index из device.group_ids.
         # Перестраивается в update_from_flat()/update_from_tree() каждый refresh.
         self._devices_by_group: dict[str, list[str]] = {}
@@ -186,28 +182,6 @@ class StateCache:
     def set_enums(self, enums: dict[str, list[str]]) -> None:
         """Заменить enum-словарь полностью (вызывается из refresh)."""
         self._enums = dict(enums)
-
-    # ------------------------------------------------------------------
-    # Light effects catalog (best-effort, lazy-loaded в DeviceService.refresh)
-    # ------------------------------------------------------------------
-    def get_light_effects(self) -> list[dict[str, Any]]:
-        """Каталог световых эффектов из `/light/effects`.
-
-        Возвращает копию (не пустую только если refresh когда-то успешно
-        её загрузил). Каждый элемент содержит `{id, name, preview?, category?}`.
-        """
-        return list(self._light_effects)
-
-    def set_light_effects(self, catalog: list[dict[str, Any]]) -> None:
-        """Сохранить каталог light-effects.
-
-        Вызывается из `DeviceService.refresh()` best-effort'ом. Пустой
-        list тоже валидное значение (значит API не вернул эффекты).
-
-        Элементы копируются по отдельности (dict copy на каждом item),
-        чтобы caller не мог случайно мутировать stored catalog.
-        """
-        self._light_effects = [dict(item) for item in catalog]
 
     # ------------------------------------------------------------------
     # Write — full refresh from tree

@@ -8,7 +8,6 @@ DTO из `aiosber.dto`, маппит ошибки в `aiosber.exceptions`.
 from __future__ import annotations
 
 from .devices import DeviceAPI
-from .effects import LightEffectsAPI
 from .groups import GroupAPI
 from .indicator import IndicatorAPI
 from .inventory import InventoryAPI
@@ -21,7 +20,6 @@ __all__ = [
     "GroupAPI",
     "IndicatorAPI",
     "InventoryAPI",
-    "LightEffectsAPI",
     "PairingAPI",
     "ScenarioAPI",
     "ScenarioTemplatesAPI",

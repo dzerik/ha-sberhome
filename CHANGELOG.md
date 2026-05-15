@@ -1,5 +1,26 @@
 # Changelog
 
+## [5.8.3] — 2026-05-15
+
+### Fixed — пустой список эффектов у RGB-ламп и LED-лент
+
+В карточке устройства кнопка эффектов отображалась, но dropdown был пуст.
+
+`effect_list` строился из облачного каталога `GET /light/effects`
+(`LightEffectsAPI`) — спекулятивного endpoint'а, который не возвращает
+данных. При этом `EFFECT`-feature включалась (т.к. `light_mode` enum
+содержит `scene`), отсюда кнопка с пустым списком.
+
+Реальные сцены устройства приходят в каждом payload — в enum атрибута
+`light_scene` (`candle`, `arctic`, `romantic`, `sunset`, `dawn`,
+`christmas`, `fito` и т.п.).
+
+**Fix:** `effect_list` / `effect` / `light.turn_on(effect=…)` теперь
+работают напрямую с `light_scene` enum устройства. Имена сцен —
+технические значения Sber. Мёртвый код каталога `/light/effects`
+(`LightEffectsAPI`, `state_cache.get/set_light_effects`,
+`SberClient.effects`) удалён.
+
 ## [5.8.2] — 2026-05-15
 
 ### Fixed — цвет RGB-ламп/лент всегда отображался белым

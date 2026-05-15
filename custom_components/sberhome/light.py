@@ -185,48 +185,38 @@ class SberLightEntity(SberBaseEntity, LightEntity):
 
     @property
     def effect_list(self) -> list[str] | None:
-        """Список имён эффектов из каталога `/light/effects`.
+        """Список сцен устройства из enum атрибута `light_scene`.
 
         Возвращает None если устройство не умеет scene-mode (тогда HA
-        даже не показывает dropdown). Возвращает пустой list если каталог
-        ещё не загружен или Sber вернул нулевой список.
+        не показывает dropdown). Имена сцен — технические enum-значения
+        Sber (`candle`, `arctic`, `sunset`, …).
         """
         if not self._supports_effects:
             return None
-        catalog = self.coordinator.state_cache.get_light_effects()
-        return [e["name"] for e in catalog if e.get("name")]
+        return list(self._config.scene_options)
 
     @property
     def effect(self) -> str | None:
-        """Имя текущего эффекта или None.
+        """Текущая сцена или None.
 
-        Логика: если `light_mode == "scene"` и `light_scene` указывает на
-        известный id из каталога — возвращаем `effect.name`. Иначе None.
+        Если `light_mode == "scene"` и `light_scene` — известное значение
+        из enum устройства, возвращаем его. Иначе None.
         """
         if not self._supports_effects:
             return None
         dto = self._device_dto
-        if dto is None:
+        if dto is None or dto.reported_value("light_mode") != "scene":
             return None
-        mode = dto.reported_value("light_mode")
-        if mode != "scene":
-            return None
-        scene_id = dto.reported_value("light_scene")
-        if not scene_id:
-            return None
-        for effect in self.coordinator.state_cache.get_light_effects():
-            if effect.get("id") == scene_id:
-                return effect.get("name")
-        return None
+        scene = dto.reported_value("light_scene")
+        return scene if scene in self._config.scene_options else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         # Effect short-circuit: если HA дал effect-name и устройство умеет
-        # scene-mode — отправляем тройку (light_mode=scene, light_scene=<id>,
-        # on_off=true). Если имя не нашли в каталоге — warning + fall-through
-        # на обычный turn_on (plain on без эффекта).
+        # scene-mode — отправляем тройку (light_mode=scene, light_scene=<value>,
+        # on_off=true). effect-name = enum-значение light_scene напрямую.
+        # Неизвестное имя → warning + fall-through на обычный turn_on.
         if (effect_name := kwargs.get(ATTR_EFFECT)) and self._supports_effects:
-            effect_id = self._resolve_effect_id(effect_name)
-            if effect_id is None:
+            if effect_name not in self._config.scene_options:
                 LOGGER.warning(
                     "Unknown effect %r for %s — fallback to plain on",
                     effect_name,
@@ -236,7 +226,7 @@ class SberLightEntity(SberBaseEntity, LightEntity):
             else:
                 attrs = [
                     AttributeValueDto.of_enum(AttrKey.LIGHT_MODE, "scene"),
-                    AttributeValueDto.of_string(AttrKey.LIGHT_SCENE, effect_id),
+                    AttributeValueDto.of_string(AttrKey.LIGHT_SCENE, effect_name),
                     AttributeValueDto.of_bool(AttrKey.ON_OFF, True),
                 ]
                 await self._async_send_attrs(attrs)
@@ -257,13 +247,6 @@ class SberLightEntity(SberBaseEntity, LightEntity):
             current_state=self._state(),
         )
         await self._async_send_attrs(bundle)
-
-    def _resolve_effect_id(self, name: str) -> str | None:
-        """Найти id эффекта в каталоге по имени."""
-        for effect in self.coordinator.state_cache.get_light_effects():
-            if effect.get("name") == name:
-                return effect.get("id")
-        return None
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         bundle = build_light_command(self._config, self._device_id, is_on=False)

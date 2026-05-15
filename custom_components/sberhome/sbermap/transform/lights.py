@@ -53,6 +53,9 @@ class LightConfig:
     has_color_temp: bool = False
     has_colour: bool = False
     light_modes: tuple[str, ...] = ()
+    # Значения enum атрибута light_scene — встроенные сцены устройства.
+    # Используются HA-слоем как effect_list для light-платформы.
+    scene_options: tuple[str, ...] = ()
 
 
 def _real_color_temp_range_for(image_set_type: str | None) -> tuple[int, int]:
@@ -151,6 +154,7 @@ def light_config_from_dto(dto: DeviceDto) -> LightConfig:
     ct_range = _attr_int_range(dto.attributes, "light_colour_temp")
     color_ranges = _attr_color_ranges(dto.attributes)
     light_modes = _attr_enum_options(dto.attributes, "light_mode")
+    scene_options = _attr_enum_options(dto.attributes, "light_scene")
     return LightConfig(
         brightness_range=br_range or (1, 255),
         color_temp_range=ct_range or (0, 100),
@@ -162,6 +166,7 @@ def light_config_from_dto(dto: DeviceDto) -> LightConfig:
         has_color_temp=ct_range is not None,
         has_colour=color_ranges is not None,
         light_modes=light_modes,
+        scene_options=scene_options,
     )
 
 
