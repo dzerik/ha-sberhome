@@ -135,22 +135,71 @@ def test_map_device_to_entities_survives_type_mismatch() -> None:
     assert ss_entities[0].state == "low"  # ENUM value как есть
 
 
-def test_light_state_from_dto_respects_type_field() -> None:
-    """Проверяем что _desired_value использует av.value (type-aware), не
-    fallback на первое не-None value-поле."""
+def test_desired_readers_ignore_unreliable_type_field() -> None:
+    """Типизированные desired-ридеры читают значение по ожидаемому типу
+    ключа, не доверяя `av.type` (Sber его проставляет непоследовательно)."""
     payload = _make_dt_bulb_e27_m()
     dto = DeviceDto.from_dict(payload)
     assert dto is not None
 
-    # light_colour должно давать None (color_value отсутствует в DTO),
-    # а НЕ bool_value=False.
-    from custom_components.sberhome.sbermap.transform.lights import _desired_value
+    from custom_components.sberhome.sbermap.transform.lights import (
+        _desired_bool,
+        _desired_color,
+        _desired_enum,
+        _desired_int,
+    )
 
-    assert _desired_value(dto, "light_colour") is None
-    # light_brightness должен дать integer value (тип INTEGER) = 50.
-    # AttributeValueDto.from_dict конвертирует wire-строку "50" → int 50.
-    assert _desired_value(dto, "light_brightness") == 50
-    # light_mode должен дать enum value.
-    assert _desired_value(dto, "light_mode") == "music"
+    # light_colour отсутствует в DTO → None.
+    assert _desired_color(dto, "light_colour") is None
+    # light_brightness: integer_value (wire "50" → int 50 в from_dict).
+    assert _desired_int(dto, "light_brightness") == 50
+    # light_mode → enum value.
+    assert _desired_enum(dto, "light_mode") == "music"
     # on_off — BOOL.
-    assert _desired_value(dto, "on_off") is True
+    assert _desired_bool(dto, "on_off") is True
+
+
+def test_light_state_survives_string_typed_numeric_attrs() -> None:
+    """Regression issue #10: Sber присылает в desired_state числовые атрибуты
+    (light_brightness, light_colour_temp) с type=STRING — реальное число в
+    integer_value, string_value пустой. Раньше light_state_from_dto падал на
+    int('') → light entity мертва, цвет/яркость не работали.
+    """
+    payload = {
+        "id": "ledstrip-1",
+        "image_set_type": "cat_ledstrip_m",
+        "attributes": [
+            {"key": "light_brightness", "type": "INTEGER",
+             "int_values": {"range": {"min": 50, "max": 1000, "step": 1}}},
+            {"key": "light_colour_temp", "type": "INTEGER",
+             "int_values": {"range": {"min": 0, "max": 1000, "step": 1}}},
+            {"key": "light_mode", "type": "ENUM",
+             "enum_values": {"values": ["colour", "white", "scene"]}},
+            {"key": "light_colour", "type": "COLOR",
+             "color_values": {"h": {"min": 0, "max": 360}, "s": {"min": 0, "max": 1000},
+                              "v": {"min": 100, "max": 1000}}},
+        ],
+        # Sber-баг: type=STRING у числовых, значение в integer_value.
+        "desired_state": [
+            {"key": "on_off", "type": "BOOL", "bool_value": True},
+            {"key": "light_brightness", "type": "STRING", "integer_value": "1000",
+             "string_value": ""},
+            {"key": "light_colour_temp", "type": "STRING", "integer_value": "555",
+             "string_value": ""},
+            {"key": "light_mode", "type": "ENUM", "enum_value": "colour"},
+            {"key": "light_colour", "type": "COLOR",
+             "color_value": {"h": 0, "s": 1000, "v": 1000}},
+        ],
+    }
+    dto = DeviceDto.from_dict(payload)
+    assert dto is not None
+    config = light_config_from_dto(dto)
+
+    # Не падает на int('') — главное условие регрессии.
+    state = light_state_from_dto(dto, config)
+
+    assert state["is_on"] is True
+    assert state["light_mode"] == "colour"
+    # colour-mode: brightness берётся из color_value.v (=1000).
+    assert state["brightness"] is not None
+    assert state["hs_color"] is not None

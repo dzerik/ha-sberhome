@@ -1,5 +1,25 @@
 # Changelog
 
+## [5.8.5] — 2026-05-15
+
+### Fixed — light entity «мертва» (только on/off) на части RGB-лент (#10)
+
+`light_state_from_dto` падал с `ValueError: invalid literal for int()`
+на устройствах, где Sber Gateway в `desired_state` присылает числовые
+атрибуты (`light_brightness`, `light_colour_temp`, `light_scene`) с
+ошибочным `type=STRING` — реальное число лежит в `integer_value`, а
+`string_value` пустой.
+
+`AttributeValueDto.value` строго следует `type` → возвращал `''` →
+`int('')` ронял весь расчёт состояния → цвет/яркость не работали,
+устройство вело себя «как простой выключатель». У части пользователей
+Sber присылал корректные типы — поэтому баг воспроизводился не у всех.
+
+**Fix:** чтение `desired_state` для light больше не доверяет `av.type` —
+числовые/enum/bool/color значения берутся из соответствующего поля по
+известной семантике ключа (`_desired_int`/`_desired_enum`/`_desired_bool`/
+`_desired_color`).
+
 ## [5.8.4] — 2026-05-15
 
 ### Fixed — выбор эффекта падал с HTTP 400

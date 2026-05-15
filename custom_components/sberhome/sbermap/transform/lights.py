@@ -170,19 +170,47 @@ def light_config_from_dto(dto: DeviceDto) -> LightConfig:
     )
 
 
-def _desired_value(dto: DeviceDto, key: str) -> Any:
-    """Берём значение из desired_state через type-aware диспатч.
-
-    Делегирует к `AttributeValueDto.value` property, которое строго
-    уважает `av.type`. Это критично для устройств типа `dt_bulb_e27_m`,
-    где API-payload заполняет все value-поля дефолтами (bool_value: false,
-    integer_value: "0"), и наивный "первое не-None" возвращал
-    `bool_value=False` для COLOR атрибута → crash в scale_ranged_value.
-    """
+def _desired_av(dto: DeviceDto, key: str):
+    """Найти AttributeValueDto в desired_state по ключу."""
     for av in dto.desired_state:
         if av.key == key:
-            return av.value
+            return av
     return None
+
+
+def _desired_int(dto: DeviceDto, key: str) -> int | None:
+    """Целочисленное значение desired-атрибута по фиксированному ключу.
+
+    НЕ доверяет `av.type`: Sber Gateway непоследователен — для `desired_state`
+    числовых атрибутов (`light_brightness`, `light_colour_temp`, `light_scene`)
+    он иногда проставляет `type=STRING`, оставляя реальное число в
+    `integer_value`, а `string_value` пустым. `AttributeValueDto.value` строго
+    следует `type` и в этом случае вернул бы `''` → `int('')` ронял весь
+    `light_state_from_dto` (issue #10). Читаем `integer_value` напрямую —
+    мы знаем семантику ключа.
+    """
+    av = _desired_av(dto, key)
+    return av.integer_value if av is not None else None
+
+
+def _desired_enum(dto: DeviceDto, key: str) -> str | None:
+    """Enum/строковое значение desired-атрибута, минуя ненадёжный `av.type`."""
+    av = _desired_av(dto, key)
+    if av is None:
+        return None
+    return av.enum_value or av.string_value or None
+
+
+def _desired_bool(dto: DeviceDto, key: str) -> bool | None:
+    """Bool-значение desired-атрибута."""
+    av = _desired_av(dto, key)
+    return av.bool_value if av is not None else None
+
+
+def _desired_color(dto: DeviceDto, key: str):
+    """ColorValue desired-атрибута."""
+    av = _desired_av(dto, key)
+    return av.color_value if av is not None else None
 
 
 def light_state_from_dto(dto: DeviceDto, config: LightConfig) -> dict[str, Any]:
@@ -191,10 +219,10 @@ def light_state_from_dto(dto: DeviceDto, config: LightConfig) -> dict[str, Any]:
     Возвращает dict: is_on, brightness (0..255), hs_color, color_temp_kelvin,
     light_mode ("colour"|"white"), color_value (raw {h,s,v} dict если есть).
     """
-    is_on = _desired_value(dto, "on_off")
-    light_mode = _desired_value(dto, "light_mode")
-    brightness_raw = _desired_value(dto, "light_brightness")
-    color_obj = _desired_value(dto, "light_colour")
+    is_on = _desired_bool(dto, "on_off")
+    light_mode = _desired_enum(dto, "light_mode")
+    brightness_raw = _desired_int(dto, "light_brightness")
+    color_obj = _desired_color(dto, "light_colour")
 
     brightness: int | None = None
     if light_mode == "colour" and color_obj is not None and int(color_obj.brightness) > 0:
@@ -220,7 +248,7 @@ def light_state_from_dto(dto: DeviceDto, config: LightConfig) -> dict[str, Any]:
         )
 
     color_temp_kelvin: int | None = None
-    color_temp_raw = _desired_value(dto, "light_colour_temp")
+    color_temp_raw = _desired_int(dto, "light_colour_temp")
     if color_temp_raw is not None and config.has_color_temp:
         color_temp_kelvin = scale_ranged_value_to_int_range(
             config.color_temp_range, config.real_color_temp_range, int(color_temp_raw)
