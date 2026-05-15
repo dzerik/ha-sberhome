@@ -1,5 +1,15 @@
 # Changelog
 
+## [5.8.4] — 2026-05-15
+
+### Fixed — выбор эффекта падал с HTTP 400
+
+`light.turn_on(effect=…)` отправлял `light_scene` как STRING-значение,
+а это ENUM-атрибут — Sber отвечал `HTTP 400 (code 3): invalid value
+for ENUM type attribute - only enum_value should be set`.
+
+**Fix:** `light_scene` отправляется через `of_enum` (`enum_value`).
+
 ## [5.8.3] — 2026-05-15
 
 ### Fixed — пустой список эффектов у RGB-ламп и LED-лент

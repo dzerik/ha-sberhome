@@ -224,9 +224,11 @@ class SberLightEntity(SberBaseEntity, LightEntity):
                 )
                 # fall-through to plain on below
             else:
+                # light_scene — ENUM-атрибут: Sber отвергает STRING-value
+                # ("only enum_value should be set"), нужен of_enum.
                 attrs = [
                     AttributeValueDto.of_enum(AttrKey.LIGHT_MODE, "scene"),
-                    AttributeValueDto.of_string(AttrKey.LIGHT_SCENE, effect_name),
+                    AttributeValueDto.of_enum(AttrKey.LIGHT_SCENE, effect_name),
                     AttributeValueDto.of_bool(AttrKey.ON_OFF, True),
                 ]
                 await self._async_send_attrs(attrs)

@@ -144,7 +144,9 @@ async def test_turn_on_with_effect_sends_correct_attrs():
     assert args[0] == "dev-1"
     sent = {a.key: a for a in args[1]}
     assert sent["light_mode"].enum_value == "scene"
-    assert sent["light_scene"].string_value == "sunset"
+    # light_scene — ENUM-атрибут: значение в enum_value, не string_value.
+    assert sent["light_scene"].enum_value == "sunset"
+    assert sent["light_scene"].type is AttributeValueType.ENUM
     assert sent["on_off"].bool_value is True
 
 
