@@ -122,6 +122,23 @@ def test_patch_device_state():
     assert new_dto.reported("on_off").bool_value is False
 
 
+def test_patch_device_state_syncs_desired():
+    """WS DEVICE_STATE должен синхронизировать desired_state — иначе light
+    entity (читает desired) не увидит изменений из приложения «Салют!»."""
+    cache = StateCache()
+    cache.update_from_tree(_make_tree())
+    new_dto = cache.patch_device_state(
+        "dev-1",
+        [AttributeValueDto(key="on_off", type=AttributeValueType.BOOL, bool_value=False)],
+    )
+    assert new_dto is not None
+    # И reported, и desired содержат новое значение.
+    assert new_dto.reported("on_off").bool_value is False
+    assert any(
+        av.key == "on_off" and av.bool_value is False for av in new_dto.desired_state
+    )
+
+
 def test_patch_device_state_unknown_device():
     cache = StateCache()
     assert cache.patch_device_state("unknown", []) is None

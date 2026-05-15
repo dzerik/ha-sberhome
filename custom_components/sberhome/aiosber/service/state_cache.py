@@ -442,18 +442,34 @@ class StateCache:
         device_id: str,
         reported: list[AttributeValueDto],
     ) -> DeviceDto | None:
-        """WS DEVICE_STATE → точечный patch reported_state в DTO.
+        """WS DEVICE_STATE → точечный patch reported_state И desired_state.
+
+        WS push несёт authoritative «фактическое состояние» устройства —
+        изменение, реально произошедшее на устройстве (в т.ч. сделанное
+        вне HA, например в приложении «Салют!»). Поэтому теми же значениями
+        синхронизируем desired_state: без этого entity, читающие desired
+        (`light` — единственный такой transform), не увидят WS-изменений
+        и состояние «зависнет» до ручного refresh.
+
+        Optimistic desired после HA-команды затирается следующим WS push'ем —
+        это корректно: WS reported и есть подтверждение применения команды.
 
         Возвращает обновлённый DeviceDto или None если device не в кеше.
         """
         old = self._devices.get(device_id)
         if old is None:
             return None
-        by_key = {av.key: av for av in old.reported_state}
+        reported_by_key = {av.key: av for av in old.reported_state}
+        desired_by_key = {av.key: av for av in old.desired_state}
         for av in reported:
             if av.key:
-                by_key[av.key] = av
-        new = replace(old, reported_state=list(by_key.values()))
+                reported_by_key[av.key] = av
+                desired_by_key[av.key] = av
+        new = replace(
+            old,
+            reported_state=list(reported_by_key.values()),
+            desired_state=list(desired_by_key.values()),
+        )
         self._devices[device_id] = new
         return new
 
