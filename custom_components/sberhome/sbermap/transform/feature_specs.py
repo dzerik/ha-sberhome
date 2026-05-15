@@ -321,6 +321,17 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         icon="mdi:shield-sun",
         categories=_cats("hvac_air_purifier"),
     ),
+    # SBDV-00055 (cat_ledstrip_m) имеет отдельный мастер-выключатель
+    # `switch_led` (питание контроллера ленты) поверх логического `on_off`.
+    # Когда `switch_led=false` лента не реагирует ни на light.turn_on, ни на
+    # цвет/яркость — это standby. Эксплуатация как config switch.
+    "switch_led": FeatureSpec(
+        platform=Platform.SWITCH,
+        codec=BoolCodec(),
+        entity_category=_CFG,
+        icon="mdi:power",
+        categories=_cats("led_strip"),
+    ),
     # ---- Extra binary sensors (per-category) ----
     "kitchen_water_low_level": FeatureSpec(
         platform=Platform.BINARY_SENSOR,
