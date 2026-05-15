@@ -1,5 +1,52 @@
 # Changelog
 
+## [5.7.7] — 2026-05-15
+
+### Fixed — критическая регрессия: status crash при SMS-OTP авторизации (#9)
+
+После введения `CsafrontAuthManager` (SMS-OTP флоу) `websocket_api/status.py`
+и `diagnostics.py` безусловно обращались к `.sberid_expires_at` /
+`.companion_expires_at`, которые есть только у OAuth-менеджера. У
+SMS-flow менеджера эти атрибуты отсутствуют — он экспонирует
+единый `smart_home_expires_at` (CSAFront-derived TTL).
+
+Симптом: после SMS-авторизации UI панели интеграции показывал
+красный «Unknown error», WS-канал отдавал `AttributeError`,
+устройства не загружались.
+
+**Fix:** доступ через `getattr(...)` + новый `smart_home_expires_at`
+в status-response для SMS-flow юзеров.
+
+### Added — switch_led для LED-лент SBDV-00055 (#1, #10)
+
+У SBDV-00055 (cat_ledstrip_m) обнаружено двухуровневое управление
+питанием:
+- `switch_led` — мастер-питание контроллера ленты
+- `on_off` — логический вкл/выкл
+
+Когда `switch_led=false` лента в standby — не реагирует ни на
+`light.turn_on`, ни на цвет/яркость. До v5.7.7 атрибут `switch_led`
+не имел HA-entity, и юзер не мог его переключить из HA.
+
+**Fix:** автоматически создаётся `switch.<имя>_switch_led` (config category)
+для всех LED-лент. Юзер может включить мастер-питание один раз —
+дальше light entity работает штатно.
+
+### Security — fix log-injection через flow_id (CWE-117)
+
+CodeQL alert #2: `flow_id` из POST body уходил в `LOGGER.debug` без
+санитизации. Атакующий мог вставить `\n`/`\r` и подделать log entries.
+
+**Fix:** strip newlines + cap до 64 chars перед логированием в
+`auth_view.py:102`.
+
+### Dependencies
+
+- actions/checkout 4 → 6
+- actions/setup-python 5 → 6
+- ruff >=0.4 → >=0.15.12
+- pytest-homeassistant-custom-component >=0.13 → >=0.13.205
+
 ## [5.7.5] — 2026-05-14
 
 ### Fixed — TTS surrogate discovery по name (а не description)
