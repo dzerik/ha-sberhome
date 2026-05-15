@@ -57,11 +57,15 @@ async def async_get_config_entry_diagnostics(
                 }
 
         auth_mgr = coordinator.auth_manager
+        # OAuth (AuthManager) и SMS-OTP (CsafrontAuthManager) экспонируют
+        # разные expiry properties — getattr чтобы не падать AttributeError.
         auth_state = {
-            "has_companion": auth_mgr.has_companion,
-            "has_sberid_refresh": auth_mgr.has_sberid_refresh,
-            "companion_expires_at": auth_mgr.companion_expires_at,
-            "sberid_expires_at": auth_mgr.sberid_expires_at,
+            "has_companion": getattr(auth_mgr, "has_companion", None),
+            "has_sberid_refresh": getattr(auth_mgr, "has_sberid_refresh", None),
+            "has_tokens": getattr(auth_mgr, "has_tokens", None),
+            "companion_expires_at": getattr(auth_mgr, "companion_expires_at", None),
+            "sberid_expires_at": getattr(auth_mgr, "sberid_expires_at", None),
+            "smart_home_expires_at": getattr(auth_mgr, "smart_home_expires_at", None),
         }
 
         coord_stats = {

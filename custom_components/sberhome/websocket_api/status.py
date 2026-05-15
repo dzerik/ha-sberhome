@@ -42,11 +42,13 @@ def ws_get_status(
         return
 
     # Tokens живут в HomeAPI.AuthManager (после перехода на aiosber 2.6.0).
-    # SberID хранится также в SberAPI (для config_entry.data persistence),
-    # но canonical источник истины для runtime — AuthManager.
+    # Два разных типа auth-flow: OAuth (AuthManager) — два токена sberid+companion;
+    # SMS-OTP (CsafrontAuthManager) — единый smart_home_token. getattr-доступ,
+    # чтобы status не падал AttributeError при отсутствующих полях.
     auth = coord.auth_manager
-    sberid_expires = auth.sberid_expires_at
-    companion_expires = auth.companion_expires_at
+    sberid_expires = getattr(auth, "sberid_expires_at", None)
+    companion_expires = getattr(auth, "companion_expires_at", None)
+    smart_home_expires = getattr(auth, "smart_home_expires_at", None)
 
     connection.send_result(
         msg["id"],
@@ -76,6 +78,7 @@ def ws_get_status(
             "tokens": {
                 "sberid_expires_at": sberid_expires,
                 "companion_expires_at": companion_expires,
+                "smart_home_expires_at": smart_home_expires,
             },
             "error_count": coord.error_count,
         },
