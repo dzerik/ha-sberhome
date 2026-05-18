@@ -16,9 +16,7 @@ from custom_components.sberhome.const import DOMAIN
 def _hass_with_entries(entries_by_domain: dict[str, list]) -> MagicMock:
     """MagicMock hass где config_entries.async_entries(domain) → список."""
     hass = MagicMock()
-    hass.config_entries.async_entries.side_effect = lambda domain: entries_by_domain.get(
-        domain, []
-    )
+    hass.config_entries.async_entries.side_effect = lambda domain: entries_by_domain.get(domain, [])
     return hass
 
 

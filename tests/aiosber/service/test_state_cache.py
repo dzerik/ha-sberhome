@@ -134,9 +134,7 @@ def test_patch_device_state_syncs_desired():
     assert new_dto is not None
     # И reported, и desired содержат новое значение.
     assert new_dto.reported("on_off").bool_value is False
-    assert any(
-        av.key == "on_off" and av.bool_value is False for av in new_dto.desired_state
-    )
+    assert any(av.key == "on_off" and av.bool_value is False for av in new_dto.desired_state)
 
 
 def test_patch_device_state_unknown_device():

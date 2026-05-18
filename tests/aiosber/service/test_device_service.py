@@ -269,5 +269,3 @@ async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
     # Не должно бросить — enums-failure не валит refresh.
     await svc.refresh()
     assert cache.get_enums() == {}
-
-
