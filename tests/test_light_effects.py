@@ -85,9 +85,7 @@ def test_current_effect_resolved_from_state():
         scenes=_SCENES,
         reported=[
             AttributeValueDto(key="light_mode", type=AttributeValueType.ENUM, enum_value="scene"),
-            AttributeValueDto(
-                key="light_scene", type=AttributeValueType.ENUM, enum_value="sunset"
-            ),
+            AttributeValueDto(key="light_scene", type=AttributeValueType.ENUM, enum_value="sunset"),
             AttributeValueDto(key="on_off", type=AttributeValueType.BOOL, bool_value=True),
         ],
     )
@@ -103,9 +101,7 @@ def test_effect_none_when_lightmode_not_scene():
         scenes=_SCENES,
         reported=[
             AttributeValueDto(key="light_mode", type=AttributeValueType.ENUM, enum_value="white"),
-            AttributeValueDto(
-                key="light_scene", type=AttributeValueType.ENUM, enum_value="sunset"
-            ),
+            AttributeValueDto(key="light_scene", type=AttributeValueType.ENUM, enum_value="sunset"),
         ],
     )
     coord = _coord_with_dto(dto)

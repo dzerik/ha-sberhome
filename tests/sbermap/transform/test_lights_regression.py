@@ -169,26 +169,48 @@ def test_light_state_survives_string_typed_numeric_attrs() -> None:
         "id": "ledstrip-1",
         "image_set_type": "cat_ledstrip_m",
         "attributes": [
-            {"key": "light_brightness", "type": "INTEGER",
-             "int_values": {"range": {"min": 50, "max": 1000, "step": 1}}},
-            {"key": "light_colour_temp", "type": "INTEGER",
-             "int_values": {"range": {"min": 0, "max": 1000, "step": 1}}},
-            {"key": "light_mode", "type": "ENUM",
-             "enum_values": {"values": ["colour", "white", "scene"]}},
-            {"key": "light_colour", "type": "COLOR",
-             "color_values": {"h": {"min": 0, "max": 360}, "s": {"min": 0, "max": 1000},
-                              "v": {"min": 100, "max": 1000}}},
+            {
+                "key": "light_brightness",
+                "type": "INTEGER",
+                "int_values": {"range": {"min": 50, "max": 1000, "step": 1}},
+            },
+            {
+                "key": "light_colour_temp",
+                "type": "INTEGER",
+                "int_values": {"range": {"min": 0, "max": 1000, "step": 1}},
+            },
+            {
+                "key": "light_mode",
+                "type": "ENUM",
+                "enum_values": {"values": ["colour", "white", "scene"]},
+            },
+            {
+                "key": "light_colour",
+                "type": "COLOR",
+                "color_values": {
+                    "h": {"min": 0, "max": 360},
+                    "s": {"min": 0, "max": 1000},
+                    "v": {"min": 100, "max": 1000},
+                },
+            },
         ],
         # Sber-баг: type=STRING у числовых, значение в integer_value.
         "desired_state": [
             {"key": "on_off", "type": "BOOL", "bool_value": True},
-            {"key": "light_brightness", "type": "STRING", "integer_value": "1000",
-             "string_value": ""},
-            {"key": "light_colour_temp", "type": "STRING", "integer_value": "555",
-             "string_value": ""},
+            {
+                "key": "light_brightness",
+                "type": "STRING",
+                "integer_value": "1000",
+                "string_value": "",
+            },
+            {
+                "key": "light_colour_temp",
+                "type": "STRING",
+                "integer_value": "555",
+                "string_value": "",
+            },
             {"key": "light_mode", "type": "ENUM", "enum_value": "colour"},
-            {"key": "light_colour", "type": "COLOR",
-             "color_value": {"h": 0, "s": 1000, "v": 1000}},
+            {"key": "light_colour", "type": "COLOR", "color_value": {"h": 0, "s": 1000, "v": 1000}},
         ],
     }
     dto = DeviceDto.from_dict(payload)
