@@ -134,11 +134,12 @@ class SberLightEntity(SberBaseEntity, LightEntity):
         cfg = self._config
         if cfg.has_colour and "colour" in cfg.light_modes:
             modes.add(ColorMode.HS)
-        if "white" in cfg.light_modes:
-            if cfg.has_color_temp:
-                modes.add(ColorMode.COLOR_TEMP)
-            elif cfg.has_brightness:
-                modes.add(ColorMode.BRIGHTNESS)
+        # COLOR_TEMP — цветовой режим белого света. BRIGHTNESS сюда НЕ
+        # добавляем: HA запрещает его рядом с любым другим режимом, а
+        # HS/COLOR_TEMP уже включают управление яркостью.
+        if "white" in cfg.light_modes and cfg.has_color_temp:
+            modes.add(ColorMode.COLOR_TEMP)
+        # BRIGHTNESS — только самостоятельным режимом, когда цвета нет вовсе.
         if not modes and cfg.has_brightness:
             modes.add(ColorMode.BRIGHTNESS)
         return modes or {ColorMode.ONOFF}
