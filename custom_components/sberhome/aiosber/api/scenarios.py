@@ -41,6 +41,16 @@ class ScenarioAPI:
         raw = _unwrap_list(resp.json())
         return [s for d in raw if (s := ScenarioDto.from_dict(d)) is not None]
 
+    async def list_raw(self) -> list[dict[str, Any]]:
+        """Raw list — bypasses DTO conversion.
+
+        Используется в диагностике / при исследовании wire-формата:
+        DTO теряет вложенные поля (`steps[]`, `tasks[]`, `pronounce_data`),
+        а сырой dict сохраняет всё что отдал Sber.
+        """
+        resp = await self._transport.get("/scenario/v2/scenario")
+        return _unwrap_list(resp.json())
+
     async def get(self, scenario_id: str) -> ScenarioDto:
         resp = await self._transport.get(f"/scenario/v2/scenario/{scenario_id}")
         raw = _unwrap_dict(resp.json())
