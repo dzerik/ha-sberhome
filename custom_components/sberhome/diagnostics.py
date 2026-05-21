@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.redact import async_redact_data
 
 from .coordinator import SberHomeConfigEntry
+
+_LOGGER = logging.getLogger(__name__)
 
 TO_REDACT = {
     "access_token",
@@ -81,6 +84,25 @@ async def async_get_config_entry_diagnostics(
             "ws_message_count": coordinator.ws_message_count,
         }
 
+    # Sber-side scenario context — schema of the UI constructor (`form`),
+    # preset system scenarios, and raw user scenarios. Полезно для исследования
+    # wire-формата action-типов (например, какие поля принимает
+    # `PRONOUNCE_COMMAND.pronounce_data` — есть ли там `text_type`/SSML toggle)
+    # и для будущих bug-репортов по новым типам действий Sber.
+    scenarios_dump: dict[str, Any] = {}
+    if coordinator is not None and getattr(coordinator, "client", None) is not None:
+        client = coordinator.client
+        for label, awaitable_factory in (
+            ("form", client.scenarios.get_form),
+            ("system_scenarios", client.scenarios.list_system),
+            ("user_scenarios", client.scenarios.list_raw),
+        ):
+            try:
+                scenarios_dump[label] = await awaitable_factory()
+            except Exception as err:  # noqa: BLE001 — diagnostics best-effort
+                _LOGGER.debug("Diagnostics: scenarios.%s failed: %r", label, err)
+                scenarios_dump[f"{label}_error"] = repr(err)
+
     return {
         "entry": {
             "title": entry.title,
@@ -94,4 +116,5 @@ async def async_get_config_entry_diagnostics(
         "coordinator": coord_stats,
         "devices_count": len(devices_summary),
         "devices": devices_summary,
+        "scenarios": scenarios_dump,
     }
