@@ -2,6 +2,7 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub Release](https://img.shields.io/github/v/release/dzerik/ha-sberhome)](https://github.com/dzerik/ha-sberhome/releases)
+[![Downloads](https://img.shields.io/github/downloads/dzerik/ha-sberhome/total?color=41BDF5&label=downloads)](https://github.com/dzerik/ha-sberhome/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-1058+-brightgreen)](tests/)
 [![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/validate.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/validate.yml)
