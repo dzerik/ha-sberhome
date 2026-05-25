@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release-zip:
+    name: Build & attach release zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify manifest version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(jq -r .version custom_components/sberhome/manifest.json)
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "::error::Tag ($TAG) does not match manifest.json version ($MANIFEST)"
+            exit 1
+          fi
+
+      - name: Build release zip
+        run: |
+          cd custom_components/sberhome
+          zip -r "$GITHUB_WORKSPACE/sberhome.zip" . \
+            -x "*/__pycache__/*" "*.pyc"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sberhome.zip

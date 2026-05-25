@@ -2,5 +2,7 @@
   "name": "SberHome",
   "homeassistant": "2024.8",
   "render_readme": true,
-  "country": ["RU", "KZ", "BY", "UZ"]
+  "country": ["RU", "KZ", "BY", "UZ"],
+  "zip_release": true,
+  "filename": "sberhome.zip"
 }
