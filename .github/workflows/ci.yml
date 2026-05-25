@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Nightly drift catcher — picks up breakage from new HA releases,
+  # plugin updates and OS-image rolls without waiting for a PR.
+  # Off-hour minute (17) keeps us out of the :00 thundering herd.
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.7.9"
+  UV_SYSTEM_PYTHON: 1
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install ruff
+        run: uv pip install --constraint=.github/workflows/constraints.txt ruff
+      - name: Ruff check
+        run: ruff check custom_components/sberhome tests
+      - name: Ruff format check
+        run: ruff format --check custom_components/sberhome tests
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install dependencies
+        # CI-only tool pins live in .github/workflows/constraints.txt.
+        # xdist / timeout are CI-only conveniences, not in requirements_test.txt.
+        run: |
+          uv pip install --constraint=.github/workflows/constraints.txt -r requirements_test.txt
+          uv pip install --constraint=.github/workflows/constraints.txt -e .
+          uv pip install --constraint=.github/workflows/constraints.txt \
+            pytest-xdist pytest-timeout
+      - name: Run tests
+        # -n auto      parallel across CPU cores (~3× on GitHub runners)
+        # --timeout    kills hung tests instead of timing out the whole job
+        # --durations  surfaces the slowest 10 tests every run
+        run: |
+          pytest tests/ \
+            -n auto \
+            --timeout=30 \
+            --durations=10

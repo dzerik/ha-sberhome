@@ -1,36 +1,55 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
+  # Required by sigstore/gh-action-sigstore-python for keyless OIDC signing.
+  id-token: write
 
 jobs:
-  release-zip:
-    name: Build & attach release zip
+  release:
+    name: Create Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Verify manifest version matches tag
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify manifest.json version matches tag
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          MANIFEST=$(jq -r .version custom_components/sberhome/manifest.json)
-          if [ "$TAG" != "$MANIFEST" ]; then
-            echo "::error::Tag ($TAG) does not match manifest.json version ($MANIFEST)"
+          MANIFEST_VERSION=$(jq -r .version custom_components/sberhome/manifest.json)
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::manifest.json version ($MANIFEST_VERSION) does not match tag ($TAG_VERSION)"
             exit 1
           fi
 
-      - name: Build release zip
+      - name: Build HACS zip
         run: |
           cd custom_components/sberhome
-          zip -r "$GITHUB_WORKSPACE/sberhome.zip" . \
-            -x "*/__pycache__/*" "*.pyc"
+          zip -r "${GITHUB_WORKSPACE}/sberhome.zip" . \
+            -x "*__pycache__*" "*.pyc" "*.pyo"
 
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+      # Keyless signing via Sigstore (OIDC, no secrets).
+      # Produces sberhome.zip.sigstore alongside the zip, which any
+      # downstream consumer can verify with `sigstore verify identity`.
+      - name: Sign release artifact (sigstore)
+        uses: sigstore/gh-action-sigstore-python@v3.0.1
         with:
-          files: sberhome.zip
+          inputs: sberhome.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            sberhome.zip
+            sberhome.zip.sigstore
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') || contains(github.ref_name, 'b1') || contains(github.ref_name, 'b2') || contains(github.ref_name, 'b3') || contains(github.ref_name, 'a1') || contains(github.ref_name, 'a2') || contains(github.ref_name, 'rc') }}

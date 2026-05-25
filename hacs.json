@@ -4,5 +4,6 @@
   "render_readme": true,
   "country": ["RU", "KZ", "BY", "UZ"],
   "zip_release": true,
-  "filename": "sberhome.zip"
+  "filename": "sberhome.zip",
+  "hide_default_branch": true
 }

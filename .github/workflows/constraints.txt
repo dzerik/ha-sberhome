@@ -1,0 +1,10 @@
+# Central pin file for CI-installed tools.
+# Consumed via:  uv pip install --constraint=.github/workflows/constraints.txt ...
+#
+# Adding a tool here pins its version across every CI job that uses
+# `--constraint=` against this file. Keep entries narrow and justified.
+
+# pytest-homeassistant-custom-component >= 0.13.317 requires Python >= 3.14,
+# which breaks the 3.12/3.13 legs of our matrix. 0.13.316 is the last release
+# that installs on both 3.12 and 3.13.
+pytest-homeassistant-custom-component<=0.13.316

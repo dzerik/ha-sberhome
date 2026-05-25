@@ -5,7 +5,9 @@
 [![Downloads](https://img.shields.io/github/downloads/dzerik/ha-sberhome/total?color=41BDF5&label=downloads)](https://github.com/dzerik/ha-sberhome/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-1058+-brightgreen)](tests/)
-[![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/validate.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/validate.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/ci.yml?label=CI&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/ci.yml)
+[![HACS Validation](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/hacs.yml?label=HACS&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/hacs.yml)
+[![Hassfest](https://img.shields.io/github/actions/workflow/status/dzerik/ha-sberhome/hassfest.yml?label=Hassfest&branch=main)](https://github.com/dzerik/ha-sberhome/actions/workflows/hassfest.yml)
 [![HA min](https://img.shields.io/badge/Home%20Assistant-2025.3%2B-blue)](https://www.home-assistant.io)
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dzerik&repository=ha-sberhome&category=integration)
