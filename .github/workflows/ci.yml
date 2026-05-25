@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.13', '3.14']
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -58,10 +58,12 @@ jobs:
       - name: Install dependencies
         # CI-only tool pins live in .github/workflows/constraints.txt.
         # xdist / timeout are CI-only conveniences, not in requirements_test.txt.
+        # --prerelease=allow: pytest-homeassistant-custom-component pulls
+        # aiohasupervisor as a pre-release; uv refuses by default.
         run: |
-          uv pip install --constraint=.github/workflows/constraints.txt -r requirements_test.txt
-          uv pip install --constraint=.github/workflows/constraints.txt -e .
-          uv pip install --constraint=.github/workflows/constraints.txt \
+          uv pip install --prerelease=allow --constraint=.github/workflows/constraints.txt -r requirements_test.txt
+          uv pip install --prerelease=allow --constraint=.github/workflows/constraints.txt -e .
+          uv pip install --prerelease=allow --constraint=.github/workflows/constraints.txt \
             pytest-xdist pytest-timeout
       - name: Run tests
         # -n auto      parallel across CPU cores (~3× on GitHub runners)
