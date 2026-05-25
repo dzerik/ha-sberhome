@@ -36,6 +36,7 @@ class SberHomeStateDiffView extends LitElement {
     this._sourceFilter = "all";
     this._hassReady = false;
     this._unsub = null;
+    this._expandedDevices = new Set();
   }
 
   disconnectedCallback() {
@@ -79,9 +80,18 @@ class SberHomeStateDiffView extends LitElement {
     try {
       await this.hass.callWS({ type: "sberhome/clear_state_diffs" });
       this._diffs = [];
+      this._expandedDevices.clear();
       this._error = "";
     } catch (e) {
       this._error = e.message || String(e);
+    }
+  }
+
+  _onToggle(deviceId, e) {
+    if (e.target.open) {
+      this._expandedDevices.add(deviceId);
+    } else {
+      this._expandedDevices.delete(deviceId);
     }
   }
 
@@ -117,7 +127,25 @@ class SberHomeStateDiffView extends LitElement {
     const filtered = this._sourceFilter === "all"
       ? this._diffs
       : this._diffs.filter((d) => d.source === this._sourceFilter);
-    const rows = [...filtered].reverse(); // newest first
+
+    // group by device_id; diffs come oldest-first, so newest is last
+    const groups = new Map();
+    for (const d of filtered) {
+      let arr = groups.get(d.device_id);
+      if (!arr) {
+        arr = [];
+        groups.set(d.device_id, arr);
+      }
+      arr.push(d);
+    }
+    // sort groups by latest diff ts desc
+    const sortedGroups = [...groups.entries()]
+      .map(([deviceId, diffs]) => ({
+        deviceId,
+        diffs,
+        last: diffs[diffs.length - 1],
+      }))
+      .sort((a, b) => b.last.ts - a.last.ts);
 
     return html`
       <div class="section">
@@ -145,11 +173,34 @@ class SberHomeStateDiffView extends LitElement {
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         <div class="rows">
-          ${rows.length === 0
+          ${sortedGroups.length === 0
             ? html`<div class="empty">Пока ни одно устройство не меняло state после подписки.</div>`
-            : html`${rows.map((d) => this._renderDiff(d))}`}
+            : html`${sortedGroups.map((g) => this._renderGroup(g))}`}
         </div>
       </div>
+    `;
+  }
+
+  _renderGroup({ deviceId, diffs, last }) {
+    // inside group: newest first
+    const ordered = [...diffs].reverse();
+    return html`
+      <details
+        class="group"
+        ?open=${this._expandedDevices.has(deviceId)}
+        @toggle=${(e) => this._onToggle(deviceId, e)}
+      >
+        <summary class="group-head">
+          <span class="chevron"></span>
+          <span class="device" title="${deviceId}">${deviceId}</span>
+          <span class="source source-${last.source}">${last.source}</span>
+          <span class="count" title="diffs in buffer">${diffs.length}</span>
+          <span class="time">${this._formatTime(last.ts)}</span>
+        </summary>
+        <div class="group-body">
+          ${ordered.map((d) => this._renderDiff(d))}
+        </div>
+      </details>
     `;
   }
 
@@ -160,7 +211,6 @@ class SberHomeStateDiffView extends LitElement {
     return html`
       <div class="diff ${d.is_initial ? "initial" : ""}">
         <div class="diff-head">
-          <span class="device" title="${d.device_id}">${d.device_id}</span>
           <span class="source source-${d.source}">${d.source}</span>
           ${d.topic ? html`<span class="topic">${d.topic}</span>` : ""}
           ${d.is_initial ? html`<span class="initial-badge">initial</span>` : ""}
@@ -267,14 +317,59 @@ class SberHomeStateDiffView extends LitElement {
         flex-direction: column;
         gap: 4px;
       }
-      .diff {
+      .group {
         border: 1px solid var(--divider-color);
         border-radius: 4px;
-        padding: 8px 10px;
         background: var(--primary-background-color);
+        overflow: hidden;
+      }
+      .group-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        font-size: 0.85em;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+      }
+      /* hide native disclosure triangle in Chromium/WebKit */
+      .group-head::-webkit-details-marker { display: none; }
+      .group-head::marker { content: ""; }
+      .chevron {
+        display: inline-block;
+        width: 10px;
+        text-align: center;
+        font-family: monospace;
+        color: var(--secondary-text-color);
+        transition: transform 120ms ease;
+      }
+      .chevron::before { content: "▸"; }
+      .group[open] > .group-head .chevron { transform: rotate(90deg); }
+      .group[open] > .group-head {
+        border-bottom: 1px solid var(--divider-color);
+      }
+      .group-head .count {
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 0.75em;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .group-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 6px 10px 8px 10px;
+      }
+      .diff {
+        border-left: 2px solid var(--divider-color);
+        padding: 4px 8px;
       }
       .diff.initial {
-        border-left: 3px solid var(--secondary-text-color);
+        border-left-color: var(--secondary-text-color);
       }
       .diff-head {
         display: flex;
