@@ -218,3 +218,104 @@ class TestTestIntent:
             await service.test_intent("missing")
         # run НЕ должен быть вызван если intent не найден
         coord.client.scenarios.run.assert_not_awaited()
+
+
+class TestRenderPhraseTemplates:
+    """Render-on-save: TTS phrase с Jinja2-шаблоном рендерится HA до отправки
+    в Sber (issue #25). Sber-облако хранит plain text — pre-rendering это
+    лучший доступный workaround без архитектурных изменений.
+    """
+
+    @pytest.mark.asyncio
+    async def test_create_renders_jinja_template_in_tts_phrase(self, hass):
+        service, coord = _build_service(create_response={"result": SAMPLE_SCENARIO})
+        coord.hass = hass
+        hass.states.async_set("sensor.t1", "22.5")
+
+        spec = IntentSpec(
+            name="Температура",
+            phrases=["температура"],
+            actions=[
+                IntentAction(
+                    type="tts",
+                    data={
+                        "phrase": "Сейчас {{ states('sensor.t1') }} градусов",
+                        "device_ids": ["spk-1"],
+                    },
+                )
+            ],
+        )
+        await service.create_intent(spec)
+        body = coord.client.transport.post.await_args[1]["json"]
+        rendered = body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"]
+        assert rendered == "Сейчас 22.5 градусов"
+        # spec мутирован — render фиксирует значение для следующего save
+        assert spec.actions[0].data["phrase"] == "Сейчас 22.5 градусов"
+
+    @pytest.mark.asyncio
+    async def test_update_renders_jinja_template_in_tts_phrase(self, hass):
+        service, coord = _build_service(update_response={"result": SAMPLE_SCENARIO})
+        coord.hass = hass
+        hass.states.async_set("sensor.humidity", "60")
+
+        spec = IntentSpec(
+            id="sc-1",
+            name="Влажность",
+            phrases=["влажность"],
+            actions=[
+                IntentAction(
+                    type="tts",
+                    data={
+                        "phrase": "{{ states('sensor.humidity') }}%",
+                        "device_ids": ["spk-1"],
+                    },
+                )
+            ],
+            raw_extras={"image": "https://..."},
+        )
+        await service.update_intent("sc-1", spec)
+        body = coord.client.transport.put.await_args[1]["json"]
+        assert body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"] == "60%"
+
+    @pytest.mark.asyncio
+    async def test_create_plain_phrase_passes_through(self, hass):
+        """Plain-фразы без `{{`/`{%` идут как есть — нулевая регрессия для
+        intent'ов без шаблонов."""
+        service, coord = _build_service(create_response={"result": SAMPLE_SCENARIO})
+        coord.hass = hass
+
+        spec = IntentSpec(
+            name="Привет",
+            phrases=["привет"],
+            actions=[
+                IntentAction(
+                    type="tts",
+                    data={"phrase": "Доброе утро", "device_ids": ["spk-1"]},
+                )
+            ],
+        )
+        await service.create_intent(spec)
+        body = coord.client.transport.post.await_args[1]["json"]
+        assert body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"] == "Доброе утро"
+
+    @pytest.mark.asyncio
+    async def test_create_bad_template_raises_before_api_call(self, hass):
+        from homeassistant.exceptions import HomeAssistantError
+
+        service, coord = _build_service(create_response={"result": SAMPLE_SCENARIO})
+        coord.hass = hass
+
+        spec = IntentSpec(
+            name="X",
+            phrases=["x"],
+            actions=[
+                IntentAction(
+                    type="tts",
+                    data={"phrase": "Темп {{ unclosed", "device_ids": ["spk-1"]},
+                )
+            ],
+        )
+        with pytest.raises(HomeAssistantError, match="отрендерить шаблон"):
+            await service.create_intent(spec)
+        # Sber API НЕ должен быть дёрнут — render падает до запроса
+        coord.client.transport.post.assert_not_awaited()

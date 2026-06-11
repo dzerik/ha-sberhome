@@ -129,6 +129,9 @@ class IntentSpec:
 #   number       — <input type="number">
 #   bool         — <ha-switch>
 #   enum         — <select>
+#   template     — <ha-code-editor mode="jinja2"> с подсветкой Jinja2;
+#                  поддерживает шаблоны HA (states/state_attr/now/...).
+#                  Бэкенд рендерит шаблон в TtsSurrogateService.send (issue #25).
 #   device_picker — picker устройств (опционально фильтр по category)
 #   scenario_picker — picker сценариев (для cross-references)
 FieldType = str

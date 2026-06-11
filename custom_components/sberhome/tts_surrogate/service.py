@@ -19,7 +19,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.helpers.template import Template
 
 from ..aiosber.exceptions import AuthError as _AiosberAuthError
 from ..exceptions import SberApiError
@@ -121,6 +122,12 @@ class TtsSurrogateService:
     ) -> None:
         """Edit-then-run: PUT pronounce_data → POST /run.
 
+        Если ``message`` содержит Jinja-шаблон (``{{ … }}`` / ``{% … %}``),
+        он рендерится на стороне HA непосредственно перед отправкой —
+        Sber произнесёт уже подставленный текст. Контекст рендера — пустой
+        (helpers.template без переменных), так что доступны только
+        стандартные функции (``states()``, ``state_attr()``, ``now()`` и т.п.).
+
         На «scenario gone» (404 OR 401/403 после refresh) — инвалидируем
         cache, rediscover/recreate, retry один раз. Sber отдаёт 401 а не
         404 для удалённого/чужого scenario_id (наблюдалось в production:
@@ -128,6 +135,7 @@ class TtsSurrogateService:
 
         Concurrency не контролируется (accepted limitation).
         """
+        message = self._render_template(message)
         if not device_ids:
             device_ids = self._all_speakers_in_home(home_id)
         if not device_ids:
@@ -167,6 +175,26 @@ class TtsSurrogateService:
             return True
         status = getattr(err, "status_code", None) or getattr(err, "status", None)
         return status in (401, 403, 404)
+
+    def _render_template(self, message: str) -> str:
+        """Render Jinja-шаблон в ``message``, если он там есть.
+
+        Plain-строки (без ``{{``/``{%``) пропускаются as-is — это покрывает
+        и обычный путь ``notify.sber_tts_*`` (HA рендерит service-data до
+        вызова entity), и прямые программные вызовы без шаблонов.
+
+        TemplateError маппится в HomeAssistantError — пользователь увидит
+        понятную ошибку, scenario не обновится.
+        """
+        if not isinstance(message, str) or ("{{" not in message and "{%" not in message):
+            return message
+        try:
+            rendered = Template(message, self._coord.hass).async_render(parse_result=False)
+        except TemplateError as err:
+            raise HomeAssistantError(
+                f"TTS surrogate: не удалось отрендерить шаблон фразы: {err}"
+            ) from err
+        return str(rendered)
 
     def _build_body(self, home_id: str, message: str, device_ids: list[str]) -> dict[str, Any]:
         """Body для POST/PUT — через существующий ``encode_scenario``.

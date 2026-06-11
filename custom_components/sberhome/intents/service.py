@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.helpers.template import Template
+
 from .encoder import decode_scenario, encode_scenario
 from .spec import IntentSpec
 
@@ -70,6 +73,7 @@ class IntentService:
         Returns:
             IntentSpec с заполненным id (из ответа Sber).
         """
+        self._render_phrase_templates(spec)
         body = encode_scenario(spec)
         # Sber требует POST без id — encoder его и не выставляет (spec.id
         # игнорируется на encode).
@@ -88,6 +92,7 @@ class IntentService:
         сконструированный с нуля). Иначе при update теряются image/meta/
         home_id и Sber может ответить ошибкой.
         """
+        self._render_phrase_templates(spec)
         body = encode_scenario(spec)
         # Sber хочет id внутри body для PUT — encoder его не ставит,
         # но можем добавить из аргумента.
@@ -135,6 +140,40 @@ class IntentService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _render_phrase_templates(self, spec: IntentSpec) -> None:
+        """Render-on-save для TTS phrase'ов с Jinja2-шаблонами (issue #25).
+
+        Sber-облако хранит phrase как plain text и не интерпретирует Jinja2.
+        Чтобы шаблоны `{{ states('sensor.x') }}` хотя бы работали при
+        сохранении — рендерим на стороне HA и в Sber отправляем уже
+        подставленное значение.
+
+        Ограничения (документировать в UI/issue):
+        - Значение фиксируется на момент сохранения intent'а.
+          Для «живых» значений (обновлять каждое срабатывание) надо
+          либо пересохранять intent, либо использовать `notify.sber_tts_*`
+          из HA-автоматизации — там HA рендерит service-data на каждом
+          вызове.
+        - После сохранения spec.actions[i].data['phrase'] содержит
+          rendered text, не оригинальный шаблон — round-trip оригинала
+          не сохраняется (ограничение wire-формата Sber).
+
+        Мутирует ``spec.actions[i].data`` in-place.
+        """
+        for action in spec.actions:
+            if action.type != "tts":
+                continue
+            phrase = action.data.get("phrase")
+            if not isinstance(phrase, str) or ("{{" not in phrase and "{%" not in phrase):
+                continue
+            try:
+                rendered = Template(phrase, self._coord.hass).async_render(parse_result=False)
+            except TemplateError as err:
+                raise HomeAssistantError(
+                    f"Не удалось отрендерить шаблон в TTS-фразе: {err}"
+                ) from err
+            action.data["phrase"] = str(rendered)
+
     async def _populate_last_fired_at(self, specs: list[IntentSpec]) -> None:
         """Best-effort fill `last_fired_at` для каждого spec'а из event log.
 

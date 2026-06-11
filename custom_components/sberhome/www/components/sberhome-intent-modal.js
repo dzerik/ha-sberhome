@@ -380,6 +380,80 @@ class SberHomeIntentModal extends LitElement {
       .switch-row {
         display: flex; align-items: center; gap: 8px;
       }
+      .template-field ha-code-editor {
+        border: 1px solid var(--divider-color);
+        border-radius: 6px;
+        overflow: hidden;
+        display: block;
+        min-height: 80px;
+      }
+      .template-warning {
+        background: var(--warning-color, #f5a623);
+        color: #fff;
+        padding: 8px 12px;
+        margin-top: 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .template-warning code {
+        background: rgba(0, 0, 0, 0.15);
+        color: #fff;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: var(--code-font-family, monospace);
+        font-size: 11px;
+      }
+      .template-examples {
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      .template-examples summary {
+        cursor: pointer;
+        color: var(--secondary-text-color);
+        user-select: none;
+        padding: 4px 0;
+      }
+      .template-examples ul {
+        list-style: none;
+        padding: 8px 0 0 0;
+        margin: 0;
+      }
+      .template-examples li {
+        padding: 4px 0;
+        line-height: 1.5;
+        color: var(--secondary-text-color);
+      }
+      .template-examples code {
+        background: var(--secondary-background-color);
+        color: var(--primary-text-color);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: var(--code-font-family, monospace);
+        font-size: 11px;
+        cursor: pointer;
+        margin-right: 6px;
+        white-space: nowrap;
+      }
+      .template-examples code:hover {
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+      }
+      .template-hint {
+        padding: 8px;
+        margin-top: 6px;
+        background: var(--secondary-background-color);
+        border-radius: 4px;
+        color: var(--secondary-text-color);
+        line-height: 1.5;
+      }
+      .template-hint code {
+        cursor: default;
+      }
+      .template-hint code:hover {
+        background: var(--secondary-background-color);
+        color: var(--primary-text-color);
+      }
     `, mobileBase];
   }
 
@@ -577,6 +651,8 @@ class SberHomeIntentModal extends LitElement {
             @input=${(e) => onChange(e.target.value)}
           />
         `;
+      case "template":
+        return this._renderTemplateField(value, readOnly, onChange);
       case "number":
         return html`
           <input
@@ -638,6 +714,77 @@ class SberHomeIntentModal extends LitElement {
           <em>Unsupported field type: ${field.type}</em>
         `;
     }
+  }
+
+  /**
+   * Поле с Jinja2-шаблоном — нативный HA-редактор кода с подсветкой.
+   * Бэкенд (TtsSurrogateService.send) рендерит шаблон перед отправкой
+   * в Sber, поэтому значения подставятся при каждом произнесении.
+   */
+  _renderTemplateField(value, readOnly, onChange) {
+    const insert = (snippet) => {
+      if (readOnly) return;
+      const current = (value || "").toString();
+      onChange(current ? `${current} ${snippet}` : snippet);
+    };
+    return html`
+      <div class="template-field">
+        <ha-code-editor
+          mode="jinja2"
+          autocomplete-entities
+          autocomplete-icons
+          .value=${value || ""}
+          ?readOnly=${readOnly}
+          @value-changed=${(e) => onChange(e.detail.value)}
+        ></ha-code-editor>
+        <div class="template-warning">
+          ⚠ <strong>Подстановка при сохранении.</strong> Sber не понимает Jinja —
+          значение шаблона фиксируется в момент создания/записи intent'а и
+          будет произноситься одинаковым при каждом голосовом срабатывании.
+          Для «живых» значений (обновлять при каждом срабатывании) используй
+          <code>notify.sber_tts_*</code> из HA-автоматизации — HA там рендерит
+          фразу на каждом вызове.
+        </div>
+        <details class="template-examples">
+          <summary>Примеры шаблонов (click чтобы вставить)</summary>
+          <ul>
+            <li>
+              <code @click=${() => insert("{{ states('sensor.living_temp') }}")}
+                >{{ states('sensor.living_temp') }}</code>
+              — значение датчика
+            </li>
+            <li>
+              <code
+                @click=${() =>
+                  insert("{{ state_attr('climate.bedroom', 'current_temperature') }}")}
+                >{{ state_attr('climate.bedroom', 'current_temperature') }}</code>
+              — атрибут сущности
+            </li>
+            <li>
+              <code @click=${() => insert("{{ now().strftime('%H:%M') }}")}
+                >{{ now().strftime('%H:%M') }}</code>
+              — текущее время
+            </li>
+            <li>
+              <code
+                @click=${() =>
+                  insert(
+                    "{% if is_state('binary_sensor.door', 'on') %}открыта{% else %}закрыта{% endif %}"
+                  )}
+                >{% if is_state('binary_sensor.door', 'on') %}открыта{% else %}закрыта{% endif %}</code>
+              — условие
+            </li>
+          </ul>
+          <div class="template-hint">
+            Подстановка происходит на стороне HA в момент произнесения.
+            Доступны стандартные функции: <code>states()</code>,
+            <code>state_attr()</code>, <code>is_state()</code>,
+            <code>now()</code>, фильтры (<code>round</code>,
+            <code>float</code> и т.п.).
+          </div>
+        </details>
+      </div>
+    `;
   }
 }
 

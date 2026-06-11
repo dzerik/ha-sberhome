@@ -283,3 +283,53 @@ async def test_send_auth_error_on_update_triggers_recreate_and_retry():
     assert coord.tts_surrogates["home-1"] == "new-sc"
     coord.client.scenarios.create.assert_awaited_once()
     coord.client.scenarios.run.assert_awaited_once_with("new-sc")
+
+
+async def test_send_renders_jinja_template_before_dispatch(hass):
+    """Шаблон в message рендерится HA до отправки в Sber.
+
+    Покрывает issue #25 — пользователь ожидает, что
+    ``"Температура {{ states('sensor.t1') }}"`` будет произнесён с
+    подставленным значением.
+    """
+    coord = _make_coord_with_home("home-1")
+    coord.hass = hass
+    coord.tts_surrogates["home-1"] = "cached-sc"
+    svc = TtsSurrogateService(coord)
+    hass.states.async_set("sensor.t1", "22.5")
+
+    await svc.send("home-1", "Температура {{ states('sensor.t1') }}", ["spk-1"])
+
+    body = coord.client.scenarios.update.await_args.args[1]
+    phrase = body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"]
+    assert phrase == "Температура 22.5"
+
+
+async def test_send_plain_message_skips_template_render(hass):
+    """Plain-строка без ``{{``/``{%`` проходит мимо рендера — путь без
+    регрессии для существующего notify-сервиса (где HA сам рендерит до
+    вызова entity)."""
+    coord = _make_coord_with_home("home-1")
+    coord.hass = hass
+    coord.tts_surrogates["home-1"] = "cached-sc"
+    svc = TtsSurrogateService(coord)
+
+    await svc.send("home-1", "Привет", ["spk-1"])
+
+    body = coord.client.scenarios.update.await_args.args[1]
+    assert body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"] == "Привет"
+
+
+async def test_send_bad_template_raises_home_assistant_error(hass):
+    from homeassistant.exceptions import HomeAssistantError
+
+    coord = _make_coord_with_home("home-1")
+    coord.hass = hass
+    coord.tts_surrogates["home-1"] = "cached-sc"
+    svc = TtsSurrogateService(coord)
+
+    with pytest.raises(HomeAssistantError, match="отрендерить шаблон"):
+        await svc.send("home-1", "Темп {{ unclosed", ["spk-1"])
+
+    coord.client.scenarios.update.assert_not_awaited()
+    coord.client.scenarios.run.assert_not_awaited()

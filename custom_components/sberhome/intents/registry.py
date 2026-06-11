@@ -85,10 +85,14 @@ def _decode_ha_event_only(
 _TTS_FIELDS = (
     FieldSpec(
         key="phrase",
-        type="text",
+        type="template",
         label="Фраза для озвучивания",
         required=True,
-        help_text="Sber произнесёт через выбранные колонки",
+        help_text=(
+            "Sber произнесёт через выбранные колонки. Поддерживаются "
+            "Jinja2-шаблоны Home Assistant — значения подставятся "
+            "перед каждым произнесением."
+        ),
     ),
     FieldSpec(
         key="device_ids",

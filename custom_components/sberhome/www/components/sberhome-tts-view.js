@@ -66,6 +66,48 @@ export class SberhomeTtsView extends LitElement {
           margin: 0; overflow-x: auto;
         }
         .latency { font-size: 11px; color: var(--secondary-text-color, #888); margin-left: 8px; }
+        ha-code-editor {
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 4px;
+          overflow: hidden;
+          display: block;
+          min-height: 60px;
+          font-size: 12px;
+        }
+        .template-examples { margin-top: 6px; font-size: 11px; }
+        .template-examples summary {
+          cursor: pointer; color: var(--secondary-text-color, #666);
+          user-select: none; padding: 4px 0;
+        }
+        .template-examples ul { list-style: none; padding: 6px 0 0 0; margin: 0; }
+        .template-examples li {
+          padding: 3px 0; line-height: 1.5;
+          color: var(--secondary-text-color, #666);
+        }
+        .template-examples code {
+          background: var(--secondary-background-color, #f5f5f5);
+          color: var(--primary-text-color);
+          padding: 2px 5px; border-radius: 3px;
+          font-family: var(--code-font-family, monospace);
+          font-size: 10px; cursor: pointer; margin-right: 6px;
+          white-space: nowrap;
+        }
+        .template-examples code:hover {
+          background: var(--primary-color, #0066cc);
+          color: var(--text-primary-color, #fff);
+        }
+        .template-hint {
+          padding: 6px 8px; margin-top: 6px;
+          background: var(--secondary-background-color, #f5f5f5);
+          border-radius: 4px; line-height: 1.5;
+        }
+        .template-hint code {
+          cursor: default; font-size: 10px;
+          background: transparent; padding: 0;
+        }
+        .template-hint code:hover {
+          background: transparent; color: inherit;
+        }
       `,
       mobileBase,
     ];
@@ -255,11 +297,14 @@ export class SberhomeTtsView extends LitElement {
         </select>
 
         <div class="label" style="margin-top:8px;">Фраза</div>
-        <input
-          type="text"
+        <ha-code-editor
+          mode="jinja2"
+          autocomplete-entities
+          autocomplete-icons
           .value=${this._message}
-          @input=${(e) => (this._message = e.target.value)}
-        />
+          @value-changed=${(e) => (this._message = e.detail.value)}
+        ></ha-code-editor>
+        ${this._renderTemplateExamples()}
 
         <div class="label" style="margin-top:8px;">Колонки (по умолчанию — все в доме)</div>
         <div>
@@ -291,6 +336,58 @@ export class SberhomeTtsView extends LitElement {
             : ""}
         </div>
       </div>
+    `;
+  }
+
+  _insertSnippet(snippet) {
+    const current = this._message || "";
+    this._message = current ? `${current} ${snippet}` : snippet;
+  }
+
+  /**
+   * Подсказки с готовыми Jinja2-шаблонами для surrogate-TTS.
+   * Клик по `<code>` дописывает сниппет в текущую фразу.
+   * Бэкенд (TtsSurrogateService.send) рендерит шаблон перед отправкой
+   * в Sber на КАЖДЫЙ вызов — для surrogate это «live»-подстановка.
+   */
+  _renderTemplateExamples() {
+    return html`
+      <details class="template-examples">
+        <summary>Примеры шаблонов (click чтобы вставить)</summary>
+        <ul>
+          <li>
+            <code @click=${() => this._insertSnippet("{{ states('sensor.living_temp') }}")}
+              >{{ states('sensor.living_temp') }}</code>
+            — значение датчика
+          </li>
+          <li>
+            <code @click=${() =>
+              this._insertSnippet("{{ state_attr('climate.bedroom', 'current_temperature') }}")}
+              >{{ state_attr('climate.bedroom', 'current_temperature') }}</code>
+            — атрибут сущности
+          </li>
+          <li>
+            <code @click=${() => this._insertSnippet("{{ now().strftime('%H:%M') }}")}
+              >{{ now().strftime('%H:%M') }}</code>
+            — текущее время
+          </li>
+          <li>
+            <code @click=${() =>
+              this._insertSnippet(
+                "{% if is_state('binary_sensor.door', 'on') %}открыта{% else %}закрыта{% endif %}"
+              )}
+              >{% if is_state('binary_sensor.door', 'on') %}открыта{% else %}закрыта{% endif %}</code>
+            — условие
+          </li>
+        </ul>
+        <div class="template-hint">
+          Surrogate-TTS подставляет значения <strong>на каждое произнесение</strong>
+          (через <code>notify.sber_tts_*</code> в HA-автоматизации).
+          Доступны стандартные функции: <code>states()</code>,
+          <code>state_attr()</code>, <code>is_state()</code>,
+          <code>now()</code>, фильтры (<code>round</code>, <code>float</code> и т.п.).
+        </div>
+      </details>
     `;
   }
 
