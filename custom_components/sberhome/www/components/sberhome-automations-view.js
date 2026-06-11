@@ -13,9 +13,21 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
-import "./sberhome-intents-view.js";
-import "./sberhome-listeners-view.js";
-import "./sberhome-tts-view.js";
+
+// Subviews импортируются ДИНАМИЧЕСКИ с тем же cache-buster `?v=…`, что
+// у самого этого модуля. Иначе браузер навсегда кэширует подмодули
+// (статический `import "./sberhome-tts-view.js"` идёт по URL без query
+// string — другой кэш-ключ, который не инвалидируется бампом версии).
+// Top-level await блокирует завершение этого модуля до подгрузки
+// подкомпонентов, поэтому к моменту первого render'а они уже
+// зарегистрированы в customElements.
+const _v = new URL(import.meta.url).searchParams.get("v") || "";
+const _q = _v ? `?v=${_v}` : "";
+await Promise.all([
+  import(`./sberhome-intents-view.js${_q}`),
+  import(`./sberhome-listeners-view.js${_q}`),
+  import(`./sberhome-tts-view.js${_q}`),
+]);
 
 export class SberhomeAutomationsView extends LitElement {
   static get properties() {

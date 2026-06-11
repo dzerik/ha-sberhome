@@ -16,6 +16,7 @@ export class SberhomeTtsView extends LitElement {
       _message: { state: true },
       _selectedDeviceIds: { state: true },
       _testStatus: { state: true },
+      _codeEditorReady: { state: true },
     };
   }
 
@@ -74,6 +75,24 @@ export class SberhomeTtsView extends LitElement {
           min-height: 60px;
           font-size: 12px;
         }
+        .template-fallback {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 6px 8px;
+          font-family: var(--code-font-family, monospace);
+          font-size: 12px;
+          line-height: 1.5;
+          resize: vertical;
+          min-height: 50px;
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 4px;
+          background: var(--card-background-color, white);
+          color: var(--primary-text-color);
+        }
+        .template-fallback:focus {
+          outline: none;
+          border-color: var(--primary-color, #0066cc);
+        }
         .template-examples { margin-top: 6px; font-size: 11px; }
         .template-examples summary {
           cursor: pointer; color: var(--secondary-text-color, #666);
@@ -121,11 +140,31 @@ export class SberhomeTtsView extends LitElement {
     this._message = "Привет из Home Assistant";
     this._selectedDeviceIds = null; // null = default (all)
     this._testStatus = null;
+    this._codeEditorReady = !!customElements.get("ha-code-editor");
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._loadStatus();
+    this._detectCodeEditor();
+  }
+
+  /**
+   * <ha-code-editor> регистрируется HA лениво — если юзер не заходил
+   * в template/automation editor, custom element может быть пустым.
+   * Ждём до 1.5s, иначе fallback на textarea с monospace.
+   */
+  async _detectCodeEditor() {
+    if (this._codeEditorReady) return;
+    try {
+      await Promise.race([
+        customElements.whenDefined("ha-code-editor"),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 1500)),
+      ]);
+      this._codeEditorReady = true;
+    } catch {
+      this._codeEditorReady = false;
+    }
   }
 
   async _loadStatus() {
@@ -297,13 +336,25 @@ export class SberhomeTtsView extends LitElement {
         </select>
 
         <div class="label" style="margin-top:8px;">Фраза</div>
-        <ha-code-editor
-          mode="jinja2"
-          autocomplete-entities
-          autocomplete-icons
-          .value=${this._message}
-          @value-changed=${(e) => (this._message = e.detail.value)}
-        ></ha-code-editor>
+        ${this._codeEditorReady
+          ? html`
+              <ha-code-editor
+                mode="jinja2"
+                autocomplete-entities
+                autocomplete-icons
+                .value=${this._message}
+                @value-changed=${(e) => (this._message = e.detail.value)}
+              ></ha-code-editor>
+            `
+          : html`
+              <textarea
+                class="template-fallback"
+                rows="3"
+                spellcheck="false"
+                .value=${this._message}
+                @input=${(e) => (this._message = e.target.value)}
+              ></textarea>
+            `}
         ${this._renderTemplateExamples()}
 
         <div class="label" style="margin-top:8px;">Колонки (по умолчанию — все в доме)</div>

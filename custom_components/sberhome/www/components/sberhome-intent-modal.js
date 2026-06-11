@@ -21,6 +21,7 @@ class SberHomeIntentModal extends LitElement {
       _saving: { type: Boolean },
       _error: { type: String },
       _phraseInput: { type: String },
+      _codeEditorReady: { type: Boolean, state: true },
     };
   }
 
@@ -34,11 +35,32 @@ class SberHomeIntentModal extends LitElement {
     this._saving = false;
     this._error = "";
     this._phraseInput = "";
+    this._codeEditorReady = !!customElements.get("ha-code-editor");
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._loadSchema();
+    this._detectCodeEditor();
+  }
+
+  /**
+   * Detect whether HA registered <ha-code-editor> in this frontend session.
+   * Лениво регистрируется HA только когда юзер заходил в template/automation
+   * editor. Если не зарегистрирован за 1.5s — переключаемся на textarea-fallback,
+   * чтобы поле не выглядело сломанным.
+   */
+  async _detectCodeEditor() {
+    if (this._codeEditorReady) return;
+    try {
+      await Promise.race([
+        customElements.whenDefined("ha-code-editor"),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 1500)),
+      ]);
+      this._codeEditorReady = true;
+    } catch {
+      this._codeEditorReady = false;
+    }
   }
 
   willUpdate(changed) {
@@ -387,6 +409,24 @@ class SberHomeIntentModal extends LitElement {
         display: block;
         min-height: 80px;
       }
+      .template-field .template-fallback {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid var(--divider-color);
+        border-radius: 6px;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        font-family: var(--code-font-family, monospace);
+        font-size: 13px;
+        line-height: 1.5;
+        resize: vertical;
+        min-height: 60px;
+      }
+      .template-field .template-fallback:focus {
+        outline: none;
+        border-color: var(--primary-color);
+      }
       .template-warning {
         background: var(--warning-color, #f5a623);
         color: #fff;
@@ -727,16 +767,34 @@ class SberHomeIntentModal extends LitElement {
       const current = (value || "").toString();
       onChange(current ? `${current} ${snippet}` : snippet);
     };
+    console.log(
+      "[sberhome-intent-modal] _renderTemplateField: editor branch =",
+      this._codeEditorReady ? "ha-code-editor" : "textarea-fallback",
+    );
+    const editor = this._codeEditorReady
+      ? html`
+          <ha-code-editor
+            mode="jinja2"
+            autocomplete-entities
+            autocomplete-icons
+            .value=${value || ""}
+            ?readOnly=${readOnly}
+            @value-changed=${(e) => onChange(e.detail.value)}
+          ></ha-code-editor>
+        `
+      : html`
+          <textarea
+            class="template-fallback"
+            rows="3"
+            spellcheck="false"
+            ?disabled=${readOnly}
+            .value=${value || ""}
+            @input=${(e) => onChange(e.target.value)}
+          ></textarea>
+        `;
     return html`
       <div class="template-field">
-        <ha-code-editor
-          mode="jinja2"
-          autocomplete-entities
-          autocomplete-icons
-          .value=${value || ""}
-          ?readOnly=${readOnly}
-          @value-changed=${(e) => onChange(e.detail.value)}
-        ></ha-code-editor>
+        ${editor}
         <div class="template-warning">
           ⚠ <strong>Подстановка при сохранении.</strong> Sber не понимает Jinja —
           значение шаблона фиксируется в момент создания/записи intent'а и
