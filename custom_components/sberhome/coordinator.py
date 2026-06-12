@@ -505,6 +505,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if home.id:
                     live_identifiers.add(f"home:{home.id}")
 
+            # Virtual device identifiers — entities, привязанные не к реальному
+            # Sber-устройству, а к синтетическим DeviceEntry (indicator LED,
+            # scenarios, ...).  Без этого _prune_stale_devices удаляет их
+            # при каждом refresh, каскадно убивая SberIndicatorLight и
+            # SberScenarioButton.
+            # light.py: SberIndicatorLight → identifier "indicator"
+            # button.py: SberScenarioButton → identifier "scenarios"
+            live_identifiers.add("indicator")
+            live_identifiers.add("scenarios")
+
             stale: list[str] = []
             for device in dr.async_entries_for_config_entry(device_reg, entry_id):
                 our_idents = {ident for (domain, ident) in device.identifiers if domain == DOMAIN}
