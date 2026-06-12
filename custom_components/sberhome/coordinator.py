@@ -485,7 +485,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_reg = dr.async_get(self.hass)
             entry_id = self.config_entry.entry_id
 
-            # Собираем identifiers (serial + device_id) из live state.
+            # Собираем identifiers (serial + device_id + home_id) из live state.
             live_identifiers: set[str] = set()
             enabled = self.enabled_device_ids
             for dev_id, dto in self.state_cache.get_all_devices().items():
@@ -496,6 +496,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if dto.id:
                     live_identifiers.add(dto.id)
                 live_identifiers.add(dev_id)
+
+            # Home-level identifiers (напр. NotifyEntity использует
+            # `home:{home.id}` как identifier в device_info).  Без этого
+            # _prune_stale_devices удаляет home-level device_registry записи,
+            # каскадно убивая NotifyEntity при каждом refresh.
+            for home in self.state_cache.get_homes():
+                if home.id:
+                    live_identifiers.add(f"home:{home.id}")
 
             stale: list[str] = []
             for device in dr.async_entries_for_config_entry(device_reg, entry_id):
