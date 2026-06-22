@@ -179,10 +179,25 @@ class SberHomeIntentModal extends LitElement {
     if (!(this._draft.phrases || []).length) {
       return "Нужна хотя бы одна голосовая фраза";
     }
-    if (!(this._draft.actions || []).length) {
-      return "Добавь хотя бы одно действие (ha_event_only тоже подходит)";
+    const actions = this._draft.actions || [];
+    if (!actions.length) {
+      return "Добавь хотя бы одно действие";
     }
-    for (const action of this._draft.actions) {
+    // Issue #33: Sber API больше не принимает scenario с tasks=[].
+    // ha_event_only encode'ится как пустой tasks[] → HTTP 400 "no tasks given".
+    // Пока в backend нет sentinel-task, блокируем сохранение в UI с понятной
+    // ошибкой вместо опасного API-call'а.
+    const hasRealAction = actions.some(
+      (a) => !a.unknown && a.type !== "ha_event_only",
+    );
+    if (!hasRealAction) {
+      return (
+        "Sber API больше не принимает intent без действий. " +
+        "Добавь TTS-фразу, команду устройству или push-уведомление " +
+        "(можно вместе с «Только HA event»)."
+      );
+    }
+    for (const action of actions) {
       if (action.unknown) continue;
       const reg = this._schema.find((s) => s.type === action.type);
       if (!reg) continue;
@@ -436,6 +451,23 @@ class SberHomeIntentModal extends LitElement {
         font-size: 12px;
         line-height: 1.5;
       }
+      .ha-event-only-hint {
+        background: var(--warning-color, #f5a623);
+        color: #fff;
+        padding: 8px 12px;
+        margin-top: 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .ha-event-only-hint code {
+        background: rgba(0, 0, 0, 0.15);
+        color: #fff;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: var(--code-font-family, monospace);
+        font-size: 11px;
+      }
       .template-warning code {
         background: rgba(0, 0, 0, 0.15);
         color: #fff;
@@ -657,6 +689,16 @@ class SberHomeIntentModal extends LitElement {
         ${(reg?.fields || []).map((field) =>
           this._renderField(idx, action, field, parentReadOnly)
         )}
+        ${action.type === "ha_event_only"
+          ? html`
+              <div class="ha-event-only-hint">
+                ⚠ Sber API больше не принимает intent с одним лишь
+                «Только HA event» (<code>HTTP 400: no tasks given</code>,
+                issue #33). Чтобы сохранить, добавь рядом любое реальное
+                действие — TTS, команду устройству или push.
+              </div>
+            `
+          : ""}
       </div>
     `;
   }
