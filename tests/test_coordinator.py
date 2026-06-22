@@ -772,3 +772,119 @@ async def test_listener_match_updates_last_fired_at(coordinator):
     coordinator._fire_intent_event(event)
 
     assert spec.last_fired_at == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# _prune_stale_devices — issue #25 (PR #26): виртуальные device_registry
+# записи (home:{id}, indicator, scenarios, group:{id}) НЕ должны попадать
+# в stale-list, иначе NotifyEntity / IndicatorLight / ScenarioButton /
+# SwitchGroup каскадно удаляются при каждом refresh.
+# ---------------------------------------------------------------------------
+
+
+def _make_device_entry(identifiers: set[tuple[str, str]]) -> MagicMock:
+    """Минимальный mock DeviceEntry для тестов pruning."""
+    entry = MagicMock()
+    entry.id = f"reg-{hash(frozenset(identifiers))}"
+    entry.identifiers = identifiers
+    return entry
+
+
+def _patch_prune_state(coordinator, homes, groups, real_devices):
+    """Configure state_cache + config_entry для prune-теста.
+
+    enabled_device_ids — property, читает options[CONF_ENABLED_DEVICE_IDS];
+    пустой options-dict даёт None (= passthrough, без фильтра).
+    """
+    coordinator.state_cache.get_homes = MagicMock(return_value=homes)
+    coordinator.state_cache.get_all_groups = MagicMock(return_value=groups)
+    coordinator.state_cache.get_all_devices = MagicMock(return_value=real_devices)
+    coordinator.config_entry = MagicMock()
+    coordinator.config_entry.entry_id = "test-entry"
+    coordinator.config_entry.options = {}
+
+
+def test_prune_stale_devices_keeps_virtual_entities(coordinator):
+    """home:/group:/indicator/scenarios identifiers НЕ удаляются.
+
+    Регрессия issue #25 (внешний PR #26): без этого whitelist'а sber
+    notify, indicator LED, scenario button, switch_groups выпиливаются
+    при каждом refresh — entities пропадают через секунды после старта.
+    """
+    from custom_components.sberhome.const import DOMAIN
+
+    home = MagicMock()
+    home.id = "home-A"
+    _patch_prune_state(coordinator, homes=[home], groups={"grp-1": MagicMock()}, real_devices={})
+
+    device_reg = MagicMock()
+    virtual_entries = [
+        _make_device_entry({(DOMAIN, "home:home-A")}),
+        _make_device_entry({(DOMAIN, "group:grp-1")}),
+        _make_device_entry({(DOMAIN, "indicator")}),
+        _make_device_entry({(DOMAIN, "scenarios")}),
+    ]
+    device_reg.async_remove_device = MagicMock()
+    with (
+        patch(
+            "homeassistant.helpers.device_registry.async_get",
+            return_value=device_reg,
+        ),
+        patch(
+            "homeassistant.helpers.device_registry.async_entries_for_config_entry",
+            return_value=virtual_entries,
+        ),
+    ):
+        coordinator._prune_stale_devices()
+
+    device_reg.async_remove_device.assert_not_called()
+
+
+def test_prune_stale_devices_removes_truly_stale(coordinator):
+    """Записи с identifier'ами, которых нет ни среди реальных, ни среди
+    виртуальных — действительно удаляются (защита от false-negative)."""
+    from custom_components.sberhome.const import DOMAIN
+
+    _patch_prune_state(coordinator, homes=[], groups={}, real_devices={})
+    stale_entry = _make_device_entry({(DOMAIN, "gone-device-uuid")})
+    device_reg = MagicMock()
+    device_reg.async_remove_device = MagicMock()
+    with (
+        patch(
+            "homeassistant.helpers.device_registry.async_get",
+            return_value=device_reg,
+        ),
+        patch(
+            "homeassistant.helpers.device_registry.async_entries_for_config_entry",
+            return_value=[stale_entry],
+        ),
+    ):
+        coordinator._prune_stale_devices()
+
+    device_reg.async_remove_device.assert_called_once_with(stale_entry.id)
+
+
+def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
+    """`home:{id}` для home'а которого больше нет в state_cache — удаляется.
+
+    Защита от false-positive: whitelist'им только ACTUALLY живые home/group,
+    не любой identifier с префиксом."""
+    from custom_components.sberhome.const import DOMAIN
+
+    _patch_prune_state(coordinator, homes=[], groups={}, real_devices={})
+    orphan = _make_device_entry({(DOMAIN, "home:home-gone")})
+    device_reg = MagicMock()
+    device_reg.async_remove_device = MagicMock()
+    with (
+        patch(
+            "homeassistant.helpers.device_registry.async_get",
+            return_value=device_reg,
+        ),
+        patch(
+            "homeassistant.helpers.device_registry.async_entries_for_config_entry",
+            return_value=[orphan],
+        ),
+    ):
+        coordinator._prune_stale_devices()
+
+    device_reg.async_remove_device.assert_called_once_with(orphan.id)

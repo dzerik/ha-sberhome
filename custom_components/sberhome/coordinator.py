@@ -505,13 +505,21 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if home.id:
                     live_identifiers.add(f"home:{home.id}")
 
+            # Group-level identifiers (switch_groups.py:45 использует
+            # `group:{group_id}` как identifier в device_info для каждой
+            # Sber-группы).  Без этого entities группы выпиливаются prune'ом.
+            for group_id in self.state_cache.get_all_groups():
+                if group_id:
+                    live_identifiers.add(f"group:{group_id}")
+
             # Virtual device identifiers — entities, привязанные не к реальному
-            # Sber-устройству, а к синтетическим DeviceEntry (indicator LED,
-            # scenarios, ...).  Без этого _prune_stale_devices удаляет их
-            # при каждом refresh, каскадно убивая SberIndicatorLight и
-            # SberScenarioButton.
-            # light.py: SberIndicatorLight → identifier "indicator"
-            # button.py: SberScenarioButton → identifier "scenarios"
+            # Sber-устройству, а к синтетическим DeviceEntry.  Без них
+            # _prune_stale_devices удаляет их при каждом refresh, каскадно
+            # убивая соответствующие entities.
+            # light.py:283   SberIndicatorLight       → identifier "indicator"
+            # button.py:101  SberScenarioButton       → identifier "scenarios"
+            # switch.py:107  SberScenariosSwitch      → identifier "scenarios"
+            # binary_sensor.py:98  SberScenariosBin   → identifier "scenarios"
             live_identifiers.add("indicator")
             live_identifiers.add("scenarios")
 
