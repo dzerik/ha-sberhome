@@ -15,7 +15,7 @@ import contextlib
 import time
 from collections import deque
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -84,6 +84,17 @@ INTENT_FETCH_LIMIT = 10
 # (Sber дублирует UPDATE_WIDGETS push'ы парами). 1 sec достаточно
 # чтобы погасить duplicate, но не пропустить быстрые повторные команды.
 INTENT_DISPATCH_COOLDOWN_SEC = 1.0
+
+# Sber event-log API имеет лаг ~1–2 сек относительно scenario_widgets
+# WS push. Первый fetch сразу после push'а может вернуть только старые
+# записи. Если new_events пуст — sleep этим интервалом и retry один раз.
+# (issue #35)
+INTENT_REFETCH_DELAY_SEC = 1.5
+
+# Сколько последних event_id запоминать для dedup. Sber-push приходит
+# парами, плюс могут быть duplicate fetch'и при retry'ях — берём deque
+# с разумным запасом. (issue #35)
+INTENT_DEDUP_HISTORY = 64
 
 # Пауза между неуспешной командой и retry. 1 sec ловит большую часть
 # transient network glitches gateway'я без раздражающего пользователя
@@ -259,6 +270,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # будет ошибочно отброшено. Ключи добавляются ленива при первом
         # push'е из соответствующего дома.
         self._last_intent_event_time: dict[str, str | None] = {}
+        # Dedup по event_id — защищает от двойного fire при двойном Sber
+        # scenario_widgets push'е и при retry'ах event-log fetch'а. (issue #35)
+        self._fired_event_ids: deque[str] = deque(maxlen=INTENT_DEDUP_HISTORY)
         # Concurrency: WS пушит UPDATE_WIDGETS дважды подряд за <100ms,
         # одна history-fetch достаточна. Lock держим на время fetch'а;
         # cooldown — monotonic timestamp до которого новые push'и игнорируются.
@@ -1180,24 +1194,30 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for home in homes:
                 if not home.id:
                     continue
-                try:
-                    events = await self.client.scenarios.history(home.id, limit=INTENT_FETCH_LIMIT)
-                except Exception:  # noqa: BLE001
-                    LOGGER.debug(
-                        "Failed to fetch scenario history for home %s", home.id, exc_info=True
-                    )
-                    continue
-
-                new_events = self._select_new_intent_events(home.id, events)
+                new_events = await self._fetch_new_intent_events(home.id)
                 if not new_events:
                     continue
 
+                fired_events: list[ScenarioEventDto] = []
                 for event in new_events:
+                    # Dedup по event_id — Sber пушит парами + retry-fetch
+                    # может перетянуть тот же event при близких timestamp'ах.
+                    if event.id and event.id in self._fired_event_ids:
+                        LOGGER.debug("Skipping already-fired intent event %s", event.id)
+                        continue
+                    if event.id:
+                        self._fired_event_ids.append(event.id)
                     self._fire_intent_event(event)
+                    fired_events.append(event)
 
-                # Cursor per home_id — максимальный event_time.
+                if not fired_events:
+                    continue
+
+                # Cursor per home_id — максимальный event_time из
+                # действительно fired (после dedup). Старые cursor'ы
+                # не откатываем — events отсортированы desc, max — last.
                 latest = max(
-                    (e.event_time for e in new_events if e.event_time),
+                    (e.event_time for e in fired_events if e.event_time),
                     default=self._last_intent_event_time.get(home.id),
                 )
                 self._last_intent_event_time[home.id] = latest
@@ -1206,6 +1226,34 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # повторного fetch'а в follow-up push'е (Sber-paired UPDATE).
             self._intent_dispatch_cooldown_until = time.monotonic() + INTENT_DISPATCH_COOLDOWN_SEC
 
+    async def _fetch_new_intent_events(self, home_id: str) -> list[ScenarioEventDto]:
+        """Fetch event log + filter to new events. Retry once on empty result.
+
+        Sber event-log API имеет лаг ~1–2 сек относительно scenario_widgets
+        WS push'а. Если первый fetch вернул пусто после фильтра по cursor'у —
+        ждём INTENT_REFETCH_DELAY_SEC и пробуем ещё раз. Один retry; больше
+        не имеет смысла — push'и приходят парами и второй сам всё подтянет.
+        """
+        try:
+            events = await self.client.scenarios.history(home_id, limit=INTENT_FETCH_LIMIT)
+        except Exception:  # noqa: BLE001
+            LOGGER.debug("Failed to fetch scenario history for home %s", home_id, exc_info=True)
+            return []
+        new_events = self._select_new_intent_events(home_id, events)
+        if new_events:
+            return new_events
+        # Empty after filter — может быть Sber-side лаг записи в event log.
+        # cursor=None case тут не страдает: _select_new_intent_events уже
+        # выставил cursor=now и вернул []; retry даст то же самое (events
+        # старше cursor'а) — это ок.
+        await asyncio.sleep(INTENT_REFETCH_DELAY_SEC)
+        try:
+            events = await self.client.scenarios.history(home_id, limit=INTENT_FETCH_LIMIT)
+        except Exception:  # noqa: BLE001
+            LOGGER.debug("Retry fetch scenario history failed for home %s", home_id, exc_info=True)
+            return []
+        return self._select_new_intent_events(home_id, events)
+
     def _select_new_intent_events(
         self, home_id: str, events: list[ScenarioEventDto]
     ) -> list[ScenarioEventDto]:
@@ -1213,19 +1261,23 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ранее обработанного cursor'а **для этого дома**.
 
         Sber возвращает события отсортированными по `event_time desc`.
-        При первом срабатывании (cursor=None) берём только самое свежее
-        (limit=1) — иначе на старте integration'а fire'ится весь
-        history.
+
+        При первом push'е после рестарта (cursor=None) **ничего не
+        фаерим** — cursor выставляется на «сейчас», следующий push
+        принесёт реальное событие через нормальный фильтр. Раньше брали
+        ``events[0]`` (последнее в Sber-логе), и это могло быть событие
+        многочасовой/многодневной давности — оно ошибочно фаерилось как
+        «только что сработавшее», и весь cursor сдвигался в прошлое
+        (issue #35).
         """
         cursor = self._last_intent_event_time.get(home_id)
         if cursor is None:
-            # Первый push из этого дома — берём только последнее,
-            # маркируем cursor.
-            if not events:
-                return []
-            head = events[0]
-            self._last_intent_event_time[home_id] = head.event_time
-            return [head]
+            # Marker: с этого момента ловим только действительно новые
+            # events. Без firing'а — текущий push мог прийти ещё до того
+            # как Sber записал свежее событие; всё что в логе сейчас —
+            # уже устарело.
+            self._last_intent_event_time[home_id] = datetime.now(UTC).isoformat()
+            return []
         return [e for e in events if e.event_time and e.event_time > cursor]
 
     def _fire_intent_event(self, event: ScenarioEventDto) -> None:

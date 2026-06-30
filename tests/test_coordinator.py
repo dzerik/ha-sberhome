@@ -143,6 +143,11 @@ def coordinator(
     coord.indicator_colors = None
     coord._indicator_last_poll_at = None
     coord._indicator_disabled = True  # skip indicator poll in unit tests
+    # Voice-intent dispatcher state (Phase 10, hardened in issue #35).
+    coord._last_intent_event_time = {}
+    coord._fired_event_ids = deque(maxlen=64)
+    coord._intent_dispatch_lock = __import__("asyncio").Lock()
+    coord._intent_dispatch_cooldown_until = 0.0
     return coord
 
 
@@ -888,3 +893,96 @@ def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
         coordinator._prune_stale_devices()
 
     device_reg.async_remove_device.assert_called_once_with(orphan.id)
+
+
+# ---------------------------------------------------------------------------
+# Intent dispatcher — issue #35: cursor=None НЕ должен фаерить старый
+# event из истории Sber; retry на лаг event-log; dedup по event_id.
+# ---------------------------------------------------------------------------
+
+
+def _make_event(event_id: str, event_time: str, name: str = "X"):
+    from custom_components.sberhome.aiosber.dto.scenario import ScenarioEventDto
+
+    return ScenarioEventDto(
+        id=event_id,
+        event_time=event_time,
+        object_id=f"sc-{event_id}",
+        name=name,
+        type="SUCCESS",
+    )
+
+
+def test_select_new_intent_events_cursor_none_does_not_fire_stale(coordinator):
+    """issue #35: первый push после рестарта не должен фаерить historical
+    event. Cursor выставляется на now, возвращается пустой список — реальное
+    событие прилетит на следующем push'е через нормальный фильтр.
+    """
+    old_event = _make_event("evt-old", "2026-01-01T00:00:00.000000Z")
+    selected = coordinator._select_new_intent_events("home-1", [old_event])
+
+    assert selected == []
+    # cursor выставлен — на "сейчас", не на event_time старого события
+    cursor = coordinator._last_intent_event_time["home-1"]
+    assert cursor is not None
+    assert cursor > "2026-01-01T00:00:00"
+
+
+def test_select_new_intent_events_filters_by_cursor(coordinator):
+    """С установленным cursor'ом возвращаются только события строго после."""
+    coordinator._last_intent_event_time["home-1"] = "2026-06-28T12:00:00.000000Z"
+    events = [
+        _make_event("evt-3", "2026-06-28T12:30:00.000000Z"),
+        _make_event("evt-2", "2026-06-28T12:00:00.000000Z"),  # ==cursor → отсечён
+        _make_event("evt-1", "2026-06-28T11:00:00.000000Z"),  # <cursor → отсечён
+    ]
+    selected = coordinator._select_new_intent_events("home-1", events)
+
+    assert [e.id for e in selected] == ["evt-3"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_new_intent_events_retries_on_empty(coordinator, mock_client):
+    """issue #35: Sber event-log имеет лаг — если первый fetch не нашёл
+    новых событий, нужно sleep + retry один раз."""
+    coordinator._last_intent_event_time["home-1"] = "2026-06-28T12:00:00.000000Z"
+    fresh = _make_event("evt-fresh", "2026-06-28T12:30:00.000000Z")
+
+    history_mock = AsyncMock(side_effect=[[], [fresh]])
+    mock_client.scenarios.history = history_mock
+
+    with patch("custom_components.sberhome.coordinator.asyncio.sleep", AsyncMock()) as sleep_mock:
+        result = await coordinator._fetch_new_intent_events("home-1")
+
+    assert [e.id for e in result] == ["evt-fresh"]
+    assert history_mock.await_count == 2
+    sleep_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_intent_dedup_skips_already_fired_event_id(coordinator, mock_client):
+    """issue #35: повторный fetch одного и того же event_id (например при
+    парном scenario_widgets push'е) не должен фаерить событие дважды."""
+    coordinator._last_intent_event_time["home-1"] = "2026-06-28T12:00:00.000000Z"
+    coordinator._intent_dispatch_cooldown_until = 0
+    coordinator._fired_event_ids.append("evt-dup")  # уже сфаерили в прошлый раз
+
+    repeat = _make_event("evt-dup", "2026-06-28T12:30:00.000000Z")
+    mock_client.scenarios.history = AsyncMock(return_value=[repeat])
+
+    home_dto = MagicMock()
+    home_dto.id = "home-1"
+    coordinator.state_cache.get_homes = MagicMock(return_value=[home_dto])
+
+    fired: list = []
+    coordinator.hass.bus = MagicMock()
+    coordinator.hass.bus.async_fire = MagicMock(side_effect=lambda t, d: fired.append((t, d)))
+
+    msg = MagicMock()
+    msg.topic = None
+    msg.target_device_id = None
+    msg.to_dict = MagicMock(return_value={})
+
+    await coordinator._on_ws_scenario_widgets(msg)
+
+    assert fired == [], "Event с уже зафаеренным id должен быть пропущен"

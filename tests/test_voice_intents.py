@@ -1,18 +1,22 @@
 """Phase 10 — voice intents dispatcher tests.
 
 Покрывает coordinator-логику обработки `scenario_widgets` WS push'а:
-- Первый запуск (cursor=None) ловит ТОЛЬКО самое свежее событие
-  (иначе на старте integration'а fire'ится весь history).
+- Первый запуск (cursor=None) НЕ фаерит ничего и выставляет cursor=now
+  (issue #35; раньше брали `events[0]` из истории и могли зафаерить
+  событие многочасовой давности).
 - Последующие push'и фильтруют по `event_time > cursor`.
 - Дубликат WS push (Sber всегда шлёт UPDATE_WIDGETS парами ×2) ловится
   через `_intent_dispatch_lock` — fetch только один раз.
+- Dedup по event_id: повторный fetch одного и того же event'а не фаерит
+  его дважды (issue #35).
 - `home_id` отсутствует → skip dispatch (graceful no-op).
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from collections import deque
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -49,8 +53,12 @@ def _coord_with_homes(home_ids: list[str]) -> MagicMock:
     coord._select_new_intent_events = lambda home_id, events: (
         SberHomeCoordinator._select_new_intent_events(coord, home_id, events)
     )
+    coord._fetch_new_intent_events = lambda home_id: SberHomeCoordinator._fetch_new_intent_events(
+        coord, home_id
+    )
     coord._fire_intent_event = lambda e: SberHomeCoordinator._fire_intent_event(coord, e)
     coord._last_intent_event_time = {}
+    coord._fired_event_ids = deque(maxlen=64)
     coord._intent_dispatch_lock = asyncio.Lock()
     coord._intent_dispatch_cooldown_until = 0.0
     coord.state_cache = MagicMock()
@@ -73,9 +81,11 @@ def _coord_with_homes(home_ids: list[str]) -> MagicMock:
 
 
 class TestSelectNewIntentEvents:
-    def test_first_run_takes_only_head(self):
-        """На первом запуске (cursor=None) берём только самое свежее
-        событие — иначе fire'ится весь history."""
+    def test_first_run_sets_cursor_to_now_without_firing(self):
+        """issue #35: на первом запуске (cursor=None) НЕ фаерим ничего —
+        cursor выставляется на now, реальный event прилетит со следующим
+        push'ом. Раньше брали head из истории — это могло зафаерить
+        событие многочасовой давности."""
         coord = _coord_with_home()
         events = [
             _event(time="2026-04-27T12:50:00Z"),
@@ -83,10 +93,11 @@ class TestSelectNewIntentEvents:
             _event(time="2026-04-27T12:48:00Z"),
         ]
         result = SberHomeCoordinator._select_new_intent_events(coord, "home-1", events)
-        assert len(result) == 1
-        assert result[0].event_time == "2026-04-27T12:50:00Z"
-        # Cursor выставлен per home_id, чтобы повторный вызов не сдупликатил head.
-        assert coord._last_intent_event_time["home-1"] == "2026-04-27T12:50:00Z"
+        assert result == []
+        # Cursor выставлен на now (значительно позже всех historical events).
+        cursor = coord._last_intent_event_time["home-1"]
+        assert cursor is not None
+        assert cursor > "2026-04-27T12:50:00Z"
 
     def test_cursor_filters_old_events(self):
         coord = _coord_with_home()
@@ -108,10 +119,15 @@ class TestSelectNewIntentEvents:
         assert SberHomeCoordinator._select_new_intent_events(coord, "home-1", events) == []
 
     def test_empty_response_with_first_run(self):
+        """issue #35: cursor=None + пустой ответ → cursor всё равно
+        выставляется на now (иначе следующий push снова прочитает
+        historical events как «свежие»)."""
         coord = _coord_with_home()
         assert SberHomeCoordinator._select_new_intent_events(coord, "home-1", []) == []
-        # Cursor для этого home остаётся unset — потом первый event подхватим.
-        assert "home-1" not in coord._last_intent_event_time
+        # Cursor выставлен на now — фиксирует timestamp начала наблюдения.
+        cursor = coord._last_intent_event_time["home-1"]
+        assert cursor is not None
+        assert cursor > "2026-01-01T00:00:00Z"
 
     def test_per_home_cursor_independent(self):
         """Multi-home: cursor одного дома не влияет на cursor другого.
@@ -127,11 +143,12 @@ class TestSelectNewIntentEvents:
             _event(time="2026-04-27T12:00:00Z"),
         ]
         result = SberHomeCoordinator._select_new_intent_events(coord, "home-dacha", dacha_events)
-        # Первый push в «Даче» (cursor unset) → берётся head, не зависит
-        # от cursor'а из «Мой дом».
-        assert len(result) == 1
-        assert result[0].event_time == "2026-04-27T13:00:00Z"
-        assert coord._last_intent_event_time["home-dacha"] == "2026-04-27T13:00:00Z"
+        # issue #35: первый push в «Даче» (cursor unset) → cursor=now,
+        # ничего не фаерим — historical events не должны лететь как
+        # «свежие».
+        assert result == []
+        assert coord._last_intent_event_time["home-dacha"] is not None
+        assert coord._last_intent_event_time["home-dacha"] > "2026-04-27T13:00:00Z"
         # Cursor «Мой дом» не затронут.
         assert coord._last_intent_event_time["home-main"] == "2026-04-27T15:00:00Z"
 
@@ -257,7 +274,10 @@ class TestOnWsScenarioWidgets:
         coord.hass.bus.async_fire.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_first_push_fetches_history_and_fires(self):
+    async def test_first_push_does_not_fire_history(self):
+        """issue #35: первый push после рестарта НЕ фаерит historical event.
+        Cursor выставляется на now; реальный event ловится со следующего push'а.
+        """
         coord = _coord_with_home()
         coord.client.scenarios.history = AsyncMock(
             return_value=[_event(time="2026-04-27T12:50:00Z", name="Маркер")]
@@ -267,7 +287,40 @@ class TestOnWsScenarioWidgets:
         msg.target_device_id = None
         msg.to_dict = MagicMock(return_value={"scenario_widget": {"type": "UPDATE_WIDGETS"}})
 
-        # cooldown=0 для теста чтобы не блокировать на 1 sec
+        from custom_components.sberhome import coordinator as coord_mod
+
+        original_cooldown = coord_mod.INTENT_DISPATCH_COOLDOWN_SEC
+        coord_mod.INTENT_DISPATCH_COOLDOWN_SEC = 0
+        try:
+            with patch(
+                "custom_components.sberhome.coordinator.asyncio.sleep",
+                AsyncMock(),
+            ):
+                await SberHomeCoordinator._on_ws_scenario_widgets(coord, msg)
+        finally:
+            coord_mod.INTENT_DISPATCH_COOLDOWN_SEC = original_cooldown
+
+        # history может быть дёрнута до двух раз (retry на лаг event-log).
+        assert coord.client.scenarios.history.await_count >= 1
+        # Главное — НИЧЕГО не зафаерили.
+        coord.hass.bus.async_fire.assert_not_called()
+        # Cursor выставлен на now, не на historical event_time.
+        assert coord._last_intent_event_time["home-1"] > "2026-04-27T12:50:00Z"
+
+    @pytest.mark.asyncio
+    async def test_subsequent_push_fires_new_event(self):
+        """С установленным cursor'ом push с реально свежим event'ом
+        фаерит его и продвигает cursor."""
+        coord = _coord_with_home()
+        coord._last_intent_event_time["home-1"] = "2026-04-27T12:00:00Z"
+        coord.client.scenarios.history = AsyncMock(
+            return_value=[_event(time="2026-04-27T12:50:00Z", name="Маркер")]
+        )
+        msg = MagicMock()
+        msg.topic = MagicMock(value="scenario_widgets")
+        msg.target_device_id = None
+        msg.to_dict = MagicMock(return_value={})
+
         from custom_components.sberhome import coordinator as coord_mod
 
         original_cooldown = coord_mod.INTENT_DISPATCH_COOLDOWN_SEC
@@ -277,8 +330,6 @@ class TestOnWsScenarioWidgets:
         finally:
             coord_mod.INTENT_DISPATCH_COOLDOWN_SEC = original_cooldown
 
-        coord.client.scenarios.history.assert_awaited_once()
-        # Hass event fired для самого свежего события (head на первом запуске).
         coord.hass.bus.async_fire.assert_called_once()
         assert coord._last_intent_event_time["home-1"] == "2026-04-27T12:50:00Z"
 
@@ -287,8 +338,11 @@ class TestOnWsScenarioWidgets:
         """Multi-home: события из каждого дома обрабатываются независимо.
 
         2 дома, по одному event'у в каждом → 2 history fetch'а, 2 fire.
+        Cursors pre-seeded (иначе по issue #35 first-push не фаерит).
         """
         coord = _coord_with_homes(["home-main", "home-dacha"])
+        coord._last_intent_event_time["home-main"] = "2026-04-27T00:00:00Z"
+        coord._last_intent_event_time["home-dacha"] = "2026-04-27T00:00:00Z"
 
         def history_by_home(home_id, **kwargs):
             if home_id == "home-main":
@@ -324,8 +378,12 @@ class TestOnWsScenarioWidgets:
 
     @pytest.mark.asyncio
     async def test_one_home_history_failure_does_not_block_other(self):
-        """Если history по одному дому падает — другой обрабатывается."""
+        """Если history по одному дому падает — другой обрабатывается.
+        Pre-seed cursors чтобы issue-#35 first-push gate не глушил fire.
+        """
         coord = _coord_with_homes(["home-main", "home-dacha"])
+        coord._last_intent_event_time["home-main"] = "2026-04-27T00:00:00Z"
+        coord._last_intent_event_time["home-dacha"] = "2026-04-27T00:00:00Z"
 
         def history_by_home(home_id, **kwargs):
             if home_id == "home-main":
@@ -356,8 +414,12 @@ class TestOnWsScenarioWidgets:
     async def test_duplicate_push_skipped_by_lock(self):
         """Sber шлёт UPDATE_WIDGETS парами ×2 за <100ms — второй вызов
         попадает на занятый lock, history.fetch вызывается ровно 1 раз
-        (для всех домов)."""
+        (для всех домов). Pre-seed cursor — иначе первый push gate'ится
+        issue-#35 fix'ом и history может вообще не дёрнуться (cursor=None
+        retry skipped).
+        """
         coord = _coord_with_home()
+        coord._last_intent_event_time["home-1"] = "2026-04-27T00:00:00Z"
 
         # history намеренно медленный, чтобы lock держал второй call
         async def slow_history(*args, **kwargs):
