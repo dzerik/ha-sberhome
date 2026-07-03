@@ -110,16 +110,16 @@ def coordinator(
     # StateCache + sbermap entities cache. shared между coordinator и client.
     coord.state_cache = mock_client.state
     coord.entities = {}
-    # PR #11 stats для panel.
-    from collections import deque
+    # PR #11 stats для panel. WS-log живёт в WsDevToolsRecorder;
+    # last_ws_message_at/ws_message_count — read-only properties поверх него.
+    from custom_components.sberhome.ws_devtools import WsDevToolsRecorder
 
     coord.last_polling_at = None
     coord.polling_count = 0
     coord.error_count = 0
-    coord.last_ws_message_at = None
-    coord.ws_message_count = 0
-    coord._ws_log = deque(maxlen=100)
-    coord._ws_log_subscribers = []
+    coord.ws_devtools = WsDevToolsRecorder(maxlen=100)
+    coord._ws_log = coord.ws_devtools.log
+    coord._ws_log_subscribers = coord.ws_devtools.subscribers
     # Phase 4 (DevTools) — collectors are real objects so observe_*
     # calls don't blow up; mock would need spec'd interfaces.
     from custom_components.sberhome.command_tracker import CommandTracker

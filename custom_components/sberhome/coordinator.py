@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections import deque
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -59,6 +58,7 @@ from .intent_dispatcher import (
     IntentDispatcher,
 )
 from .listeners import ListenerRegistry
+from .registry_maintenance import prune_stale_devices, remove_unlinked_devices
 from .sbermap import (
     HaEntityData,
     map_device_to_entities,
@@ -66,6 +66,7 @@ from .sbermap import (
 from .schema_validator import ValidationCollector
 from .state_diff import DiffCollector
 from .tts_surrogate import TtsSurrogateService
+from .ws_devtools import WsDevToolsRecorder
 
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
 # в `async_added_to_hass`, fire HA event bus при получении.
@@ -179,14 +180,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.state_cache: StateCache = self._client.state
         # sbermap entities cache (rebuilt from state_cache after each refresh).
         self.entities: dict[str, list[HaEntityData]] = {}
-        # Stats для panel (PR #12) — count + last timestamps + ring buffer WS msgs.
+        # Stats для panel (PR #12) — count + last timestamps.
         self.last_polling_at: float | None = None
-        self.last_ws_message_at: float | None = None
         self.polling_count: int = 0
         self.error_count: int = 0
-        self.ws_message_count: int = 0
-        self._ws_log: deque[dict[str, Any]] = deque(maxlen=100)
-        self._ws_log_subscribers: list[Callable[[dict[str, Any]], None]] = []
+        # Ring buffer WS/command сообщений + panel subscribers — вынесено
+        # в WsDevToolsRecorder (SOLID). Алиасы _ws_log/_ws_log_subscribers
+        # шарят те же mutable-объекты для websocket_api/log.py.
+        self.ws_devtools = WsDevToolsRecorder(maxlen=100)
+        self._ws_log = self.ws_devtools.log
+        self._ws_log_subscribers = self.ws_devtools.subscribers
         # DevTools #1: per-device state-payload diff collector.  Fed by
         # every WS DEVICE_STATE push and by polling refresh; empty deltas
         # (identical-to-prior) are dropped so the DevTools log shows only
@@ -439,76 +442,15 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {did: dto.to_dict() for did, dto in all_devices.items()}
 
     def _prune_stale_devices(self) -> None:
-        """Удалить из device_registry устройства, пропавшие из Sber API.
-
-        HA автоматически удалит привязанные entities вместе с DeviceEntry.
-        Срабатывает при каждом успешном polling refresh. Stale-детектор:
-        DeviceEntry привязан к нашему config_entry_id, но его identifier
-        не встречается ни в `state_cache` (через serial_number / device_id),
-        ни в `enabled_device_ids` (если они заданы — user-managed opt-in).
-
-        Весь метод обёрнут в try/except — если в моках недоступен реальный
-        DeviceRegistry, мы не валим весь coordinator refresh.
-        """
+        """Delegate → registry_maintenance.prune_stale_devices (SOLID-вынос)."""
         if self.config_entry is None:
             return
-        try:
-            from homeassistant.helpers import device_registry as dr
-
-            device_reg = dr.async_get(self.hass)
-            entry_id = self.config_entry.entry_id
-
-            # Собираем identifiers (serial + device_id + home_id) из live state.
-            live_identifiers: set[str] = set()
-            enabled = self.enabled_device_ids
-            for dev_id, dto in self.state_cache.get_all_devices().items():
-                if enabled is not None and dev_id not in enabled:
-                    continue
-                if dto.serial_number:
-                    live_identifiers.add(dto.serial_number)
-                if dto.id:
-                    live_identifiers.add(dto.id)
-                live_identifiers.add(dev_id)
-
-            # Home-level identifiers (напр. NotifyEntity использует
-            # `home:{home.id}` как identifier в device_info).  Без этого
-            # _prune_stale_devices удаляет home-level device_registry записи,
-            # каскадно убивая NotifyEntity при каждом refresh.
-            for home in self.state_cache.get_homes():
-                if home.id:
-                    live_identifiers.add(f"home:{home.id}")
-
-            # Group-level identifiers (switch_groups.py:45 использует
-            # `group:{group_id}` как identifier в device_info для каждой
-            # Sber-группы).  Без этого entities группы выпиливаются prune'ом.
-            for group_id in self.state_cache.get_all_groups():
-                if group_id:
-                    live_identifiers.add(f"group:{group_id}")
-
-            # Virtual device identifiers — entities, привязанные не к реальному
-            # Sber-устройству, а к синтетическим DeviceEntry.  Без них
-            # _prune_stale_devices удаляет их при каждом refresh, каскадно
-            # убивая соответствующие entities.
-            # light.py:283   SberIndicatorLight       → identifier "indicator"
-            # button.py:101  SberScenarioButton       → identifier "scenarios"
-            # switch.py:107  SberScenariosSwitch      → identifier "scenarios"
-            # binary_sensor.py:98  SberScenariosBin   → identifier "scenarios"
-            live_identifiers.add("indicator")
-            live_identifiers.add("scenarios")
-
-            stale: list[str] = []
-            for device in dr.async_entries_for_config_entry(device_reg, entry_id):
-                our_idents = {ident for (domain, ident) in device.identifiers if domain == DOMAIN}
-                if not our_idents:
-                    continue
-                if our_idents.isdisjoint(live_identifiers):
-                    stale.append(device.id)
-
-            for dev_reg_id in stale:
-                device_reg.async_remove_device(dev_reg_id)
-                LOGGER.info("Pruned stale device %s from registry", dev_reg_id)
-        except Exception:
-            LOGGER.debug("Stale device pruning failed (ignored)", exc_info=True)
+        prune_stale_devices(
+            self.hass,
+            self.config_entry.entry_id,
+            self.state_cache,
+            self.enabled_device_ids,
+        )
 
     # ------------------------------------------------------------------
     # Sber scenarios + at_home variable
@@ -728,8 +670,6 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         их бесконечно. Теперь вычисляем diff со старым set и удаляем
         устройства, которые были отвязаны.
         """
-        from homeassistant.helpers import device_registry as dr
-
         previous = self.enabled_device_ids or set()
         new_set = set(device_ids)
         removed_ids = previous - new_set if previous else set()
@@ -749,33 +689,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.data[f"{DOMAIN}_options_{self.config_entry.entry_id}"] = dict(new_options)
         self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
 
-        # Cleanup device_registry для отвязанных устройств. Удаление
-        # записи DeviceEntry каскадно удаляет все entities — HA
-        # делает это автоматически. DeviceInfo в entity.py использует
-        # `serial_number OR device_id` как identifier, поэтому пробуем
-        # оба варианта.
-        if removed_ids:
-            device_reg = dr.async_get(self.hass)
-            for sber_device_id in removed_ids:
-                dto = self.state_cache.get_device(sber_device_id)
-                candidates: list[str] = []
-                if dto is not None:
-                    if dto.serial_number:
-                        candidates.append(dto.serial_number)
-                    if dto.id:
-                        candidates.append(dto.id)
-                candidates.append(sber_device_id)
-
-                for ident in candidates:
-                    device_entry = device_reg.async_get_device(identifiers={(DOMAIN, ident)})
-                    if device_entry is not None:
-                        device_reg.async_remove_device(device_entry.id)
-                        LOGGER.info(
-                            "Removed unlinked device %s (%s) from registry",
-                            device_entry.name_by_user or device_entry.name,
-                            sber_device_id,
-                        )
-                        break
+        # Cleanup device_registry для отвязанных устройств — HA каскадно
+        # удалит entities. Логика в registry_maintenance (SOLID-вынос).
+        remove_unlinked_devices(self.hass, self.state_cache, removed_ids)
 
         # Обновляем in-memory фильтр coordinator (до reload). Здесь
         # state_cache не трогаем — только entities фильтруются иначе.
@@ -858,6 +774,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             with contextlib.suppress(Exception):
                 self.hass.async_create_task(self.async_request_refresh())
 
+    @property
+    def last_ws_message_at(self) -> float | None:
+        """Timestamp последнего WS/command сообщения (panel/diagnostics)."""
+        return self.ws_devtools.last_message_at
+
+    @property
+    def ws_message_count(self) -> int:
+        """Счётчик WS/command сообщений (panel/diagnostics)."""
+        return self.ws_devtools.message_count
+
     def _record_ws_message(
         self,
         *,
@@ -866,28 +792,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload: Any,
         direction: str = "in",
     ) -> None:
-        """Append message в ring buffer + notify panel subscribers.
-
-        Args:
-            direction: "in" — входящее от Sber через WS, "out" — исходящая
-                команда (HTTP PUT) от нас к Sber. Последнее — technically не
-                WS, но полезно видеть в одном логе для корреляции.
-        """
-        record = {
-            "ts": time.time(),
-            "direction": direction,
-            "topic": topic,
-            "device_id": device_id,
-            "payload": payload,
-        }
-        self._ws_log.append(record)
-        self.last_ws_message_at = record["ts"]
-        self.ws_message_count += 1
-        for sub in list(self._ws_log_subscribers):
-            try:
-                sub(record)
-            except Exception:
-                LOGGER.debug("WS log subscriber failed", exc_info=True)
+        """Delegate → WsDevToolsRecorder.record (SOLID-вынос)."""
+        self.ws_devtools.record(
+            topic=topic,
+            device_id=device_id,
+            payload=payload,
+            direction=direction,
+        )
 
     async def async_inject_ws_message(
         self,
