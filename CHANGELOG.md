@@ -1,5 +1,133 @@
 # Changelog
 
+## [5.12.0] — 2026-07-03
+
+### Fixed — гонки состояния (quality-аудит)
+
+- **StateCache**: полный refresh больше не затирает локальные WS/optimistic-патчи,
+  пришедшие во время HTTP-запроса. Merge защищён timestamp-guard'ом
+  (`time.monotonic()` снимается до `gather`, локальный state с
+  `written_at > fetch_started_at` переживает wholesale replace). Вероятная
+  причина «мигания» состояний устройств после команды.
+- **TTS surrogate**: весь цикл PUT→RUN в `send()` сериализован per-home
+  lock'ом — параллельные вызовы больше не перемешивают фразы между собой.
+
+### Changed — декомпозиция coordinator (SOLID)
+
+- `intent_dispatcher.py` — voice-intent dispatch (coalesce-flag, datetime
+  cursor, safety-net poller) вынесен из coordinator в отдельный класс с DI.
+- `ThrottledPoll` — 4 копии throttled-poll паттерна (OTA / discovery /
+  indicator / scenarios) схлопнуты в один helper.
+- `registry_maintenance.py` — prune stale devices + удаление отвязанных
+  устройств вынесены из coordinator.
+- `ws_devtools.py` — `WsDevToolsRecorder`: ring buffer WS/command сообщений
+  для DevTools-панели.
+- coordinator.py: ~1500 → 1065 строк, Maintainability Index B → A.
+
+### Fixed — таблица платформ sbermap
+
+- `CATEGORY_TO_HA_PLATFORMS`: исправлено 6 дрейфов (led_strip, hvac_ac,
+  hvac_fan, hvac_humidifier, vacuum_cleaner, socket). Добавлен
+  compliance-тест, который сверяет таблицу с реальными spec'ами —
+  дальнейший дрейф ловится автоматически.
+
+### Tests
+
+- Восстановлены 13 потерянных платформенных тест-модулей (+231 тест):
+  climate, cover, fan, humidifier, media_player, number, vacuum, select,
+  light, switch, button, api.
+- Coverage 78.4% → 84.5%; suite 1569 passed / 0 skipped.
+
+## [5.11.0] — 2026-07-03
+
+### Added — sensor_air
+
+Поддержка нового Sber-типа устройств «датчик качества воздуха»
+(`sensor_air`): CO₂, TVOC, температура, влажность.
+
+### Tests
+
+- Regression-тест на shape автоматизации из issue #35.
+
+## [5.10.8] — 2026-07-01
+
+### Fixed — voice-intent dispatch (issue #35)
+
+Rearchitect механизма доставки голосовых интентов:
+
+- **coalesce-flag** вместо drop-and-forget: WS-push во время активного
+  fetch больше не теряется — worker перезапускает цикл;
+- **per-home datetime cursor**: выбор новых событий по серверному
+  timestamp вместо эвристик;
+- **safety-net poller** (30 с): события доезжают даже при потере WS-push;
+- dedup по `event_id` (история 128).
+
+## [5.10.7] — 2026-06-30
+
+### Fixed — historical event после рестарта (issue #35)
+
+Первый WS-push после рестарта HA больше не фаерит устаревшее
+(historical) событие интента — cursor инициализируется временем старта.
+
+## [5.10.6] — 2026-06-22
+
+### Fixed — intent UI (issue #33)
+
+Заблокировано сохранение интента, у которого настроен только
+`ha_event_only`-триггер без остальных обязательных полей — раньше такой
+интент молча не работал на стороне Sber.
+
+## [5.10.5] — 2026-06-22
+
+### Fixed — prune выпиливал виртуальные device_registry записи
+
+- Whitelist виртуальных identifiers (`home:{id}`, `indicator`,
+  `scenarios`) в `_prune_stale_devices` — записи NotifyEntity /
+  IndicatorLight / ScenarioButton больше не удаляются при каждом refresh
+  (PR #26, спасибо @PanovEduard — первый внешний контрибьютор).
+- Дополнительно whitelist `group:{id}` + regression-тесты.
+
+## [5.10.4] — 2026-06-11
+
+### Added — Jinja2-шаблоны в TTS-фразах (issue #25)
+
+Фразы surrogate TTS и intent'ов поддерживают Jinja2 (`{{ states(...) }}`
+и т.п.), рендер — на стороне HA при создании/записи события
+(render-on-save). Редактор с подсветкой Jinja (`ha-code-editor`) и
+примерами, textarea-fallback + cache-bust для subview-модулей.
+
+### Changed
+
+- `requires-python >= 3.13`, CI-matrix 3.13/3.14.
+
+## [5.9.0] — 2026-05-25
+
+### Added — HACS downloads counter
+
+Релиз публикуется со скачиваемым zip-asset (`sberhome.zip`) — HACS
+считает загрузки. `hacs.json`: `zip_release: true`; новый workflow
+`release.yml` собирает и аттачит zip, валидирует совпадение тега с
+`manifest.json:version`.
+
+### Added — State Diffs: группировка по устройству
+
+Дифы в DevTools группируются по `device_id` в раскрывающиеся списки:
+счётчик изменений, сортировка групп по свежести, состояние раскрытия
+переживает re-render.
+
+### Added — diagnostics
+
+Sber scenarios context включён в HA diagnostics (#16).
+
+## [5.8.6] — 2026-05-18
+
+### Fixed — RGB-лампы не добавлялись в HA (#15)
+
+`supported_color_modes` сочетал `BRIGHTNESS` с цветовым режимом — у ламп
+с режимами `colour`+`white` без цветовой температуры формировался
+невалидный набор `{HS, BRIGHTNESS}`, HA отклонял entity с
+`HomeAssistantError`. Набор теперь прогоняется через HA-валидатор в тестах.
+
 ## [5.8.5] — 2026-05-15
 
 ### Fixed — light entity «мертва» (только on/off) на части RGB-лент (#10)
