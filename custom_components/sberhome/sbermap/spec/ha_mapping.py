@@ -21,11 +21,15 @@ from homeassistant.const import Platform
 # Каждая категория Sber может create несколько entities в HA (например socket
 # делает switch + 3 sensor'а power monitoring).
 CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
+    # NB: содержимое проверяется compliance-тестом
+    # tests/sbermap/spec/test_platform_table_compliance.py против реальных
+    # реестров CATEGORY_SPECS + FEATURE_SPECS (SOLID/DRY-аудит нашёл дрейф).
+    # При добавлении category-scoped FeatureSpec — обновить и эту таблицу.
     # Lights
     "light": (Platform.LIGHT,),
-    "led_strip": (Platform.LIGHT, Platform.NUMBER),  # + sleep_timer
+    "led_strip": (Platform.LIGHT, Platform.NUMBER, Platform.SWITCH),  # + sleep_timer, switch_led
     # Switches with measurement
-    "socket": (Platform.SWITCH, Platform.SENSOR, Platform.SWITCH),  # + child_lock
+    "socket": (Platform.SWITCH, Platform.SENSOR),  # + child_lock (тоже SWITCH)
     "relay": (Platform.SWITCH, Platform.SENSOR),
     # Sensors
     "sensor_temp": (Platform.SENSOR, Platform.SELECT),  # + sensitivity
@@ -43,17 +47,22 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
     "gate": (Platform.COVER, Platform.SELECT),
     "valve": (Platform.COVER,),
     # HVAC
-    "hvac_ac": (Platform.CLIMATE, Platform.SWITCH, Platform.NUMBER),
+    "hvac_ac": (Platform.CLIMATE, Platform.SWITCH, Platform.NUMBER, Platform.SELECT),
     "hvac_heater": (Platform.CLIMATE, Platform.SELECT),
     "hvac_radiator": (Platform.CLIMATE,),
     "hvac_boiler": (Platform.CLIMATE, Platform.SELECT),
     "hvac_underfloor_heating": (Platform.CLIMATE, Platform.SELECT),
-    "hvac_fan": (Platform.FAN,),
+    "hvac_fan": (Platform.FAN, Platform.SELECT),  # + hvac_direction_set
     "hvac_air_purifier": (Platform.FAN, Platform.SWITCH, Platform.BINARY_SENSOR),
-    "hvac_humidifier": (Platform.HUMIDIFIER, Platform.SENSOR, Platform.BINARY_SENSOR),
+    "hvac_humidifier": (
+        Platform.HUMIDIFIER,
+        Platform.SENSOR,
+        Platform.BINARY_SENSOR,
+        Platform.SWITCH,  # hvac_night_mode / hvac_ionization
+    ),
     # Appliances
     "kettle": (Platform.SWITCH, Platform.NUMBER, Platform.SENSOR, Platform.BINARY_SENSOR),
-    "vacuum_cleaner": (Platform.VACUUM, Platform.SELECT),
+    "vacuum_cleaner": (Platform.VACUUM, Platform.SELECT, Platform.SWITCH),  # + child_lock
     "tv": (Platform.MEDIA_PLAYER,),
     # Misc
     "scenario_button": (Platform.EVENT,),
