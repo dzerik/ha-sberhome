@@ -776,3 +776,65 @@ class TestRegressionIssue35:
         assert fired_scenarios == {"sc-cmd1", "sc-cmd2"}
         # cmd1 fired ровно один раз (dedup сработал во второй итерации).
         assert coord.hass.bus.async_fire.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_panov_automation_shape_no_duplicate_name(self):
+        """Автоматизации @PanovEduard из issue #35 триггерят по:
+
+            trigger:
+              - platform: event
+                event_type: sberhome_intent
+                event_data:
+                  name: "Balcony_temp"    # ← фильтр по name
+            mode: single
+
+        Плюс batch payload из lag'а (Bedroom_light_turn_on 22:16:29 +
+        Sber TTS surrogate 22:16:16) в реальном логе показывает: HA
+        получает несколько distinct HA-events за один tick. mode: single
+        ронял «Already running», если один и тот же name встречался
+        дважды в batch'е.
+
+        Регресс-гарантия v5.10.8: событие с одним и тем же event_id НЕ
+        должно быть fired дважды, даже если два push'а подряд принесут
+        его в разных fetch'ах.
+        """
+        coord = _coord_with_home()
+        coord._last_intent_event_time["home-1"] = _parse_event_time("2026-06-30T00:00:00Z")
+        coord.listener_registry = MagicMock()
+        coord.listener_registry.find_matching = MagicMock(return_value=[])
+
+        # Имитируем реальный batch из лога юзера: Balcony_temp + surrogate
+        # в одном fetch'е. Оба фаерятся (разные event_id), но каждый — ровно
+        # один раз.
+        balcony_temp = _event(
+            time="2026-06-30T22:16:15.960325Z",
+            sid="6a2b2bca053903eb5be4c02e",
+            event_id="6a44402faf5871ea63265e20",
+            name="Balcony_temp",
+        )
+        surrogate = _event(
+            time="2026-06-30T22:16:16.601131Z",
+            sid="6a2caab2053903eb5be6bcbc",
+            event_id="6a444030d70c79d108db2c2f",
+            name="Sber TTS surrogate (Мой дом) [home_id=d8ktpv4f]",
+        )
+        coord.client.scenarios.history = AsyncMock(return_value=[surrogate, balcony_temp])
+
+        msg = MagicMock()
+        msg.topic = MagicMock(value="scenario_widgets")
+        msg.target_device_id = None
+        msg.to_dict = MagicMock(return_value={})
+
+        # Push #1 (paired) + push #2 (paired) — стандартный Sber-паттерн.
+        await SberHomeCoordinator._on_ws_scenario_widgets(coord, msg)
+        await asyncio.sleep(0)
+        await SberHomeCoordinator._on_ws_scenario_widgets(coord, msg)
+        await coord._intent_dispatch_task
+
+        # HA получает 2 distinct HA-event bus fire: по одному на каждый event_id.
+        # Автоматизация юзера matches по name="Balcony_temp" — сработает ровно
+        # один раз, никаких дубликатов → никакого «Already running» warning'а.
+        fired_names = [call.args[1]["name"] for call in coord.hass.bus.async_fire.call_args_list]
+        assert fired_names.count("Balcony_temp") == 1
+        assert fired_names.count("Sber TTS surrogate (Мой дом) [home_id=d8ktpv4f]") == 1
+        assert coord.hass.bus.async_fire.call_count == 2
