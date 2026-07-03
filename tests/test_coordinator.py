@@ -147,12 +147,10 @@ def coordinator(
     coord.indicator_colors = None
     coord._indicator_poll = ThrottledPoll(3600, "Indicator")
     coord._indicator_poll.disabled = True
-    # Voice-intent dispatcher state (Phase 10, rearchitected in issue #35 v5.10.8).
-    coord._last_intent_event_time = {}
-    coord._fired_event_ids = deque(maxlen=128)
-    coord._intent_dispatch_pending = False
-    coord._intent_dispatch_task = None
-    coord._intent_poller_task = None
+    # Voice-intent dispatcher — вынесен в intent_dispatcher.py (SOLID);
+    # coordinator держит инстанс и делегирует, тесты dispatcher'а — в
+    # tests/test_intent_dispatcher.py.
+    coord.intent_dispatcher = MagicMock()
     return coord
 
 
@@ -323,40 +321,33 @@ async def test_on_ws_devman_event_no_event_payload(coordinator):
 
 
 def test_start_ws_task_creates_background_task(coordinator):
-    """_start_ws_task регистрирует задачу через async_create_background_task.
-
-    С v5.10.8 та же функция также запускает intent poller (safety-net,
-    см. issue #35) — итого 2 background task'а.
-    """
+    """_start_ws_task регистрирует WS-задачу + стартует intent poller
+    (poller теперь живёт в IntentDispatcher — SOLID-рефакторинг)."""
     coordinator._ws_task = None
-    coordinator._intent_poller_task = None
     fake_task = MagicMock()
     coordinator.hass.async_create_background_task = MagicMock(return_value=fake_task)
+    coordinator.intent_dispatcher = MagicMock()
 
     coordinator._start_ws_task()
 
-    # WS task + intent poller task = 2 создания.
-    assert coordinator.hass.async_create_background_task.call_count == 2
+    assert coordinator.hass.async_create_background_task.call_count == 1
     assert coordinator._ws_task is fake_task
-    assert coordinator._intent_poller_task is fake_task
+    coordinator.intent_dispatcher.start_poller.assert_called_once()
 
 
 def test_start_ws_task_swallows_exception(coordinator):
-    """Ошибка регистрации фоновой задачи — глотается, polling-only mode.
-
-    v5.10.8: то же самое ожидается для intent poller (безопасный fail).
-    """
+    """Ошибка регистрации фоновой задачи — глотается, polling-only mode."""
     coordinator._ws_task = None
-    coordinator._intent_poller_task = None
     coordinator.hass.async_create_background_task = MagicMock(
         side_effect=RuntimeError("loop closed")
     )
+    coordinator.intent_dispatcher = MagicMock()
 
     coordinator._start_ws_task()  # не должно бросить
 
-    # Обе попытки провалились, оба task'а остаются None.
     assert coordinator._ws_task is None
-    assert coordinator._intent_poller_task is None
+    # poller стартует независимо (сам глотает свои ошибки).
+    coordinator.intent_dispatcher.start_poller.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -651,149 +642,6 @@ async def test_group_state_push_triggers_listeners_update(coordinator):
     with patch.object(coordinator, "async_update_listeners") as mock_update:
         await coordinator._on_ws_group_state(msg)
     mock_update.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_listener_match_fires_additional_sberhome_intent(coordinator):
-    """При совпадении listener'а — фарится отдельный sberhome_intent с slug."""
-    from custom_components.sberhome.aiosber.dto.scenario import ScenarioEventDto
-    from custom_components.sberhome.listeners import (
-        ListenerFilter,
-        ListenerRegistry,
-        ListenerSpec,
-    )
-
-    coordinator.listener_registry = ListenerRegistry(
-        [
-            ListenerSpec(
-                slug="any_time",
-                name="Any TIME",
-                filter=ListenerFilter(trigger_types=frozenset({"TIME"})),
-            ),
-        ]
-    )
-
-    fired: list[tuple[str, dict]] = []
-    original_fire = coordinator.hass.bus.async_fire
-
-    def capture(event_type, data=None, *args, **kwargs):
-        fired.append((event_type, dict(data) if data else {}))
-        return original_fire(event_type, data, *args, **kwargs)
-
-    coordinator.hass.bus.async_fire = capture
-
-    event = ScenarioEventDto(
-        id="evt-1",
-        event_time="2026-05-13T08:00:00+00:00",
-        object_id="sc-1",
-        object_type="SCENARIO",
-        name="Доброе утро",
-        home_id="home-1",
-        data={"start_scenario_reason": {"type": "TIME"}},
-    )
-    coordinator._fire_intent_event(event)
-
-    sberhome_events = [d for t, d in fired if t == "sberhome_intent"]
-    assert len(sberhome_events) == 2
-
-    base = sberhome_events[0]
-    listener_evt = sberhome_events[1]
-    assert base.get("source") == "sber_only"
-    assert base.get("slug") is None
-    assert listener_evt["source"] == "listener"
-    assert listener_evt["slug"] == "any_time"
-    assert listener_evt["trigger_type"] == "TIME"
-
-
-@pytest.mark.asyncio
-async def test_listener_no_match_only_base_event(coordinator):
-    """0 матчей → только base event."""
-    from custom_components.sberhome.aiosber.dto.scenario import ScenarioEventDto
-    from custom_components.sberhome.listeners import (
-        ListenerFilter,
-        ListenerRegistry,
-        ListenerSpec,
-    )
-
-    coordinator.listener_registry = ListenerRegistry(
-        [
-            ListenerSpec(
-                slug="phrases_only",
-                name="X",
-                filter=ListenerFilter(trigger_types=frozenset({"PHRASES"})),
-            ),
-        ]
-    )
-
-    fired: list[tuple[str, dict]] = []
-    coordinator.hass.bus.async_fire = lambda t, d=None, *a, **k: fired.append((t, dict(d or {})))
-
-    event = ScenarioEventDto(
-        id="evt-2",
-        event_time="2026-05-13T08:00:00+00:00",
-        object_id="sc-2",
-        name="Time scenario",
-        data={"start_scenario_reason": {"type": "TIME"}},
-    )
-    coordinator._fire_intent_event(event)
-
-    sberhome_events = [d for t, d in fired if t == "sberhome_intent"]
-    assert len(sberhome_events) == 1
-    assert sberhome_events[0]["source"] == "sber_only"
-
-
-@pytest.mark.asyncio
-async def test_listener_exception_does_not_block_base_event(coordinator):
-    """Если matcher raise'ит — base event всё равно fired."""
-    from custom_components.sberhome.aiosber.dto.scenario import ScenarioEventDto
-
-    bad_registry = MagicMock()
-    bad_registry.find_matching.side_effect = RuntimeError("matcher exploded")
-    coordinator.listener_registry = bad_registry
-
-    fired: list[tuple[str, dict]] = []
-    coordinator.hass.bus.async_fire = lambda t, d=None, *a, **k: fired.append((t, dict(d or {})))
-
-    event = ScenarioEventDto(
-        id="evt-3",
-        event_time="2026-05-13T08:00:00+00:00",
-        object_id="sc-3",
-        name="X",
-        data={"start_scenario_reason": {"type": "TIME"}},
-    )
-    coordinator._fire_intent_event(event)
-
-    sberhome_events = [d for t, d in fired if t == "sberhome_intent"]
-    assert len(sberhome_events) == 1  # base event
-
-
-@pytest.mark.asyncio
-async def test_listener_match_updates_last_fired_at(coordinator):
-    from custom_components.sberhome.aiosber.dto.scenario import ScenarioEventDto
-    from custom_components.sberhome.listeners import (
-        ListenerFilter,
-        ListenerRegistry,
-        ListenerSpec,
-    )
-
-    spec = ListenerSpec(
-        slug="any_time",
-        name="Any TIME",
-        filter=ListenerFilter(trigger_types=frozenset({"TIME"})),
-    )
-    coordinator.listener_registry = ListenerRegistry([spec])
-    assert spec.last_fired_at is None
-
-    event = ScenarioEventDto(
-        id="evt-4",
-        event_time="2026-05-13T08:00:00+00:00",
-        object_id="sc-4",
-        name="X",
-        data={"start_scenario_reason": {"type": "TIME"}},
-    )
-    coordinator._fire_intent_event(event)
-
-    assert spec.last_fired_at == "2026-05-13T08:00:00+00:00"
 
 
 # ---------------------------------------------------------------------------

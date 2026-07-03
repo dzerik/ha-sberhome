@@ -18,6 +18,7 @@ from custom_components.sberhome.intent_dispatcher import (
     EVENT_SBERHOME_INTENT,
     INTENT_FETCH_LIMIT,
     IntentDispatcher,
+    extract_trigger_type,
     parse_event_time,
 )
 
@@ -339,3 +340,220 @@ class TestPoller:
         disp.start_poller()
         await disp.async_shutdown()
         assert disp._poller_task.cancelled() or disp._poller_task.done()
+
+
+# ---------------------------------------------------------------------------
+# fire_event + РЕАЛЬНЫЙ ListenerRegistry (end-to-end, портировано из
+# test_coordinator.py)
+# ---------------------------------------------------------------------------
+
+
+class TestFireEventWithRealRegistry:
+    def _dispatcher_with_registry(self, registry):
+        env = MagicMock()
+        env.hass.bus.async_fire = MagicMock()
+        return (
+            IntentDispatcher(
+                hass=env.hass,
+                get_client=lambda: env.client,
+                state_cache=env.state_cache,
+                get_listener_registry=lambda: registry,
+            ),
+            env,
+        )
+
+    def _time_event(self, sid: str = "sc-1", name: str = "Доброе утро") -> ScenarioEventDto:
+        return ScenarioEventDto(
+            id=f"evt-{sid}",
+            event_time="2026-05-13T08:00:00+00:00",
+            object_id=sid,
+            object_type="SCENARIO",
+            name=name,
+            home_id="home-1",
+            data={"start_scenario_reason": {"type": "TIME"}},
+        )
+
+    def test_match_fires_additional_event_with_slug(self):
+        from custom_components.sberhome.listeners import (
+            ListenerFilter,
+            ListenerRegistry,
+            ListenerSpec,
+        )
+
+        registry = ListenerRegistry(
+            [
+                ListenerSpec(
+                    slug="any_time",
+                    name="Any TIME",
+                    filter=ListenerFilter(trigger_types=frozenset({"TIME"})),
+                )
+            ]
+        )
+        disp, env = self._dispatcher_with_registry(registry)
+        disp.fire_event(self._time_event())
+
+        calls = env.hass.bus.async_fire.call_args_list
+        assert len(calls) == 2
+        base, listener_evt = calls[0].args[1], calls[1].args[1]
+        assert base["source"] == "sber_only" and base["slug"] is None
+        assert listener_evt["source"] == "listener"
+        assert listener_evt["slug"] == "any_time"
+        assert listener_evt["trigger_type"] == "TIME"
+
+    def test_no_match_only_base_event(self):
+        from custom_components.sberhome.listeners import (
+            ListenerFilter,
+            ListenerRegistry,
+            ListenerSpec,
+        )
+
+        registry = ListenerRegistry(
+            [
+                ListenerSpec(
+                    slug="phrases_only",
+                    name="X",
+                    filter=ListenerFilter(trigger_types=frozenset({"PHRASES"})),
+                )
+            ]
+        )
+        disp, env = self._dispatcher_with_registry(registry)
+        disp.fire_event(self._time_event())
+        env.hass.bus.async_fire.assert_called_once()
+        assert env.hass.bus.async_fire.call_args.args[1]["source"] == "sber_only"
+
+    def test_match_updates_last_fired_at(self):
+        from custom_components.sberhome.listeners import (
+            ListenerFilter,
+            ListenerRegistry,
+            ListenerSpec,
+        )
+
+        spec = ListenerSpec(
+            slug="any_time",
+            name="Any TIME",
+            filter=ListenerFilter(trigger_types=frozenset({"TIME"})),
+        )
+        disp, env = self._dispatcher_with_registry(ListenerRegistry([spec]))
+        assert spec.last_fired_at is None
+        disp.fire_event(self._time_event())
+        assert spec.last_fired_at == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# extract_trigger_type (портировано из test_voice_intents.py)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTriggerType:
+    def test_phrases_for_voice(self):
+        event = ScenarioEventDto(
+            id="e-1",
+            event_time="2026-05-13T08:00:00Z",
+            data={"start_scenario_reason": {"type": "PHRASES", "time_data": None}},
+        )
+        assert extract_trigger_type(event) == "PHRASES"
+
+    def test_time_for_schedule(self):
+        event = ScenarioEventDto(
+            id="e-2",
+            data={"start_scenario_reason": {"type": "TIME", "time_data": {"execute_at": "08:00"}}},
+        )
+        assert extract_trigger_type(event) == "TIME"
+
+    def test_malformed_data_returns_none(self):
+        assert extract_trigger_type(ScenarioEventDto(id="x", data="garbage")) is None
+        assert extract_trigger_type(ScenarioEventDto(id="x", data={"other": 1})) is None
+        assert (
+            extract_trigger_type(ScenarioEventDto(id="x", data={"start_scenario_reason": "x"}))
+            is None
+        )
+        assert (
+            extract_trigger_type(ScenarioEventDto(id="x", data={"start_scenario_reason": {}}))
+            is None
+        )
+
+    def test_trigger_type_in_fired_payload(self):
+        disp, env = _dispatcher()
+        event = ScenarioEventDto(
+            id="e-3",
+            event_time="2026-05-13T08:00:00Z",
+            object_id="sc-1",
+            name="Голосовой",
+            type="SUCCESS",
+            data={"start_scenario_reason": {"type": "PHRASES"}},
+        )
+        disp.fire_event(event, home_id_hint="home-1")
+        _, data = env.hass.bus.async_fire.call_args[0]
+        assert data["trigger_type"] == "PHRASES"
+
+
+# ---------------------------------------------------------------------------
+# Regression — issue #35 (портировано из test_voice_intents.py)
+# ---------------------------------------------------------------------------
+
+
+class TestRegressionIssue35:
+    @pytest.mark.asyncio
+    async def test_two_distinct_commands_arriving_close_together(self):
+        """Две команды подряд: обе fired, ни одна не потеряна
+        (drop через asyncio.Lock — bug #1 до v5.10.8)."""
+        disp, env = _dispatcher()
+        disp._last_event_time["home-1"] = parse_event_time("2026-06-28T00:00:00Z")
+
+        cmd1 = _event(time="2026-06-28T15:47:00Z", sid="sc-cmd1", event_id="evt-cmd1")
+        cmd2 = _event(time="2026-06-28T15:47:15Z", sid="sc-cmd2", event_id="evt-cmd2")
+
+        call_num = 0
+        started1 = asyncio.Event()
+
+        async def history_stub(*args, **kwargs):
+            nonlocal call_num
+            call_num += 1
+            started1.set()
+            if call_num == 1:
+                await asyncio.sleep(0.02)
+                return [cmd1]
+            return [cmd2, cmd1]
+
+        env.client.scenarios.history = AsyncMock(side_effect=history_stub)
+
+        disp.request_dispatch()
+        await started1.wait()
+        disp.request_dispatch()  # приходит пока worker в первом fetch'е
+        await disp._task
+
+        fired = {c.args[1]["scenario_id"] for c in env.hass.bus.async_fire.call_args_list}
+        assert fired == {"sc-cmd1", "sc-cmd2"}
+        assert env.hass.bus.async_fire.call_count == 2  # dedup: cmd1 один раз
+
+    @pytest.mark.asyncio
+    async def test_panov_automation_shape_no_duplicate_name(self):
+        """Батч из реального лога @PanovEduard: Balcony_temp + surrogate
+        в одном fetch'е — каждый fired ровно один раз (mode:single в его
+        HA-automation не получает «Already running»)."""
+        disp, env = _dispatcher()
+        disp._last_event_time["home-1"] = parse_event_time("2026-06-30T00:00:00Z")
+
+        balcony = _event(
+            time="2026-06-30T22:16:15.960325Z",
+            sid="6a2b2bca053903eb5be4c02e",
+            event_id="6a44402faf5871ea63265e20",
+            name="Balcony_temp",
+        )
+        surrogate = _event(
+            time="2026-06-30T22:16:16.601131Z",
+            sid="6a2caab2053903eb5be6bcbc",
+            event_id="6a444030d70c79d108db2c2f",
+            name="Sber TTS surrogate (Мой дом) [home_id=d8ktpv4f]",
+        )
+        env.client.scenarios.history = AsyncMock(return_value=[surrogate, balcony])
+
+        disp.request_dispatch()
+        await asyncio.sleep(0)
+        disp.request_dispatch()  # paired push
+        await disp._task
+
+        fired_names = [c.args[1]["name"] for c in env.hass.bus.async_fire.call_args_list]
+        assert fired_names.count("Balcony_temp") == 1
+        assert fired_names.count("Sber TTS surrogate (Мой дом) [home_id=d8ktpv4f]") == 1
+        assert env.hass.bus.async_fire.call_count == 2

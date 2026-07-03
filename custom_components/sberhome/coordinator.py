@@ -15,7 +15,7 @@ import contextlib
 import time
 from collections import deque
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import httpx
@@ -35,7 +35,7 @@ from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
 from .aiosber.auth import AuthManagerProtocol
 from .aiosber.dto import AttributeValueDto, IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
-from .aiosber.dto.scenario import ScenarioDto, ScenarioEventDto
+from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
 from .aiosber.transport import HttpTransport
 from .api import SberAPI
@@ -45,8 +45,6 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    EVENT_SOURCE_LISTENER,
-    EVENT_SOURCE_SBER_ONLY,
     LOGGER,
     WS_CONNECTED_SCAN_INTERVAL,
 )
@@ -56,7 +54,11 @@ from .exceptions import (
     SberConnectionError,
     SberSmartHomeError,
 )
-from .listeners import EventMeta, ListenerRegistry
+from .intent_dispatcher import (
+    EVENT_SBERHOME_INTENT,  # noqa: F401 — re-export (тесты/панель импортируют отсюда)
+    IntentDispatcher,
+)
+from .listeners import ListenerRegistry
 from .sbermap import (
     HaEntityData,
     map_device_to_entities,
@@ -68,31 +70,6 @@ from .tts_surrogate import TtsSurrogateService
 # Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
 # в `async_added_to_hass`, fire HA event bus при получении.
 SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
-
-# HA Event bus name для voice-intents (Phase 10). Срабатывает на каждый
-# Sber-сценарий (любого типа), который выполнился. Payload:
-# {scenario_id, name, event_time, type, account_id}.
-EVENT_SBERHOME_INTENT = f"{DOMAIN}_intent"
-
-# Limit для GET /scenario/v2/event при WS-триггере — берём последние N
-# события и фильтруем уже обработанные. 30 даёт запас на случай, когда
-# несколько сценариев сработали подряд (голосовой марафон, batched
-# триггер) — если в fetch попадает ровно N новых относительно cursor'а,
-# логируется warning: не хватило страницы, возможно потеряли ещё более
-# старые события (issue #35 bug #3).
-INTENT_FETCH_LIMIT = 30
-
-# Сколько последних event_id запоминать для dedup парных Sber WS push'ей
-# (Sber шлёт UPDATE_WIDGETS ×2 с ~100ms задержкой). Также помогает если
-# periodic poller и WS push прочитают event log почти одновременно.
-INTENT_DEDUP_HISTORY = 128
-
-# Periodic safety-net poller для intent dispatch. Если WS отвалился/reconnect
-# упал или Sber event-log лагает больше окна между push'ами, poller
-# гарантирует что событие всё равно будет замечено в течение этого
-# интервала (issue #35 bug #6). Не заменяет WS — WS даёт мгновенную
-# реакцию когда работает; poller ловит только пропуски.
-INTENT_POLLER_INTERVAL_SEC = 30.0
 
 # Пауза между неуспешной командой и retry. 1 sec ловит большую часть
 # transient network glitches gateway'я без раздражающего пользователя
@@ -124,60 +101,6 @@ INDICATOR_POLL_INTERVAL_SEC = 3600
 # /devices/{id}/discovery. Sber-speaker (SberBoom Home) выступает как
 # Zigbee+Matter hub, intercom иногда несёт sub-streams.
 HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
-
-
-def _parse_event_time(raw: str | None) -> datetime | None:
-    """Parse Sber event_time (ISO-8601) в aware datetime.
-
-    Sber отдаёт `event_time` в разных представлениях:
-    - `"2026-04-27T12:44:49.430277Z"` (типовое)
-    - потенциально с trimmed trailing zeros (Go RFC3339Nano) — `.43Z`
-    - потенциально с явным offset — `+00:00`
-
-    String-compare этих форм даёт неверный ordering (issue #35 bug #4).
-    Возвращает None если parse не удался — вызывающая сторона трактует
-    такое событие как «без времени», не участвует в фильтре по cursor'у.
-    """
-    if not raw:
-        return None
-    # datetime.fromisoformat в 3.11+ понимает `Z` через нормализацию.
-    # На всякий случай явно заменяем — старый интерпретатор трактует
-    # `Z` только начиная с 3.11.
-    normalized = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
-    try:
-        return datetime.fromisoformat(normalized)
-    except (ValueError, TypeError):
-        return None
-
-
-def _extract_trigger_type(event: ScenarioEventDto) -> str | None:
-    """Достать тип триггера сценария из ``ScenarioEventDto.data``.
-
-    Sber wire-format (восстановлен из live traffic мобильного приложения «Салют!»):
-
-        data: EventExecutionDetailsDto
-        ├── scenario_cancel_time: str | None
-        └── start_scenario_reason: StartScenarioReasonDto
-            ├── type: ScenarioConditionTypeDto (enum)
-            │       — UNDEFINED_TYPE / TIME / PHRASES / CONDITIONS /
-            │         DEVICE / CHECK_DEVICE / CHECK_SCENARIO / GEO_TIME
-            └── time_data: ScenarioConditionTimeDto
-
-    Этот enum — авторитативный сигнал «что запустило сценарий»:
-    ``PHRASES`` означает голосовую команду, ``TIME`` — расписание,
-    ``DEVICE`` — sensor trigger, ``GEO_TIME`` — geofence+time, и т.п.
-
-    Returns:
-        Строка enum-значения как пришла от Sber (например ``"PHRASES"``)
-        либо ``None`` если поле отсутствует или не парсится.
-    """
-    if not event.data or not isinstance(event.data, dict):
-        return None
-    reason = event.data.get("start_scenario_reason")
-    if not isinstance(reason, dict):
-        return None
-    type_ = reason.get("type")
-    return str(type_) if type_ else None
 
 
 class ThrottledPoll:
@@ -304,42 +227,21 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Не per-device, а одна настройка на аккаунт (как в мобильном app).
         self.indicator_colors: IndicatorColors | None = None
         self._indicator_poll = ThrottledPoll(INDICATOR_POLL_INTERVAL_SEC, "Indicator")
-        # Voice-intent dispatcher state (Phase 10).
-        # Хранит ISO-8601 `event_time` последнего обработанного scenario
-        # event'а **per-home** — нужен для dedup'а: scenario_widgets WS push
-        # приходит парами (×2) на каждое срабатывание, плюс при
-        # `_on_ws_scenario_widgets` мы получаем последние N событий
-        # (limit=10), некоторые из которых уже обработаны.
-        #
-        # Multi-home: при N домах cursor должен быть per home_id, иначе
-        # событие из «Дача» с event_time T2 < cursor из «Мой дом» T1
-        # будет ошибочно отброшено. Ключи добавляются ленива при первом
-        # push'е из соответствующего дома.
-        # Хранится как aware datetime (не строка) — string-compare разных
-        # ISO-форматов (`Z` vs `+00:00`, trimmed fractional seconds) не
-        # даёт корректного ordering. См. issue #35 bug #4.
-        self._last_intent_event_time: dict[str, datetime | None] = {}
-        # Dedup по event_id — защищает от двойного fire при двойном Sber
-        # scenario_widgets push'е и при пересечении WS-push+periodic poll.
-        self._fired_event_ids: deque[str] = deque(maxlen=INTENT_DEDUP_HISTORY)
-        # Coalesce-flag pattern для WS push'ей (issue #35 bug #1+#2).
-        # Раньше use'ался asyncio.Lock — но lock'ать сам dispatch, включая
-        # await'ы на fetch, означало: пока идёт dispatch, любой другой WS
-        # push (реальная distinct команда) молча дропался. Теперь: любой
-        # push просто ставит _pending=True. Если worker не запущен —
-        # стартуем; если запущен — он сам увидит pending и сделает ещё
-        # одну итерацию после текущей.
-        self._intent_dispatch_pending: bool = False
-        self._intent_dispatch_task: asyncio.Task | None = None
-        # Safety-net poller — фоновый task, дёргает dispatch раз в
-        # INTENT_POLLER_INTERVAL_SEC, чтобы поймать события, которые WS
-        # почему-то не доставил (reconnect, missed push, etc).
-        self._intent_poller_task: asyncio.Task | None = None
-
         # Listener registry (v5.5.0): YAML-managed map Sber-events → HA events.
         # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
         # До setup'а — пустой registry, find_matching возвращает [].
         self.listener_registry: ListenerRegistry = ListenerRegistry()
+
+        # Voice-intent dispatcher (Phase 10, issue #35) — вынесен в
+        # intent_dispatcher.py (SOLID-аудит: coordinator был God Object).
+        # DI: client — lazy property, registry подменяется YAML-reload'ом,
+        # поэтому оба через getter.
+        self.intent_dispatcher = IntentDispatcher(
+            hass,
+            get_client=lambda: self.client,
+            state_cache=self.state_cache,
+            get_listener_registry=lambda: self.listener_registry,
+        )
 
         # TTS surrogate (v5.6.0, EXPERIMENTAL):
         # home_id → surrogate scenario_id cache.  In-memory only, reload =
@@ -897,23 +799,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             LOGGER.debug("WebSocket subscription task scheduled")
         except Exception:  # pragma: no cover — defensive
             LOGGER.exception("Failed to schedule WS task — polling-only mode")
-        self._start_intent_poller()
-
-    def _start_intent_poller(self) -> None:
-        """Запустить safety-net poller для intent dispatch (issue #35 bug #6).
-
-        Idempotent: не создаёт второй task если предыдущий ещё активен.
-        """
-        if self._intent_poller_task is not None and not self._intent_poller_task.done():
-            return
-        try:
-            self._intent_poller_task = self.hass.async_create_background_task(
-                self._intent_poller_loop(),
-                name=f"{DOMAIN}_intent_poller",
-            )
-            LOGGER.debug("intent poller task scheduled")
-        except Exception:  # pragma: no cover — defensive
-            LOGGER.exception("Failed to schedule intent poller task")
+        self.intent_dispatcher.start_poller()
 
     async def _run_ws(self) -> None:
         """Создать WebSocketClient и крутить его infinite reconnect loop."""
@@ -1199,212 +1085,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             payload=payload,
         )
 
-        self._request_intent_dispatch()
-
-    def _request_intent_dispatch(self) -> None:
-        """Trigger a dispatch pass (coalesced).
-
-        Ставит pending флаг и стартует worker task если не запущен.
-        Вызывается из ``_on_ws_scenario_widgets`` (WS push) и из periodic
-        poller. Многократные вызовы во время работающего worker'а не
-        создают лишних task'ов — pending флаг сохраняется до конца
-        текущей итерации, после чего worker сделает ещё один проход.
-        """
-        self._intent_dispatch_pending = True
-        if self._intent_dispatch_task is None or self._intent_dispatch_task.done():
-            self._intent_dispatch_task = self.hass.async_create_task(self._intent_dispatch_worker())
-
-    async def _intent_dispatch_worker(self) -> None:
-        """Loop: fetch + fire до тех пор, пока прилетают новые pending-request'ы.
-
-        Каждая итерация проходится по всем homes, дёргает event log,
-        фильтрует по cursor'у per-home, dedup'ит по event_id, fire'ит
-        новые intent'ы. По завершению итерации проверяет pending флаг —
-        если он снова True (пришёл WS push во время dispatch'а или
-        новый poll-tick), делает ещё один проход.
-        """
-        while self._intent_dispatch_pending:
-            self._intent_dispatch_pending = False
-            homes = self.state_cache.get_homes()
-            if not homes:
-                LOGGER.debug("intent dispatch requested, но state_cache без homes — пропуск")
-                continue
-            for home in homes:
-                if not home.id:
-                    continue
-                try:
-                    await self._dispatch_home_intents(home.id)
-                except Exception:
-                    LOGGER.debug(
-                        "intent dispatch failed for home %s (ignored)",
-                        home.id,
-                        exc_info=True,
-                    )
-
-    async def _dispatch_home_intents(self, home_id: str) -> None:
-        """Один цикл fetch → filter → dedup → fire для одного дома."""
-        try:
-            events = await self.client.scenarios.history(home_id, limit=INTENT_FETCH_LIMIT)
-        except Exception:
-            LOGGER.debug("Failed to fetch scenario history for home %s", home_id, exc_info=True)
-            return
-        new_events = self._select_new_intent_events(home_id, events)
-        if not new_events:
-            return
-
-        # Sber всегда возвращает events отсортированными по event_time desc,
-        # но мы полагаемся на порядок нежёстко: cursor advance идёт по max.
-        # Warn при saturation — вся страница > cursor'а, могли не дозагрузить
-        # ещё более старые события (issue #35 bug #3).
-        if len(new_events) >= INTENT_FETCH_LIMIT:
-            LOGGER.warning(
-                "intent dispatch: fetched %d new events for home %s (== limit) — "
-                "могли остаться необработанные старые события, увеличьте "
-                "INTENT_FETCH_LIMIT если такое повторяется",
-                len(new_events),
-                home_id,
-            )
-
-        fired_events: list[ScenarioEventDto] = []
-        for event in new_events:
-            if event.id and event.id in self._fired_event_ids:
-                LOGGER.debug("Skipping already-fired intent event %s", event.id)
-                continue
-            if event.id:
-                self._fired_event_ids.append(event.id)
-            self._fire_intent_event(event, home_id_hint=home_id)
-            fired_events.append(event)
-
-        if not fired_events:
-            return
-
-        # Cursor per home_id — максимальный event_time из fired.
-        fired_times = [
-            parsed
-            for parsed in (_parse_event_time(e.event_time) for e in fired_events)
-            if parsed is not None
-        ]
-        if fired_times:
-            latest = max(fired_times)
-            prev = self._last_intent_event_time.get(home_id)
-            if prev is None or latest > prev:
-                self._last_intent_event_time[home_id] = latest
-
-    async def _intent_poller_loop(self) -> None:
-        """Safety-net poller: раз в INTENT_POLLER_INTERVAL_SEC триггерит
-        dispatch независимо от WS. Ловит события, которые WS не доставил
-        (reconnect, missed push, Sber event-log лагает дольше окна между
-        push'ами) — issue #35 bug #6.
-        """
-        try:
-            while True:
-                await asyncio.sleep(INTENT_POLLER_INTERVAL_SEC)
-                self._request_intent_dispatch()
-        except asyncio.CancelledError:
-            raise
-
-    def _select_new_intent_events(
-        self, home_id: str, events: list[ScenarioEventDto]
-    ) -> list[ScenarioEventDto]:
-        """Filter events strictly newer than the per-home cursor.
-
-        Sber возвращает события отсортированными по `event_time desc`, но
-        мы не полагаемся на порядок — фильтруем каждое событие
-        независимо.
-
-        При первом push'е (cursor=None) выставляем cursor на текущее
-        время и возвращаем []. Ничего не фаерим — событие в логе может
-        быть многочасовой давности (issue #35 bug #6 root cause).
-
-        Compare событий с cursor'ом делается как datetime (parsed через
-        ``_parse_event_time``), а не строкой — разные ISO-форматы (`Z`
-        vs `+00:00`, trimmed fractional seconds) дают неверный
-        lex-порядок (issue #35 bug #4).
-        """
-        cursor = self._last_intent_event_time.get(home_id)
-        if cursor is None:
-            self._last_intent_event_time[home_id] = datetime.now(UTC)
-            return []
-        result: list[ScenarioEventDto] = []
-        for e in events:
-            parsed = _parse_event_time(e.event_time)
-            if parsed is None:
-                continue
-            if parsed > cursor:
-                result.append(e)
-        return result
-
-    def _fire_intent_event(self, event: ScenarioEventDto, home_id_hint: str | None = None) -> None:
-        """Fire ``EVENT_SBERHOME_INTENT`` в HA event bus.
-
-        Семантика (v5.5.0+):
-        1. Всегда fire base event с ``source="sber_only"`` (или
-           ``"intent"`` если в будущем будем определять HA-managed).
-        2. Прогоняем event через ``listener_registry.find_matching``.
-        3. Для каждого matching listener — fire дополнительный event
-           с ``slug=<listener.slug>`` и ``source="listener"``.
-
-        Матчинг wrapped в try/except — exception в matcher НЕ должен
-        блокировать base event firing.
-
-        ``home_id_hint`` — home_id из внешнего контекста dispatcher'а
-        (тот home, для которого мы запрашивали event log). Sber часто
-        возвращает `event.home_id = ""` для голосовых сценариев (issue
-        #35 bug #5), поэтому внешний hint надёжнее. Fallback на
-        `event.home_id` только если hint не задан.
-        """
-        trigger_type = _extract_trigger_type(event)
-        home_id = home_id_hint or (event.home_id or None)
-
-        base_data: dict[str, Any] = {
-            "slug": None,
-            "source": EVENT_SOURCE_SBER_ONLY,
-            "name": (event.name or "").strip(),
-            "scenario_id": event.object_id,
-            "event_time": event.event_time,
-            "type": event.type,
-            "trigger_type": trigger_type,
-            "home_id": home_id,
-            "account_id": event.account_id,
-            "event_id": event.id,
-            "description": event.description or None,
-        }
-        LOGGER.debug("Firing %s base with data=%s", EVENT_SBERHOME_INTENT, base_data)
-        self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, base_data)
-
-        # Listener matching — best-effort, не должен ломать base event.
-        try:
-            event_meta = EventMeta(
-                scenario_id=event.object_id,
-                scenario_name=(event.name or "").strip() or None,
-                trigger_type=trigger_type,
-                home_id=home_id,
-            )
-            matches = self.listener_registry.find_matching(event_meta)
-        except Exception:
-            LOGGER.debug("Listener matching raised — base event already fired", exc_info=True)
-            return
-
-        for spec in matches:
-            listener_data = dict(base_data)
-            listener_data["slug"] = spec.slug
-            listener_data["source"] = EVENT_SOURCE_LISTENER
-            LOGGER.debug(
-                "Firing %s for listener %r with slug=%r",
-                EVENT_SBERHOME_INTENT,
-                spec.name,
-                spec.slug,
-            )
-            self.hass.bus.async_fire(EVENT_SBERHOME_INTENT, listener_data)
-            if event.event_time:
-                self.listener_registry.mark_fired(spec, event.event_time)
-
-    @staticmethod
-    def _extract_trigger_type_static(event: ScenarioEventDto) -> str | None:
-        """См. документацию `_extract_trigger_type` ниже."""
-        # Делегируем module-level функции (хочется чтобы и pytest её
-        # видел напрямую через import).
-        return _extract_trigger_type(event)
+        self.intent_dispatcher.request_dispatch()
 
     async def _on_ws_other_topic(self, msg: SocketMessageDto) -> None:
         """Логирование для topic'ов без специальной обработки.
@@ -1462,16 +1143,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._ws_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._ws_task
-        if self._intent_poller_task is not None:
-            self._intent_poller_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._intent_poller_task
-        if self._intent_dispatch_task is not None:
-            # Не отменяем — worker сам завершится когда pending опустится.
-            # Просто ждём разумное время. Если завис — timeout выкинет из
-            # suppress, task зомби, но HA-shutdown продолжится.
-            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
-                await asyncio.wait_for(self._intent_dispatch_task, timeout=5.0)
+        await self.intent_dispatcher.async_shutdown()
         # SberAPI.aclose no-op при DI (owns_http=False). Shared http
         # закрываем здесь — один раз, с contextlib на случай двойного вызова.
         # SberClient.aclose НЕ зовём чтобы избежать double-close shared httpx.
