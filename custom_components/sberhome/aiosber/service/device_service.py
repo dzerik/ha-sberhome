@@ -117,11 +117,17 @@ class DeviceService:
         из endpoint'ов.
         """
         import asyncio
+        import time
 
         from ..api.groups import GroupAPI
 
         # group API: используем тот же transport что и devices.
         groups_api = GroupAPI(self._transport)
+        # Timestamp ДО старта HTTP-запросов: снимок отражает состояние
+        # сервера не позже этого момента. Локальные патчи (WS push,
+        # optimistic после команды), случившиеся ПОСЛЕ, — свежее снимка
+        # и не должны быть затёрты (см. StateCache._protect_fresh_local_state).
+        fetch_started_at = time.monotonic()
         try:
             homes, rooms, custom_groups, devices_resp = await asyncio.gather(
                 groups_api.list(group_type="HOME"),
@@ -130,11 +136,18 @@ class DeviceService:
                 self._fetch_devices_with_raw(),
             )
         except Exception:  # noqa: BLE001 — fallback на tree при любой ошибке
-            await self._refresh_via_tree()
+            await self._refresh_via_tree(fetch_started_at=fetch_started_at)
             return
 
         devices, raw_devices = devices_resp
-        self._cache.update_from_flat(homes, rooms, custom_groups, devices, raw_devices=raw_devices)
+        self._cache.update_from_flat(
+            homes,
+            rooms,
+            custom_groups,
+            devices,
+            raw_devices=raw_devices,
+            fetch_started_at=fetch_started_at,
+        )
 
         # Best-effort: подтянуть enum-словарь. Не валим refresh если упал.
         if not self._cache.get_enums():
@@ -171,22 +184,26 @@ class DeviceService:
             raw_by_id[dto.id] = raw
         return devices, raw_by_id
 
-    async def _refresh_via_tree(self) -> None:
+    async def _refresh_via_tree(self, *, fetch_started_at: float | None = None) -> None:
         """Legacy fallback: GET /device_groups/tree.
 
         Используется только если flat-API упал (Sber может вернуть 500 или
         изменить schema). Single-home aware — для multi-home аккаунтов
         придёт только дефолтный дом.
         """
+        import time
+
         from ..dto.union import UnionTreeDto
 
+        if fetch_started_at is None:
+            fetch_started_at = time.monotonic()
         resp = await self._transport.get("/device_groups/tree")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:
             payload = payload["result"]
         tree = UnionTreeDto.from_dict(payload)
         if tree is not None:
-            self._cache.update_from_tree(tree)
+            self._cache.update_from_tree(tree, fetch_started_at=fetch_started_at)
 
     async def rename(self, device_id: str, name: str) -> None:
         await self._api.rename(device_id, name)

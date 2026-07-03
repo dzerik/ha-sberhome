@@ -456,3 +456,166 @@ def test_set_enums_replaces_completely():
     cache.set_enums({"b": ["y"]})
     assert cache.get_enums() == {"b": ["y"]}
     assert cache.get_enum_values("a") == []
+
+
+# ---------------------------------------------------------------------------
+# Race guard: full refresh не затирает локальные патчи, случившиеся
+# ВО ВРЕМЯ HTTP-fetch'а (WS push / optimistic после команды).
+# См. race-аудит: раньше update_from_flat делал self._devices = devices_map
+# (wholesale replace) → включённая лампа «откатывалась» в UI.
+# ---------------------------------------------------------------------------
+
+
+def _bool_attr(key: str, value: bool) -> AttributeValueDto:
+    return AttributeValueDto(key=key, type=AttributeValueType.BOOL, bool_value=value)
+
+
+def _stale_snapshot() -> tuple[list, list, list, list]:
+    """Снимок с device on_off=False + свежими метаданными (sw_version)."""
+    homes = [UnionDto(id="home-1", name="Дом", group_type=UnionType.HOME)]
+    devices = [
+        DeviceDto(
+            id="lamp-1",
+            name="Лампа",
+            sw_version="2.0-fresh-meta",
+            group_ids=["home-1"],
+            reported_state=[_bool_attr("on_off", False)],
+            desired_state=[_bool_attr("on_off", False)],
+        )
+    ]
+    return homes, [], [], devices
+
+
+def test_refresh_does_not_clobber_ws_patch_during_fetch():
+    """WS patch пришёл ПОСЛЕ старта fetch'а → state сохраняется,
+    metadata берётся из снимка."""
+    import time
+
+    cache = StateCache()
+    # Начальное состояние: лампа выключена, старые метаданные.
+    cache.update_from_flat(
+        [UnionDto(id="home-1", name="Дом", group_type=UnionType.HOME)],
+        [],
+        [],
+        [
+            DeviceDto(
+                id="lamp-1",
+                name="Лампа",
+                sw_version="1.0-old",
+                group_ids=["home-1"],
+                reported_state=[_bool_attr("on_off", False)],
+            )
+        ],
+    )
+
+    # HTTP fetch стартует (снимок сервера с on_off=False).
+    fetch_started_at = time.monotonic()
+
+    # WS push во время fetch'а: юзер включил лампу.
+    cache.patch_device_state("lamp-1", [_bool_attr("on_off", True)])
+
+    # Fetch завершился устаревшим снимком (on_off=False), но с
+    # обновлённой метадатой (sw_version=2.0).
+    cache.update_from_flat(*_stale_snapshot(), fetch_started_at=fetch_started_at)
+
+    dev = cache.get_device("lamp-1")
+    assert dev is not None
+    # State — из локального патча (лампа ВКЛЮЧЕНА, не откатилась).
+    on_off = next(av for av in dev.reported_state if av.key == "on_off")
+    assert on_off.bool_value is True
+    # Metadata — из свежего снимка.
+    assert dev.sw_version == "2.0-fresh-meta"
+
+
+def test_refresh_does_not_clobber_optimistic_desired_during_fetch():
+    """Optimistic desired-патч (после команды) тоже защищён."""
+    import time
+
+    cache = StateCache()
+    cache.update_from_flat(*_stale_snapshot())
+
+    fetch_started_at = time.monotonic()
+    cache.patch_device_desired("lamp-1", [_bool_attr("on_off", True)])
+    cache.update_from_flat(*_stale_snapshot(), fetch_started_at=fetch_started_at)
+
+    dev = cache.get_device("lamp-1")
+    assert dev is not None
+    desired = next(av for av in dev.desired_state if av.key == "on_off")
+    assert desired.bool_value is True
+
+
+def test_refresh_applies_snapshot_when_patch_was_before_fetch():
+    """Патч ДО старта fetch'а → снимок сервера уже включает его
+    (или новее) → заменяем нормально, guard не мешает."""
+    import time
+
+    cache = StateCache()
+    cache.update_from_flat(*_stale_snapshot())
+
+    # Патч ПЕРЕД fetch'ем.
+    cache.patch_device_state("lamp-1", [_bool_attr("on_off", True)])
+    fetch_started_at = time.monotonic()
+
+    # Fetch стартовал после патча — его снимок authoritative.
+    cache.update_from_flat(*_stale_snapshot(), fetch_started_at=fetch_started_at)
+
+    dev = cache.get_device("lamp-1")
+    assert dev is not None
+    on_off = next(av for av in dev.reported_state if av.key == "on_off")
+    # Снимок (False) применён — патч был до fetch'а, сервер его уже видел.
+    assert on_off.bool_value is False
+
+
+def test_refresh_without_fetch_started_at_is_legacy_full_replace():
+    """Без fetch_started_at (тесты, legacy-код) — старое поведение."""
+    cache = StateCache()
+    cache.update_from_flat(*_stale_snapshot())
+    cache.patch_device_state("lamp-1", [_bool_attr("on_off", True)])
+    cache.update_from_flat(*_stale_snapshot())  # no fetch_started_at
+
+    dev = cache.get_device("lamp-1")
+    assert dev is not None
+    on_off = next(av for av in dev.reported_state if av.key == "on_off")
+    assert on_off.bool_value is False  # заменено — guard выключен
+
+
+def test_local_write_timestamps_pruned_for_removed_devices():
+    """Устройство исчезло из аккаунта → его timestamp вычищается,
+    dict не растёт бесконечно."""
+    import time
+
+    cache = StateCache()
+    cache.update_from_flat(*_stale_snapshot())
+    cache.patch_device_state("lamp-1", [_bool_attr("on_off", True)])
+    assert "lamp-1" in cache._last_local_write_at
+
+    # Новый снимок БЕЗ lamp-1 (устройство удалено из Sber).
+    fetch_started_at = time.monotonic()
+    cache.update_from_flat(
+        [UnionDto(id="home-1", name="Дом", group_type=UnionType.HOME)],
+        [],
+        [],
+        [],
+        fetch_started_at=fetch_started_at,
+    )
+    assert cache.get_device("lamp-1") is None
+    assert "lamp-1" not in cache._last_local_write_at
+
+
+def test_update_from_tree_also_protected():
+    """Tree-fallback path (legacy) — тот же guard."""
+    import time
+
+    cache = StateCache()
+    cache.update_from_tree(_make_tree())
+
+    fetch_started_at = time.monotonic()
+    # WS push во время fetch: dev-1 включён.
+    cache.patch_device_state("dev-1", [_bool_attr("on_off", False)])
+    # Приходит устаревший tree (dev-1 on_off=True из _make_tree).
+    cache.update_from_tree(_make_tree(), fetch_started_at=fetch_started_at)
+
+    dev = cache.get_device("dev-1")
+    assert dev is not None
+    on_off = next(av for av in dev.reported_state if av.key == "on_off")
+    assert on_off.bool_value is False  # локальный патч сохранён

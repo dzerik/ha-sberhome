@@ -7,6 +7,7 @@ Single source of truth для состояния всех устройств и 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,13 @@ class StateCache:
         # group_id → [device_id, ...] — reverse-index из device.group_ids.
         # Перестраивается в update_from_flat()/update_from_tree() каждый refresh.
         self._devices_by_group: dict[str, list[str]] = {}
+        # device_id → monotonic timestamp последнего ЛОКАЛЬНОГО патча
+        # (WS push или optimistic после команды). Full refresh начинается
+        # с HTTP-снимка, который мог быть сделан ДО локального патча —
+        # без этого guard'а update_from_flat() затирал бы свежее локальное
+        # состояние устаревшим снимком: включённая лампа «откатывалась»
+        # в UI до следующего push'а. См. race-аудит v5.11.x.
+        self._last_local_write_at: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Read — devices
@@ -186,10 +194,55 @@ class StateCache:
     # ------------------------------------------------------------------
     # Write — full refresh from tree
     # ------------------------------------------------------------------
-    def update_from_tree(self, tree: UnionTreeDto) -> None:
+    def _protect_fresh_local_state(
+        self,
+        devices_map: dict[str, DeviceDto],
+        fetch_started_at: float | None,
+    ) -> None:
+        """Merge локально-патченного state поверх свежезагруженного снимка.
+
+        HTTP-снимок отражает состояние сервера на момент СТАРТА запроса.
+        Если после этого момента по устройству прошёл локальный патч
+        (WS push = authoritative, или optimistic после команды) — state
+        из снимка устарел. Берём metadata из fetched DTO (name, sw_version,
+        attributes могли обновиться), но reported/desired — из локальной
+        версии.
+
+        Мутирует ``devices_map`` in-place. Также подчищает
+        ``_last_local_write_at`` от устройств, исчезнувших из аккаунта.
+        """
+        if fetch_started_at is not None:
+            for device_id, written_at in self._last_local_write_at.items():
+                if written_at <= fetch_started_at:
+                    continue
+                local = self._devices.get(device_id)
+                fetched = devices_map.get(device_id)
+                if local is None or fetched is None:
+                    continue
+                devices_map[device_id] = replace(
+                    fetched,
+                    reported_state=local.reported_state,
+                    desired_state=local.desired_state,
+                )
+                _LOGGER.debug(
+                    "StateCache: kept local state for %s (patched during fetch)",
+                    device_id,
+                )
+        # Prune записей об устройствах, которых больше нет — dict не растёт.
+        self._last_local_write_at = {
+            did: ts for did, ts in self._last_local_write_at.items() if did in devices_map
+        }
+
+    def update_from_tree(
+        self, tree: UnionTreeDto, *, fetch_started_at: float | None = None
+    ) -> None:
         """Parse tree → populate devices, groups, room/home mappings.
 
         Вызывается после каждого polling refresh.
+
+        ``fetch_started_at`` — ``time.monotonic()`` на момент старта
+        HTTP-запроса; включает guard от затирания локальных патчей,
+        случившихся во время fetch'а (см. ``_protect_fresh_local_state``).
         """
         self._tree = tree
         devices: dict[str, DeviceDto] = {}
@@ -211,6 +264,7 @@ class StateCache:
             current_home_name=None,
         )
 
+        self._protect_fresh_local_state(devices, fetch_started_at)
         self._devices = devices
         self._groups = groups
         self._device_to_room_name = device_to_room_name
@@ -248,6 +302,7 @@ class StateCache:
         devices: list[DeviceDto],
         *,
         raw_devices: dict[str, dict] | None = None,
+        fetch_started_at: float | None = None,
     ) -> None:
         """Multi-home aware refresh из 4 плоских списков.
 
@@ -315,6 +370,7 @@ class StateCache:
                 if home.name:
                     device_to_home_name[dev.id] = home.name
 
+        self._protect_fresh_local_state(devices_map, fetch_started_at)
         self._devices = devices_map
         self._groups = groups_map
         self._device_to_room_name = device_to_room_name
@@ -445,6 +501,7 @@ class StateCache:
             desired_state=list(desired_by_key.values()),
         )
         self._devices[device_id] = new
+        self._last_local_write_at[device_id] = time.monotonic()
         return new
 
     def patch_device_desired(
@@ -461,6 +518,7 @@ class StateCache:
             if av.key:
                 by_key[av.key] = av
         self._devices[device_id] = replace(old, desired_state=list(by_key.values()))
+        self._last_local_write_at[device_id] = time.monotonic()
 
 
 __all__ = ["StateCache"]
