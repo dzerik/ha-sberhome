@@ -320,6 +320,81 @@ async def test_send_plain_message_skips_template_render(hass):
     assert body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"] == "Привет"
 
 
+async def test_concurrent_sends_serialized_per_home():
+    """Race-аудит v5.11.x: два конкурентных send() НЕ должны
+    интерливиться как PUT_A → PUT_B → RUN_A (колонка произнесла бы
+    сообщение B вместо A). Per-home lock сериализует PUT→RUN пары.
+    """
+    import asyncio
+
+    coord = _make_coord_with_home("home-1")
+    coord.tts_surrogates["home-1"] = "sc-1"
+    svc = TtsSurrogateService(coord)
+
+    call_order: list[str] = []
+
+    async def slow_update(scenario_id, body):
+        phrase = body["steps"][0]["tasks"][0]["pronounce_data"]["phrase"]
+        call_order.append(f"PUT:{phrase}")
+        await asyncio.sleep(0.01)  # даём второму send шанс интерливнуться
+        return {"ok": True}
+
+    async def run_stub(scenario_id):
+        # RUN должен идти сразу после СВОЕГО PUT.
+        call_order.append("RUN")
+        return {"ok": True}
+
+    coord.client.scenarios.update = AsyncMock(side_effect=slow_update)
+    coord.client.scenarios.run = AsyncMock(side_effect=run_stub)
+
+    await asyncio.gather(
+        svc.send("home-1", "Сообщение А", ["spk-1"]),
+        svc.send("home-1", "Сообщение Б", ["spk-1"]),
+    )
+
+    # Строгая сериализация: PUT:X, RUN, PUT:Y, RUN — никогда
+    # PUT:X, PUT:Y, RUN, RUN.
+    assert call_order == ["PUT:Сообщение А", "RUN", "PUT:Сообщение Б", "RUN"]
+
+
+async def test_concurrent_sends_different_homes_not_blocked():
+    """Locks — per-home: отправки в разные дома идут параллельно."""
+    import asyncio
+
+    coord = _make_coord_with_home("home-1")
+    home2 = MagicMock()
+    home2.id = "home-2"
+    home2.name = "Second"
+    coord.state_cache.get_homes.return_value = [
+        coord.state_cache.get_homes.return_value[0],
+        home2,
+    ]
+    coord.tts_surrogates["home-1"] = "sc-1"
+    coord.tts_surrogates["home-2"] = "sc-2"
+    svc = TtsSurrogateService(coord)
+
+    started: list[str] = []
+    release = asyncio.Event()
+
+    async def blocking_update(scenario_id, body):
+        started.append(scenario_id)
+        await release.wait()
+        return {"ok": True}
+
+    coord.client.scenarios.update = AsyncMock(side_effect=blocking_update)
+    coord.client.scenarios.run = AsyncMock(return_value={"ok": True})
+
+    t1 = asyncio.create_task(svc.send("home-1", "x", ["spk-1"]))
+    t2 = asyncio.create_task(svc.send("home-2", "y", ["spk-2"]))
+    # Дадим обоим войти в update — если бы lock был глобальным,
+    # второй бы не стартовал.
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert set(started) == {"sc-1", "sc-2"}
+    release.set()
+    await asyncio.gather(t1, t2)
+
+
 async def test_send_bad_template_raises_home_assistant_error(hass):
     from homeassistant.exceptions import HomeAssistantError
 

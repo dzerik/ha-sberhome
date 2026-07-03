@@ -2,8 +2,8 @@
 
 🧪 EXPERIMENTAL. См. CHANGELOG v5.6.0. Каждый ``send()`` делает 2-3 API
 request'а к облаку Sber (PUT scenario → POST /run, плюс GET для cache miss).
-Не для частых уведомлений. Concurrency control НЕ делается — пользователь
-явно принимает race condition при одновременных вызовах.
+Не для частых уведомлений. Конкурентные ``send()`` для одного дома
+сериализуются per-home lock'ом — каждый RUN запускает свой PUT.
 
 DRY: wire-формат не дублируется. ``_build_body`` конструирует
 :class:`IntentSpec` и пропускает через существующий проверенный
@@ -79,40 +79,48 @@ class TtsSurrogateService:
             return cached
 
         async with self._lock_for(home_id):
-            # Re-check cache after acquiring lock — pre-empted writer мог уже
-            # заполнить cache пока мы ждали lock.
-            cached = self._coord.tts_surrogates.get(home_id)
-            if cached:
-                return cached
+            return await self._get_or_create_surrogate_locked(home_id)
 
-            scenarios = await self._coord.client.scenarios.list()
-            for s in scenarios:
-                if match_surrogate(s, home_id) and s.id:
-                    self._coord.tts_surrogates[home_id] = s.id
-                    _LOGGER.debug("TTS surrogate discovered for home %s: %s", home_id, s.id)
-                    return s.id
+    async def _get_or_create_surrogate_locked(self, home_id: str) -> str:
+        """Discover-or-create surrogate. ТРЕБУЕТ уже удерживаемого
+        ``self._lock_for(home_id)`` — сам lock не берёт (asyncio.Lock
+        не реентерабельный, вызов из-под ``send()``/``get_surrogate_id``
+        с повторным acquire дал бы deadlock).
+        """
+        # Re-check cache after acquiring lock — pre-empted writer мог уже
+        # заполнить cache пока мы ждали lock.
+        cached = self._coord.tts_surrogates.get(home_id)
+        if cached:
+            return cached
 
-            speakers = self._all_speakers_in_home(home_id)
-            if not speakers:
-                home_name = self._home_name(home_id) or home_id
-                raise HomeAssistantError(
-                    f"В доме «{home_name}» нет колонок Sber. Surrogate-сценарий "
-                    "создаётся с одной PRONOUNCE_COMMAND task (Sber требует "
-                    "non-empty device_ids), поэтому нужна хотя бы одна колонка. "
-                    "Добавьте SberBoom/Portal/Satellite в этот дом через приложение «Салют!»."
-                )
+        scenarios = await self._coord.client.scenarios.list()
+        for s in scenarios:
+            if match_surrogate(s, home_id) and s.id:
+                self._coord.tts_surrogates[home_id] = s.id
+                _LOGGER.debug("TTS surrogate discovered for home %s: %s", home_id, s.id)
+                return s.id
 
-            body = self._build_body(home_id, "Тестовая фраза", speakers)
-            created = await self._coord.client.scenarios.create(body)
-            new_id = created["id"]
-            self._coord.tts_surrogates[home_id] = new_id
-            _LOGGER.info(
-                "TTS surrogate created for home %s (%s): %s",
-                home_id,
-                self._home_name(home_id),
-                new_id,
+        speakers = self._all_speakers_in_home(home_id)
+        if not speakers:
+            home_name = self._home_name(home_id) or home_id
+            raise HomeAssistantError(
+                f"В доме «{home_name}» нет колонок Sber. Surrogate-сценарий "
+                "создаётся с одной PRONOUNCE_COMMAND task (Sber требует "
+                "non-empty device_ids), поэтому нужна хотя бы одна колонка. "
+                "Добавьте SberBoom/Portal/Satellite в этот дом через приложение «Салют!»."
             )
-            return new_id
+
+        body = self._build_body(home_id, "Тестовая фраза", speakers)
+        created = await self._coord.client.scenarios.create(body)
+        new_id = created["id"]
+        self._coord.tts_surrogates[home_id] = new_id
+        _LOGGER.info(
+            "TTS surrogate created for home %s (%s): %s",
+            home_id,
+            self._home_name(home_id),
+            new_id,
+        )
+        return new_id
 
     async def send(
         self,
@@ -133,7 +141,10 @@ class TtsSurrogateService:
         404 для удалённого/чужого scenario_id (наблюдалось в production:
         юзер вручную удалил surrogate в приложении «Салют!»).
 
-        Concurrency не контролируется (accepted limitation).
+        Concurrency: весь PUT→RUN цикл сериализован per-home lock'ом.
+        Без него два конкурентных send() интерливились как
+        PUT_A → PUT_B → RUN_A → колонка произносила сообщение B
+        вместо A (см. race-аудит v5.11.x).
         """
         message = self._render_template(message)
         if not device_ids:
@@ -141,24 +152,25 @@ class TtsSurrogateService:
         if not device_ids:
             raise HomeAssistantError(f"TTS surrogate: No speakers found in home {home_id}")
 
-        scenario_id = await self.get_surrogate_id(home_id)
-        body = self._build_body(home_id, message, device_ids)
+        async with self._lock_for(home_id):
+            scenario_id = await self._get_or_create_surrogate_locked(home_id)
+            body = self._build_body(home_id, message, device_ids)
 
-        try:
-            await self._coord.client.scenarios.update(scenario_id, body)
-        except (SberApiError, _AiosberAuthError) as err:
-            if not self._is_scenario_gone(err):
-                raise
-            _LOGGER.warning(
-                "TTS surrogate %s gone (%s) — invalidating cache, recreating",
-                scenario_id,
-                type(err).__name__,
-            )
-            self._coord.tts_surrogates.pop(home_id, None)
-            scenario_id = await self.get_surrogate_id(home_id)
-            await self._coord.client.scenarios.update(scenario_id, body)
+            try:
+                await self._coord.client.scenarios.update(scenario_id, body)
+            except (SberApiError, _AiosberAuthError) as err:
+                if not self._is_scenario_gone(err):
+                    raise
+                _LOGGER.warning(
+                    "TTS surrogate %s gone (%s) — invalidating cache, recreating",
+                    scenario_id,
+                    type(err).__name__,
+                )
+                self._coord.tts_surrogates.pop(home_id, None)
+                scenario_id = await self._get_or_create_surrogate_locked(home_id)
+                await self._coord.client.scenarios.update(scenario_id, body)
 
-        await self._coord.client.scenarios.run(scenario_id)
+            await self._coord.client.scenarios.run(scenario_id)
 
     @staticmethod
     def _is_scenario_gone(err: Exception) -> bool:
