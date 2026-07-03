@@ -180,6 +180,34 @@ def _extract_trigger_type(event: ScenarioEventDto) -> str | None:
     return str(type_) if type_ else None
 
 
+class ThrottledPoll:
+    """Throttle-состояние одного best-effort polling-домена.
+
+    Общий паттерн для scenarios/OTA/discovery/indicator: не чаще
+    ``interval`` секунд; при исключении в action — disable до manual
+    refresh (``reset()``). Раньше это было 4 копии одинакового
+    if/try/except/finally в coordinator (~80 строк) — см. SOLID-аудит.
+    """
+
+    __slots__ = ("disabled", "interval", "last_poll_at", "name")
+
+    def __init__(self, interval: float, name: str) -> None:
+        self.interval = interval
+        self.name = name
+        self.disabled: bool = False
+        self.last_poll_at: float | None = None
+
+    def due(self, now: float) -> bool:
+        """True если пора поллить (не disabled и интервал прошёл)."""
+        if self.disabled:
+            return False
+        return self.last_poll_at is None or now - self.last_poll_at >= self.interval
+
+    def reset(self) -> None:
+        """Manual refresh — снять disable-флаг."""
+        self.disabled = False
+
+
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
 
@@ -259,27 +287,23 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # пользователя), и быстрая реактивность здесь не нужна.
         self.scenarios: list[ScenarioDto] = []
         self.at_home: bool | None = None
-        self._scenarios_last_poll_at: float | None = None
-        # Best-effort флаг: ScenarioAPI отвалился — больше не пытаемся
-        # пока ошибка возникает регулярно (избегаем шум в логах).
-        self._scenarios_disabled: bool = False
+        # Throttle-состояния best-effort polling-доменов. Один общий
+        # паттерн (см. ThrottledPoll + _throttled_poll): не чаще interval,
+        # disable-on-error до manual refresh.
+        self._scenarios_poll = ThrottledPoll(SCENARIO_POLL_INTERVAL_SEC, "Scenario")
         # OTA upgrades: device_id → upgrade_info dict из /inventory/ota-upgrades.
-        # Используется UpdateEntity per-device. Pull cadence см.
-        # OTA_POLL_INTERVAL_SEC.
+        # Используется UpdateEntity per-device.
         self.ota_upgrades: dict[str, Any] = {}
-        self._ota_last_poll_at: float | None = None
-        self._ota_disabled: bool = False
+        self._ota_poll = ThrottledPoll(OTA_POLL_INTERVAL_SEC, "OTA")
         # /devices/{id}/discovery results: device_id → discovery dict.
         # Зайдём только для hub-устройств (см. HUB_CATEGORIES).
         # Diagnostic-only, exposed via sensor platform для visibility.
         self.discovery_info: dict[str, dict[str, Any]] = {}
-        self._discover_last_poll_at: float | None = None
-        self._discover_disabled: bool = False
+        self._discover_poll = ThrottledPoll(DISCOVER_POLL_INTERVAL_SEC, "Discovery")
         # Sber-wide LED indicator colors — настройки кольца на колонках.
         # Не per-device, а одна настройка на аккаунт (как в мобильном app).
         self.indicator_colors: IndicatorColors | None = None
-        self._indicator_last_poll_at: float | None = None
-        self._indicator_disabled: bool = False
+        self._indicator_poll = ThrottledPoll(INDICATOR_POLL_INTERVAL_SEC, "Indicator")
         # Voice-intent dispatcher state (Phase 10).
         # Хранит ISO-8601 `event_time` последнего обработанного scenario
         # event'а **per-home** — нужен для dedup'а: scenario_widgets WS push
@@ -591,32 +615,30 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Shortcut к SberClient.scenarios."""
         return self.client.scenarios
 
-    async def _maybe_poll_scenarios(self) -> None:
-        """Throttled poll сценариев + at_home переменной.
+    async def _throttled_poll(self, poll: ThrottledPoll, action: Callable[[], Any]) -> None:
+        """Generic best-effort poll: не чаще ``poll.interval``, disable-on-error.
 
-        Не дёргает API чаще чем раз в SCENARIO_POLL_INTERVAL_SEC секунд.
-        При первой ошибке ставит `_scenarios_disabled=True` — больше не
-        пытаемся пока пользователь не сделает manual refresh (тогда
-        флаг сбрасывается через `async_refresh_scenarios`).
+        Схлопывает 4 бывшие копии одинакового if/try/except/finally
+        (scenarios / OTA / discovery / indicator).
         """
-        if self._scenarios_disabled:
-            return
         now = time.time()
-        if (
-            self._scenarios_last_poll_at is not None
-            and now - self._scenarios_last_poll_at < SCENARIO_POLL_INTERVAL_SEC
-        ):
+        if not poll.due(now):
             return
         try:
-            await self._refresh_scenarios()
+            await action()
         except Exception:  # noqa: BLE001 — best-effort
             LOGGER.debug(
-                "Scenario polling failed — disabling until manual refresh",
+                "%s polling failed — disabling until manual refresh",
+                poll.name,
                 exc_info=True,
             )
-            self._scenarios_disabled = True
+            poll.disabled = True
         finally:
-            self._scenarios_last_poll_at = now
+            poll.last_poll_at = now
+
+    async def _maybe_poll_scenarios(self) -> None:
+        """Throttled poll сценариев + at_home переменной."""
+        await self._throttled_poll(self._scenarios_poll, self._refresh_scenarios)
 
     async def _refresh_scenarios(self) -> None:
         api = self._scenario_api()
@@ -629,10 +651,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.at_home = at_home
 
     async def async_refresh_scenarios(self) -> None:
-        """Manual refresh из UI — сбрасывает _scenarios_disabled flag."""
-        self._scenarios_disabled = False
+        """Manual refresh из UI — сбрасывает disable-флаг."""
+        self._scenarios_poll.reset()
         await self._refresh_scenarios()
-        self._scenarios_last_poll_at = time.time()
+        self._scenarios_poll.last_poll_at = time.time()
         self.async_set_updated_data(self.data or {})
 
     async def async_execute_scenario(self, scenario_id: str) -> None:
@@ -650,33 +672,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.client.inventory
 
     async def _maybe_poll_ota(self) -> None:
-        if self._ota_disabled:
-            return
-        now = time.time()
-        if (
-            self._ota_last_poll_at is not None
-            and now - self._ota_last_poll_at < OTA_POLL_INTERVAL_SEC
-        ):
-            return
-        try:
-            self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
-        except Exception:  # noqa: BLE001 — best-effort
-            LOGGER.debug(
-                "OTA polling failed — disabling until manual refresh",
-                exc_info=True,
-            )
-            self._ota_disabled = True
-        finally:
-            self._ota_last_poll_at = now
+        await self._throttled_poll(self._ota_poll, self._refresh_ota)
+
+    async def _refresh_ota(self) -> None:
+        self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
 
     async def async_refresh_ota(self) -> None:
-        """Manual refresh — UI button.
-
-        Сбрасывает _ota_disabled и форсит свежий запрос.
-        """
-        self._ota_disabled = False
-        self.ota_upgrades = await self._inventory_api().list_ota_upgrades()
-        self._ota_last_poll_at = time.time()
+        """Manual refresh — UI button. Сбрасывает disable-флаг."""
+        self._ota_poll.reset()
+        await self._refresh_ota()
+        self._ota_poll.last_poll_at = time.time()
         self.async_set_updated_data(self.data or {})
 
     # ------------------------------------------------------------------
@@ -701,31 +706,22 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return result
 
     async def _maybe_poll_discovery(self) -> None:
-        if self._discover_disabled:
-            return
-        now = time.time()
-        if (
-            self._discover_last_poll_at is not None
-            and now - self._discover_last_poll_at < DISCOVER_POLL_INTERVAL_SEC
-        ):
-            return
+        await self._throttled_poll(self._discover_poll, self._refresh_discovery)
+
+    async def _refresh_discovery(self) -> None:
+        """Per-hub /discovery. Ошибки отдельных устройств скипаются
+        (device мог уйти offline) — disable только на общий сбой."""
         api = self._device_api()
         new_info: dict[str, dict[str, Any]] = {}
-        try:
-            for dev_id in self._hub_device_ids():
-                try:
-                    info = await api.discover(dev_id)
-                except Exception:  # noqa: BLE001
-                    LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
-                    continue
-                if isinstance(info, dict):
-                    new_info[dev_id] = info
-            self.discovery_info = new_info
-        except Exception:  # noqa: BLE001 — defence in depth
-            LOGGER.debug("Discovery polling outer failure", exc_info=True)
-            self._discover_disabled = True
-        finally:
-            self._discover_last_poll_at = now
+        for dev_id in self._hub_device_ids():
+            try:
+                info = await api.discover(dev_id)
+            except Exception:  # noqa: BLE001
+                LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
+                continue
+            if isinstance(info, dict):
+                new_info[dev_id] = info
+        self.discovery_info = new_info
 
     # ------------------------------------------------------------------
     # Sber LED indicator polling
@@ -734,24 +730,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.client.indicator
 
     async def _maybe_poll_indicator(self) -> None:
-        if self._indicator_disabled:
-            return
-        now = time.time()
-        if (
-            self._indicator_last_poll_at is not None
-            and now - self._indicator_last_poll_at < INDICATOR_POLL_INTERVAL_SEC
-        ):
-            return
-        try:
-            self.indicator_colors = await self._indicator_api().get()
-        except Exception:  # noqa: BLE001
-            LOGGER.debug(
-                "Indicator polling failed — disabling until manual refresh",
-                exc_info=True,
-            )
-            self._indicator_disabled = True
-        finally:
-            self._indicator_last_poll_at = now
+        await self._throttled_poll(self._indicator_poll, self._refresh_indicator)
+
+    async def _refresh_indicator(self) -> None:
+        self.indicator_colors = await self._indicator_api().get()
 
     async def async_set_indicator_color(self, color: IndicatorColor) -> None:
         """Записать новый цвет индикатора + optimistic update."""

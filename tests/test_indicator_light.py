@@ -122,8 +122,22 @@ async def test_maybe_poll_indicator_throttled():
     from custom_components.sberhome.coordinator import SberHomeCoordinator
 
     coord = MagicMock(spec=SberHomeCoordinator)
-    coord._indicator_disabled = False
-    coord._indicator_last_poll_at = time.time() - 60
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
+    coord._scenarios_poll = ThrottledPoll(300, "Scenario")
+    coord._ota_poll = ThrottledPoll(3600, "OTA")
+    coord._discover_poll = ThrottledPoll(3600, "Discovery")
+    coord._indicator_poll = ThrottledPoll(3600, "Indicator")
+    # Generic poll + per-domain refresh — реальные реализации (unbound-вызовы
+    # _maybe_poll_* делегируют в них; mock-заглушки сломали бы flow).
+    coord._throttled_poll = lambda poll, action: SberHomeCoordinator._throttled_poll(
+        coord, poll, action
+    )
+    coord._refresh_ota = lambda: SberHomeCoordinator._refresh_ota(coord)
+    coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
+    coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
+    coord._indicator_poll.disabled = False
+    coord._indicator_poll.last_poll_at = time.time() - 60
     api = MagicMock()
     api.get = AsyncMock()
     coord._indicator_api = MagicMock(return_value=api)
@@ -139,8 +153,22 @@ async def test_maybe_poll_indicator_runs_after_interval():
     from custom_components.sberhome.coordinator import SberHomeCoordinator
 
     coord = MagicMock(spec=SberHomeCoordinator)
-    coord._indicator_disabled = False
-    coord._indicator_last_poll_at = time.time() - INDICATOR_POLL_INTERVAL_SEC - 1
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
+    coord._scenarios_poll = ThrottledPoll(300, "Scenario")
+    coord._ota_poll = ThrottledPoll(3600, "OTA")
+    coord._discover_poll = ThrottledPoll(3600, "Discovery")
+    coord._indicator_poll = ThrottledPoll(3600, "Indicator")
+    # Generic poll + per-domain refresh — реальные реализации (unbound-вызовы
+    # _maybe_poll_* делегируют в них; mock-заглушки сломали бы flow).
+    coord._throttled_poll = lambda poll, action: SberHomeCoordinator._throttled_poll(
+        coord, poll, action
+    )
+    coord._refresh_ota = lambda: SberHomeCoordinator._refresh_ota(coord)
+    coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
+    coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
+    coord._indicator_poll.disabled = False
+    coord._indicator_poll.last_poll_at = time.time() - INDICATOR_POLL_INTERVAL_SEC - 1
     payload = IndicatorColors(current_colors=[IndicatorColor(id="c1", hue=120)])
     api = MagicMock()
     api.get = AsyncMock(return_value=payload)
@@ -157,6 +185,20 @@ async def test_async_set_indicator_color_optimistic_update():
     from custom_components.sberhome.coordinator import SberHomeCoordinator
 
     coord = MagicMock(spec=SberHomeCoordinator)
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
+    coord._scenarios_poll = ThrottledPoll(300, "Scenario")
+    coord._ota_poll = ThrottledPoll(3600, "OTA")
+    coord._discover_poll = ThrottledPoll(3600, "Discovery")
+    coord._indicator_poll = ThrottledPoll(3600, "Indicator")
+    # Generic poll + per-domain refresh — реальные реализации (unbound-вызовы
+    # _maybe_poll_* делегируют в них; mock-заглушки сломали бы flow).
+    coord._throttled_poll = lambda poll, action: SberHomeCoordinator._throttled_poll(
+        coord, poll, action
+    )
+    coord._refresh_ota = lambda: SberHomeCoordinator._refresh_ota(coord)
+    coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
+    coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     coord.data = {}
     coord.async_set_updated_data = MagicMock()
     coord.indicator_colors = IndicatorColors(

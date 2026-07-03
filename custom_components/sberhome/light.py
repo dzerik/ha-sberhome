@@ -264,7 +264,7 @@ class SberIndicatorLight(CoordinatorEntity[SberHomeCoordinator], LightEntity):
     HA-light entity мы редактируем только первый, как «основной» цвет
     индикатора.
 
-    Если IndicatorAPI отвалился (`coordinator._indicator_disabled`),
+    Если IndicatorAPI отвалился (`coordinator._indicator_poll.disabled`),
     entity остаётся в реестре, но `available=False` пока не пройдёт
     очередной успешный poll или manual refresh.
     """

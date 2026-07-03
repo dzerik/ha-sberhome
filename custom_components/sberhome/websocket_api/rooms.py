@@ -156,7 +156,7 @@ async def ws_refresh_scenarios(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Manual refresh сценариев + at_home — сбрасывает _scenarios_disabled."""
+    """Manual refresh сценариев + at_home — сбрасывает scenarios-poll disable-флаг."""
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
@@ -183,7 +183,7 @@ async def ws_refresh_ota(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Manual refresh OTA-upgrades — сбрасывает _ota_disabled."""
+    """Manual refresh OTA-upgrades — сбрасывает OTA-poll disable-флаг."""
     coord = get_coordinator(hass)
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")

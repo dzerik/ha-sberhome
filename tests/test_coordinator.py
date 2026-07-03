@@ -130,19 +130,23 @@ def coordinator(
     coord.command_tracker = CommandTracker(maxlen=10, command_timeout=10.0)
     coord.validation_collector = ValidationCollector(maxlen=10)
     # Sber scenarios + at_home (PR-feat/extended-api-coverage).
+    # ThrottledPoll-объекты создаём явно (fixture идёт через __new__, минуя
+    # __init__). disabled=True — skip фоновых poll'ов в unit-тестах.
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
     coord.scenarios = []
     coord.at_home = None
-    coord._scenarios_last_poll_at = None
-    coord._scenarios_disabled = True  # skip scenario poll in unit tests
+    coord._scenarios_poll = ThrottledPoll(300, "Scenario")
+    coord._scenarios_poll.disabled = True
     coord.ota_upgrades = {}
-    coord._ota_last_poll_at = None
-    coord._ota_disabled = True  # skip OTA poll in unit tests
+    coord._ota_poll = ThrottledPoll(3600, "OTA")
+    coord._ota_poll.disabled = True
     coord.discovery_info = {}
-    coord._discover_last_poll_at = None
-    coord._discover_disabled = True  # skip discovery poll in unit tests
+    coord._discover_poll = ThrottledPoll(3600, "Discovery")
+    coord._discover_poll.disabled = True
     coord.indicator_colors = None
-    coord._indicator_last_poll_at = None
-    coord._indicator_disabled = True  # skip indicator poll in unit tests
+    coord._indicator_poll = ThrottledPoll(3600, "Indicator")
+    coord._indicator_poll.disabled = True
     # Voice-intent dispatcher state (Phase 10, rearchitected in issue #35 v5.10.8).
     coord._last_intent_event_time = {}
     coord._fired_event_ids = deque(maxlen=128)
