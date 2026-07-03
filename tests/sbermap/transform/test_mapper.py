@@ -126,6 +126,73 @@ class TestAutoDiscovery:
         assert online is not None
         assert online.platform is Platform.BINARY_SENSOR
 
+    def test_sensor_air_creates_all_air_quality_sensors(self):
+        """sensor_air (2026-07): CO2/PM/TVOC/HCHO + temperature/humidity/battery.
+
+        Все feature'ы должны маппиться в SENSOR entities с корректными
+        device_class'ами (CO2, PM1/PM10/PM25, VOC) и юнитами (ppm, µg/m³,
+        mg/m³). temp_unit_view создаётся как SELECT.
+        """
+        from homeassistant.components.sensor import SensorDeviceClass
+
+        dto = _dto(
+            "cat_sensor_air_m",
+            [
+                {"key": "online", "bool_value": True},
+                {"key": "co2", "integer_value": 850},
+                {"key": "pm1_0", "integer_value": 5},
+                {"key": "pm2_5", "integer_value": 12},
+                {"key": "pm10", "integer_value": 20},
+                {"key": "hcho_float", "float_value": 0.045},
+                {"key": "tvoc_float", "float_value": 0.35},
+                {"key": "temperature", "integer_value": 235},  # 23.5°C
+                {"key": "humidity", "integer_value": 55},
+                {"key": "battery_percentage", "integer_value": 88},
+                {"key": "temp_unit_view", "enum_value": "celsius"},
+            ],
+        )
+        ents = map_device_to_entities(dto)
+        by_key = {e.unique_id.rsplit("_", 1)[-1]: e for e in ents}
+
+        # CO2
+        co2 = next((e for e in ents if e.unique_id.endswith("_co2")), None)
+        assert co2 is not None
+        assert co2.platform is Platform.SENSOR
+        assert co2.device_class == SensorDeviceClass.CO2
+        assert co2.state == 850
+
+        # PM sensors
+        for key, dc in (
+            ("pm1_0", SensorDeviceClass.PM1),
+            ("pm2_5", SensorDeviceClass.PM25),
+            ("pm10", SensorDeviceClass.PM10),
+        ):
+            e = next((x for x in ents if x.unique_id.endswith(f"_{key}")), None)
+            assert e is not None, f"missing entity for {key}"
+            assert e.platform is Platform.SENSOR
+            assert e.device_class == dc
+
+        # TVOC — mg/m³ + VOLATILE_ORGANIC_COMPOUNDS device_class
+        tvoc = next((e for e in ents if e.unique_id.endswith("_tvoc_float")), None)
+        assert tvoc is not None
+        assert tvoc.device_class == SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS
+
+        # HCHO — no device_class, just float
+        hcho = next((e for e in ents if e.unique_id.endswith("_hcho_float")), None)
+        assert hcho is not None
+        assert hcho.platform is Platform.SENSOR
+        assert hcho.device_class is None
+
+        # Global features work too — temperature/humidity/battery
+        assert any(e.unique_id.endswith("_temperature") for e in ents)
+        assert any(e.unique_id.endswith("_humidity") for e in ents)
+        assert any(e.unique_id.endswith("_battery_percentage") for e in ents)
+
+        # temp_unit_view — SELECT
+        tuv = next((e for e in ents if e.unique_id.endswith("_temp_unit_view")), None)
+        assert tuv is not None
+        assert tuv.platform is Platform.SELECT
+
 
 # =============================================================================
 # Category restrictions

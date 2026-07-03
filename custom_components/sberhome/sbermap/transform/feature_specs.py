@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     EntityCategory,
     Platform,
@@ -34,6 +37,7 @@ from .feature_codecs import (
     BoolCodec,
     EnumCodec,
     FeatureCodec,
+    FloatCodec,
     IntegerCodec,
     TemperatureCodec,
     VolumeCodec,
@@ -190,6 +194,56 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         codec=IntegerCodec(
             unit_of_measurement=UnitOfPressure.HPA,
             device_class=SensorDeviceClass.ATMOSPHERIC_PRESSURE,
+        ),
+    ),
+    # ---- Air quality sensors (sensor_air) ----
+    # https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air
+    # Ограничение категорией не нужно — если Sber начнёт вкладывать
+    # co2/pm/tvoc/hcho в другие категории (например hvac_air_purifier),
+    # entities создадутся автоматически.
+    "co2": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=IntegerCodec(
+            unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+            device_class=SensorDeviceClass.CO2,
+        ),
+    ),
+    "pm1_0": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=IntegerCodec(
+            unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+            device_class=SensorDeviceClass.PM1,
+        ),
+    ),
+    "pm2_5": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=IntegerCodec(
+            unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+            device_class=SensorDeviceClass.PM25,
+        ),
+    ),
+    "pm10": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=IntegerCodec(
+            unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+            device_class=SensorDeviceClass.PM10,
+        ),
+    ),
+    "tvoc_float": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=FloatCodec(
+            unit_of_measurement=CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+            device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+            suggested_display_precision=2,
+        ),
+    ),
+    # HCHO (formaldehyde) — HA device_class нет; generic FLOAT sensor
+    # с явной единицей mg/m³.
+    "hcho_float": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=FloatCodec(
+            unit_of_measurement=CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+            suggested_display_precision=3,
         ),
     ),
     # ---- Binary sensors (primary for sensor categories) ----
@@ -387,7 +441,7 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         codec=EnumCodec(),
         options=("celsius", "fahrenheit"),
         entity_category=_CFG,
-        categories=_cats("sensor_temp"),
+        categories=_cats("sensor_temp", "sensor_air"),
     ),
     "vacuum_cleaner_program": FeatureSpec(
         platform=Platform.SELECT,

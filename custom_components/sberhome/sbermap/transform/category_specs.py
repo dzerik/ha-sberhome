@@ -372,6 +372,9 @@ CATEGORY_SPECS: dict[str, CategorySpec] = {
     ),
     # Sensor (temp/humidity) — no single primary, all sensors are extras
     "sensor_temp": CategorySpec(Platform.SENSOR, frozenset()),
+    # Sensor (air quality: co2/pm/tvoc/hcho) — no single primary, all extras.
+    # https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air
+    "sensor_air": CategorySpec(Platform.SENSOR, frozenset()),
     # Intercom — no single primary, all entities are extras
     "intercom": CategorySpec(Platform.BINARY_SENSOR, frozenset(), device_class=None),
     # Scenario button — only events, no primary

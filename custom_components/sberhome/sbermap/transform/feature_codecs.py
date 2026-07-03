@@ -26,6 +26,9 @@ from typing import Any, Protocol
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     EntityCategory,
     UnitOfElectricCurrent,
@@ -264,6 +267,43 @@ FEATURE_CODECS: dict[str, FeatureCodec] = {
         unit_of_measurement=UnitOfPressure.HPA,
         device_class=SensorDeviceClass.ATMOSPHERIC_PRESSURE,
         suggested_display_precision=0,
+    ),
+    # ---- Air quality sensors (sensor_air) ----
+    # https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air
+    # co2: INTEGER 0..10000 (ppm — соответствует HA CO2 device_class).
+    "co2": IntegerCodec(
+        unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        device_class=SensorDeviceClass.CO2,
+        suggested_display_precision=0,
+    ),
+    # PM1.0 / PM2.5 / PM10: INTEGER 0..500 (µg/m³ — стандарт HA).
+    "pm1_0": IntegerCodec(
+        unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.PM1,
+        suggested_display_precision=0,
+    ),
+    "pm2_5": IntegerCodec(
+        unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.PM25,
+        suggested_display_precision=0,
+    ),
+    "pm10": IntegerCodec(
+        unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.PM10,
+        suggested_display_precision=0,
+    ),
+    # TVOC (total volatile organic compounds): FLOAT 0..9.999 (mg/m³).
+    # HA VOLATILE_ORGANIC_COMPOUNDS device_class принимает и µg/m³, и mg/m³.
+    "tvoc_float": FloatCodec(
+        unit_of_measurement=CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+        suggested_display_precision=2,
+    ),
+    # HCHO (formaldehyde): FLOAT 0..1.999 (mg/m³). HA device_class для
+    # формальдегида нет — оставляем generic FLOAT sensor с явным unit.
+    "hcho_float": FloatCodec(
+        unit_of_measurement=CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+        suggested_display_precision=3,
     ),
     # ---- Power monitoring (socket / relay) ----
     # NOTE: Sber API for cur_current — INTEGER в Amperes (не mA, как раньше думали).

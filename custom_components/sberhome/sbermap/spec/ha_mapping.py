@@ -34,6 +34,9 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
     "sensor_pir": (Platform.BINARY_SENSOR, Platform.SELECT),
     "sensor_smoke": (Platform.BINARY_SENSOR, Platform.SWITCH),  # + alarm_mute
     "sensor_gas": (Platform.BINARY_SENSOR, Platform.SWITCH, Platform.SELECT),
+    # Air quality sensor: co2/pm1/pm2.5/pm10/tvoc/hcho/temp/humidity as
+    # SENSOR + temp_unit_view (celsius/fahrenheit) as SELECT.
+    "sensor_air": (Platform.SENSOR, Platform.SELECT),
     # Covers
     "curtain": (Platform.COVER, Platform.SELECT),  # + open_rate
     "window_blind": (Platform.COVER, Platform.SELECT, Platform.NUMBER),
@@ -168,6 +171,10 @@ IMAGE_TYPE_MAP: Final[dict[str, str]] = {
     "sensor_smoke": "sensor_smoke",
     "dt_sensor_gas": "sensor_gas",
     "sensor_gas": "sensor_gas",
+    # Air quality — паттерны наблюдаемые в Sber (cat_sensor_air_*/dt_sensor_air*).
+    "cat_sensor_air": "sensor_air",
+    "dt_sensor_air": "sensor_air",
+    "sensor_air": "sensor_air",
     # Scenario — `cat_button` покрывает варианты `cat_button_m`/`_s`/`_l`,
     # используемые Сбером для виртуальных c2c-кнопок (Эмуляция присутствия,
     # триггер-кнопки сценариев из мобильного приложения).
@@ -234,6 +241,7 @@ CATEGORY_KEYWORDS: Final[dict[str, frozenset[str]]] = {
     "sensor_pir": frozenset({"sensor_motion", "sensor_pir"}),
     "sensor_smoke": frozenset({"sensor_smoke"}),
     "sensor_gas": frozenset({"sensor_gas"}),
+    "sensor_air": frozenset({"sensor_air"}),
     "scenario_button": frozenset({"scenario_button", "button_scenario"}),
     "curtain": frozenset({"curtain"}),
     "gate": frozenset({"gate"}),
