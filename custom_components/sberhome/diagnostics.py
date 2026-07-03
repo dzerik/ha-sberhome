@@ -99,7 +99,7 @@ async def async_get_config_entry_diagnostics(
         ):
             try:
                 scenarios_dump[label] = await awaitable_factory()
-            except Exception as err:  # noqa: BLE001 — diagnostics best-effort
+            except Exception as err:
                 _LOGGER.debug("Diagnostics: scenarios.%s failed: %r", label, err)
                 scenarios_dump[f"{label}_error"] = repr(err)
 

@@ -290,7 +290,7 @@ async def _async_reconcile_yaml_intents(
         homes = coordinator.state_cache.get_homes()
         report = await reconcile_intents(service, yaml_specs, homes=homes)
         LOGGER.info("YAML intents reconciled: %s", report.summary_line())
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:
         LOGGER.exception(
             "YAML intents reconcile failed — продолжаем без них. "
             "После исправления вызовите service `sberhome.reload_intents`."
@@ -401,7 +401,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     "timestamp": timestamp,
                 },
             )
-        except Exception as err:  # noqa: BLE001 — debug service, нам нужен любой error в response
+        except Exception as err:
             LOGGER.warning(
                 "send_raw_command to %s failed: %s (payload=%s)",
                 device_id,
@@ -457,7 +457,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             yaml_config = await hass.async_add_executor_job(load_yaml_config_file, yaml_path)
         except (FileNotFoundError, OSError) as err:
             return {"ok": False, "error": f"YAML недоступен: {err}"}
-        except Exception as err:  # noqa: BLE001 — yaml parse error etc.
+        except Exception as err:
             return {"ok": False, "error": f"YAML parse failed: {err}"}
 
         # Валидируем через CONFIG_SCHEMA
@@ -499,14 +499,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 homes = coord.state_cache.get_homes()
                 report = await reconcile_intents(service, specs, homes=homes)
                 results[entry.entry_id] = report.to_dict()
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 LOGGER.exception("reload_intents reconcile failed")
                 results[entry.entry_id] = {"error": str(err)}
             # Listeners применяются отдельно от reconcile — home_id резолв
             # из state_cache + replace в coordinator.listener_registry.
             try:
                 _async_apply_yaml_listeners(hass, coord)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 LOGGER.exception("reload_intents: listeners apply failed")
 
         LOGGER.info(

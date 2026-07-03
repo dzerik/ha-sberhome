@@ -79,7 +79,7 @@ async def ws_status_tts_surrogate(
     cache_fallback = False
     try:
         scenarios = await coord.client.scenarios.list()
-    except Exception:  # noqa: BLE001
+    except Exception:
         _LOGGER.warning(
             "scenarios.list() failed in status endpoint — falling back to cache",
             exc_info=True,
@@ -149,7 +149,7 @@ async def ws_ensure_tts_surrogate(
         return
     try:
         sc_id = await coord.tts_service.get_surrogate_id(msg["home_id"])
-    except Exception as err:  # noqa: BLE001 — best-effort surface to UI
+    except Exception as err:
         _LOGGER.exception("ws ensure_tts_surrogate failed")
         connection.send_result(msg["id"], {"ok": False, "error": str(err)})
         return
@@ -182,7 +182,7 @@ async def ws_test_tts_surrogate(
             msg["message"],
             msg.get("device_ids"),
         )
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         _LOGGER.exception("ws test_tts_surrogate failed")
         connection.send_result(msg["id"], {"ok": False, "error": str(err)})
         return

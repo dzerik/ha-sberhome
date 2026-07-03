@@ -192,7 +192,7 @@ class IntentService:
                 continue
             try:
                 events = await self._coord.client.scenarios.history(home.id, limit=limit)
-            except Exception:  # noqa: BLE001 — best-effort per home
+            except Exception:
                 continue
             for ev in events:
                 if not (ev.object_id and ev.event_time):

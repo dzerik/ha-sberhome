@@ -46,7 +46,7 @@ async def ws_get_wifi_credentials(
         return
     try:
         creds = await _api(coord).get_wifi_credentials()
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
     connection.send_result(msg["id"], creds)
@@ -66,7 +66,7 @@ async def ws_list_matter_categories(
         return
     try:
         cats = await _api(coord).list_matter_categories()
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
     connection.send_result(msg["id"], {"categories": cats})
@@ -102,7 +102,7 @@ async def ws_start_pairing(
     )
     try:
         result = await _api(coord).start_pairing(body)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "pairing_failed", str(err))
         return
     connection.send_result(msg["id"], result)
@@ -131,7 +131,7 @@ def _matter_step_command(name: str, method_attr: str):
         method = getattr(api, method_attr)
         try:
             result = await method(msg.get("payload") or {})
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             connection.send_error(msg["id"], "matter_failed", str(err))
             return
         connection.send_result(msg["id"], result)

@@ -605,7 +605,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for dev_reg_id in stale:
                 device_reg.async_remove_device(dev_reg_id)
                 LOGGER.info("Pruned stale device %s from registry", dev_reg_id)
-        except Exception:  # noqa: BLE001 — best-effort, не ломаем refresh
+        except Exception:
             LOGGER.debug("Stale device pruning failed (ignored)", exc_info=True)
 
     # ------------------------------------------------------------------
@@ -626,7 +626,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         try:
             await action()
-        except Exception:  # noqa: BLE001 — best-effort
+        except Exception:
             LOGGER.debug(
                 "%s polling failed — disabling until manual refresh",
                 poll.name,
@@ -645,7 +645,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         scenarios = await api.list()
         try:
             at_home = await api.get_at_home()
-        except Exception:  # noqa: BLE001 — at_home может быть не настроен у пользователя
+        except Exception:
             at_home = None
         self.scenarios = scenarios
         self.at_home = at_home
@@ -716,7 +716,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for dev_id in self._hub_device_ids():
             try:
                 info = await api.discover(dev_id)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
                 continue
             if isinstance(info, dict):
@@ -1000,7 +1000,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for sub in list(self._ws_log_subscribers):
             try:
                 sub(record)
-            except Exception:  # noqa: BLE001 — best-effort fanout
+            except Exception:
                 LOGGER.debug("WS log subscriber failed", exc_info=True)
 
     async def async_inject_ws_message(
@@ -1191,7 +1191,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         topic_name = msg.topic.value if msg.topic else "scenario_widgets"
         try:
             payload = msg.to_dict()
-        except Exception:  # noqa: BLE001
+        except Exception:
             payload = {"error": "serialization_failed"}
         self._record_ws_message(
             topic=topic_name,
@@ -1234,7 +1234,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 try:
                     await self._dispatch_home_intents(home.id)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     LOGGER.debug(
                         "intent dispatch failed for home %s (ignored)",
                         home.id,
@@ -1245,7 +1245,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Один цикл fetch → filter → dedup → fire для одного дома."""
         try:
             events = await self.client.scenarios.history(home_id, limit=INTENT_FETCH_LIMIT)
-        except Exception:  # noqa: BLE001
+        except Exception:
             LOGGER.debug("Failed to fetch scenario history for home %s", home_id, exc_info=True)
             return
         new_events = self._select_new_intent_events(home_id, events)
@@ -1381,7 +1381,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 home_id=home_id,
             )
             matches = self.listener_registry.find_matching(event_meta)
-        except Exception:  # noqa: BLE001
+        except Exception:
             LOGGER.debug("Listener matching raised — base event already fired", exc_info=True)
             return
 
@@ -1417,7 +1417,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         LOGGER.debug("WS %s received: %s", topic_name, msg)
         try:
             payload = msg.to_dict()
-        except Exception:  # noqa: BLE001 — best-effort, не ломаем WS loop
+        except Exception:
             LOGGER.debug("WS %s: cannot serialize payload", topic_name, exc_info=True)
             payload = {"error": "serialization_failed"}
         self._record_ws_message(

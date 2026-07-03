@@ -192,7 +192,7 @@ class CsafrontAuthManager:
             return
         try:
             await self._on_refreshed(self._tokens)
-        except Exception:  # noqa: BLE001 — persist best-effort
+        except Exception:
             _LOGGER.exception("CSAFront on_tokens_refreshed callback failed")
 
 

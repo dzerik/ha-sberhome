@@ -20,7 +20,7 @@ def _read_integration_version() -> str | None:
         manifest_path = Path(__file__).resolve().parent.parent / "manifest.json"
         with manifest_path.open() as f:
             return json.load(f).get("version")
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:
         return None
 
 

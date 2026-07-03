@@ -229,5 +229,5 @@ class AuthManager:
             return
         try:
             await self._on_sberid_refreshed(self._sberid)
-        except Exception:  # noqa: BLE001 — persist best-effort, не ломаем auth flow
+        except Exception:
             _LOGGER.exception("on_sberid_refreshed callback failed")

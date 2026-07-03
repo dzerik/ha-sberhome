@@ -192,7 +192,7 @@ async def reconcile_intents(
     # 1. Снапшот всех intent'ов из Sber.
     try:
         existing = await service.list_intents()
-    except Exception as err:  # noqa: BLE001 — best-effort, не валим integration
+    except Exception as err:
         _LOGGER.exception("Reconciler: list_intents failed, aborting")
         for spec in yaml_specs:
             report.failed.append(
@@ -271,7 +271,7 @@ async def reconcile_intents(
                     spec.name,
                     existing_spec.id,
                 )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             report.failed.append((slug, str(err)))
             _LOGGER.exception("YAML intent failed: slug=%s", slug)
 

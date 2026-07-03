@@ -238,7 +238,7 @@ async def ws_refetch_device(
     device_id = msg["device_id"]
     try:
         raw = await coord.client.devices.get_raw(device_id)
-    except Exception as err:  # noqa: BLE001 — возвращаем любую ошибку в UI
+    except Exception as err:
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
 

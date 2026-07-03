@@ -40,11 +40,15 @@ def ws_get_rooms(
     if requested_home_id is not None:
         home = cache.get_group(requested_home_id)
         rooms = cache.get_rooms(home_id=requested_home_id)
-        device_filter = lambda did: cache.device_home_id(did) == requested_home_id  # noqa: E731
+
+        def device_filter(did: str) -> bool:
+            return cache.device_home_id(did) == requested_home_id
     else:
         home = cache.get_home()
         rooms = cache.get_rooms()
-        device_filter = lambda _did: True  # noqa: E731
+
+        def device_filter(_did: str) -> bool:
+            return True
 
     rooms_out: list[dict[str, Any]] = []
     for room in rooms:
@@ -138,7 +142,7 @@ async def ws_rename_room(
         return
     try:
         await coord.client.groups.rename(msg["room_id"], msg["name"])
-    except Exception as err:  # noqa: BLE001 — surface to UI
+    except Exception as err:
         connection.send_error(msg["id"], "rename_failed", str(err))
         return
     # Refresh tree чтобы UI увидел новое имя сразу.
@@ -163,7 +167,7 @@ async def ws_refresh_scenarios(
         return
     try:
         await coord.async_refresh_scenarios()
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "refresh_failed", str(err))
         return
     connection.send_result(
@@ -190,7 +194,7 @@ async def ws_refresh_ota(
         return
     try:
         await coord.async_refresh_ota()
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "refresh_failed", str(err))
         return
     connection.send_result(

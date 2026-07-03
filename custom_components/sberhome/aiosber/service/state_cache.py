@@ -346,29 +346,15 @@ class StateCache:
             if not dev.id:
                 continue
             devices_map[dev.id] = dev
-            # Резолвим home/room через group_ids[0] (Sber всегда кладёт один).
-            gids = dev.group_ids or []
-            primary_gid = gids[0] if gids else None
-            if primary_gid is None:
-                continue
-            room = rooms_by_id.get(primary_gid)
-            if room is not None:
-                # device в комнате → home через room.parent_id
-                if room.name and dev.id:
-                    device_to_room_name[dev.id] = room.name
-                device_to_room_id[dev.id] = room.id  # type: ignore[assignment]
-                home_id = room.parent_id
-                if home_id:
-                    device_to_home_id[dev.id] = home_id
-                    home = homes_by_id.get(home_id)
-                    if home is not None and home.name:
-                        device_to_home_name[dev.id] = home.name
-            elif primary_gid in homes_by_id:
-                # device напрямую под home (top-level: SberBoom Home, и т.п.)
-                device_to_home_id[dev.id] = primary_gid
-                home = homes_by_id[primary_gid]
-                if home.name:
-                    device_to_home_name[dev.id] = home.name
+            self._resolve_device_location(
+                dev,
+                homes_by_id,
+                rooms_by_id,
+                device_to_room_name,
+                device_to_room_id,
+                device_to_home_id,
+                device_to_home_name,
+            )
 
         self._protect_fresh_local_state(devices_map, fetch_started_at)
         self._devices = devices_map
@@ -394,6 +380,45 @@ class StateCache:
             len(device_to_room_name),
             len(device_to_home_id),
         )
+
+    @staticmethod
+    def _resolve_device_location(
+        dev: DeviceDto,
+        homes_by_id: dict[str, UnionDto],
+        rooms_by_id: dict[str, UnionDto],
+        device_to_room_name: dict[str, str],
+        device_to_room_id: dict[str, str],
+        device_to_home_id: dict[str, str],
+        device_to_home_name: dict[str, str],
+    ) -> None:
+        """Резолв room/home одного устройства через group_ids[0].
+
+        Sber всегда кладёт один primary group id: либо room (тогда home
+        через room.parent_id), либо сразу home (top-level device — SberBoom).
+        Вынесено из update_from_flat (CC был 17 — C901-аудит).
+        """
+        gids = dev.group_ids or []
+        primary_gid = gids[0] if gids else None
+        if primary_gid is None or not dev.id:
+            return
+        room = rooms_by_id.get(primary_gid)
+        if room is not None:
+            # device в комнате → home через room.parent_id
+            if room.name:
+                device_to_room_name[dev.id] = room.name
+            device_to_room_id[dev.id] = room.id  # type: ignore[assignment]
+            home_id = room.parent_id
+            if home_id:
+                device_to_home_id[dev.id] = home_id
+                home = homes_by_id.get(home_id)
+                if home is not None and home.name:
+                    device_to_home_name[dev.id] = home.name
+        elif primary_gid in homes_by_id:
+            # device напрямую под home (top-level: SberBoom Home, и т.п.)
+            device_to_home_id[dev.id] = primary_gid
+            home = homes_by_id[primary_gid]
+            if home.name:
+                device_to_home_name[dev.id] = home.name
 
     def _rebuild_devices_by_group_index(self) -> None:
         """Перестроить reverse-index `group_id → [device_id, ...]`.

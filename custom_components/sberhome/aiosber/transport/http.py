@@ -82,7 +82,7 @@ class HttpTransport:
         json: Any = None,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109 — httpx per-request timeout, не asyncio
     ) -> httpx.Response:
         """Сделать запрос с подписью companion-токеном.
 
@@ -137,7 +137,7 @@ class HttpTransport:
         json: Any,
         params: dict[str, Any] | None,
         headers: dict[str, str] | None,
-        timeout: float | None,
+        timeout: float | None,  # noqa: ASYNC109 — httpx per-request timeout, не asyncio
         skip_auth_retry: bool = False,
     ) -> httpx.Response:
         """Один send с опциональным 401/403 retry. Вынесено чтобы code-16

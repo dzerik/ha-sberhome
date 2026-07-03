@@ -55,7 +55,7 @@ async def ws_list_intents(
         return
     try:
         specs = await service.list_intents()
-    except Exception as err:  # noqa: BLE001 — surface to UI
+    except Exception as err:
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
     connection.send_result(msg["id"], {"intents": [s.to_dict() for s in specs]})
@@ -80,7 +80,7 @@ async def ws_get_intent(
     intent_id = msg["intent_id"]
     try:
         spec = await service.get_intent(intent_id)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "fetch_failed", str(err))
         return
     if spec is None:
@@ -144,7 +144,7 @@ async def ws_create_intent(
     spec = IntentSpec.from_dict(msg["spec"])
     try:
         result = await service.create_intent(spec)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "create_failed", str(err))
         return
     connection.send_result(msg["id"], result.to_dict())
@@ -170,7 +170,7 @@ async def ws_update_intent(
     spec = IntentSpec.from_dict(msg["spec"])
     try:
         result = await service.update_intent(msg["intent_id"], spec)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "update_failed", str(err))
         return
     connection.send_result(msg["id"], result.to_dict())
@@ -194,7 +194,7 @@ async def ws_delete_intent(
         return
     try:
         await service.delete_intent(msg["intent_id"])
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "delete_failed", str(err))
         return
     connection.send_result(msg["id"], {"success": True})
@@ -219,7 +219,7 @@ async def ws_test_intent(
         return
     try:
         result = await service.test_intent(msg["intent_id"])
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "test_failed", str(err))
         return
     connection.send_result(msg["id"], {"success": True, "sber_response": result})

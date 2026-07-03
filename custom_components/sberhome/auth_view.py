@@ -17,7 +17,7 @@ _AUTH_PAGE_TEMPLATE: Template | None = None
 
 async def _get_template(hass) -> Template:
     """Load and cache the auth page HTML template."""
-    global _AUTH_PAGE_TEMPLATE  # noqa: PLW0603
+    global _AUTH_PAGE_TEMPLATE
     if _AUTH_PAGE_TEMPLATE is None:
         content = await hass.async_add_executor_job(_TEMPLATE_PATH.read_text, "utf-8")
         _AUTH_PAGE_TEMPLATE = Template(content)

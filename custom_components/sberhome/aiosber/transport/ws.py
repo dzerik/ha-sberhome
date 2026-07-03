@@ -194,7 +194,10 @@ class WebSocketClient:
     def is_connected(self) -> bool:
         return self._connected_event.is_set()
 
-    async def wait_until_connected(self, timeout: float | None = None) -> None:
+    async def wait_until_connected(
+        self,
+        timeout: float | None = None,  # noqa: ASYNC109 — test-helper, семантика wait_for
+    ) -> None:
         """Ждать первого успешного connect (для интеграционных тестов)."""
         await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
 
@@ -268,7 +271,7 @@ class WebSocketClient:
         if conn is not None:
             try:
                 await conn.close()
-            except Exception:  # noqa: BLE001 — best-effort close
+            except Exception:
                 _LOGGER.debug("Error closing WS connection", exc_info=True)
         self._connected_event.clear()
 

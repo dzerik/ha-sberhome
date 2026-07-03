@@ -135,7 +135,7 @@ class DeviceService:
                 groups_api.list(group_type="GROUP"),
                 self._fetch_devices_with_raw(),
             )
-        except Exception:  # noqa: BLE001 — fallback на tree при любой ошибке
+        except Exception:
             await self._refresh_via_tree(fetch_started_at=fetch_started_at)
             return
 
@@ -153,7 +153,7 @@ class DeviceService:
         if not self._cache.get_enums():
             try:
                 enums = await self._api.enums()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             else:
                 self._cache.set_enums(enums)
