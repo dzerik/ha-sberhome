@@ -142,6 +142,10 @@ class IntentDispatcher:
         self._fired_event_ids: deque[str] = deque(maxlen=INTENT_DEDUP_HISTORY)
         # Coalesce-flag worker.
         self._pending: bool = False
+        # Диагностика (issue #35): кто запросил текущий pending-проход —
+        # "ws-push" / "poller". Set, т.к. во время работы worker'а запросы
+        # коалесцируются и источники могут смешаться.
+        self._pending_sources: set[str] = set()
         self._task: asyncio.Task | None = None
         # Safety-net poller.
         self._poller_task: asyncio.Task | None = None
@@ -149,15 +153,24 @@ class IntentDispatcher:
     # ------------------------------------------------------------------
     # Public API (для coordinator)
     # ------------------------------------------------------------------
-    def request_dispatch(self) -> None:
+    def request_dispatch(self, source: str = "ws-push") -> None:
         """Trigger a dispatch pass (coalesced).
 
         Ставит pending флаг и стартует worker task если не запущен.
         Многократные вызовы во время работающего worker'а не создают
         лишних task'ов — worker увидит pending и сделает ещё проход.
         Весь метод синхронный (без await) → атомарен в event loop.
+
+        Args:
+            source: кто запросил проход — ``"ws-push"`` (WS scenario_widgets)
+                или ``"poller"`` (safety-net). Попадает в DEBUG-лог, чтобы
+                по логу пользователя было видно, каким каналом доставлено
+                событие (issue #35: у части пользователей WS push не
+                доходит и всё ловит только poller — задержка ~30 сек).
         """
         self._pending = True
+        self._pending_sources.add(source)
+        LOGGER.debug("intent dispatch requested (source=%s)", source)
         if self._task is None or self._task.done():
             self._task = self._hass.async_create_task(self._worker())
 
@@ -195,6 +208,8 @@ class IntentDispatcher:
         """Loop: fetch + fire пока приходят новые pending-request'ы."""
         while self._pending:
             self._pending = False
+            trigger = ",".join(sorted(self._pending_sources)) or "unknown"
+            self._pending_sources.clear()
             homes = self._state_cache.get_homes()
             if not homes:
                 LOGGER.debug("intent dispatch requested, но state_cache без homes — пропуск")
@@ -203,7 +218,7 @@ class IntentDispatcher:
                 if not home.id:
                     continue
                 try:
-                    await self._dispatch_home(home.id)
+                    await self._dispatch_home(home.id, trigger=trigger)
                 except Exception:  # noqa: BLE001 — best-effort per home
                     LOGGER.debug(
                         "intent dispatch failed for home %s (ignored)",
@@ -215,11 +230,11 @@ class IntentDispatcher:
         try:
             while True:
                 await asyncio.sleep(INTENT_POLLER_INTERVAL_SEC)
-                self.request_dispatch()
+                self.request_dispatch(source="poller")
         except asyncio.CancelledError:
             raise
 
-    async def _dispatch_home(self, home_id: str) -> None:
+    async def _dispatch_home(self, home_id: str, trigger: str = "unknown") -> None:
         """Один цикл fetch → filter → dedup → fire для одного дома."""
         try:
             events = await self._get_client().scenarios.history(home_id, limit=INTENT_FETCH_LIMIT)
@@ -251,6 +266,13 @@ class IntentDispatcher:
 
         if not fired_events:
             return
+
+        LOGGER.debug(
+            "intent dispatch: fired %d event(s) for home %s (trigger=%s)",
+            len(fired_events),
+            home_id,
+            trigger,
+        )
 
         fired_times = [
             parsed

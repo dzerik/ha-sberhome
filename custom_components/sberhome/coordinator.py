@@ -986,6 +986,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         теряются (раньше через asyncio.Lock их сbrasывало).
         """
         topic_name = msg.topic.value if msg.topic else "scenario_widgets"
+        # DEBUG-маркер (issue #35): по логу пользователя видно, дошёл ли
+        # WS push вообще. Fired event без этой строки в пределах ~1 сек
+        # до него = событие доставил safety-net poller, а не WS.
+        LOGGER.debug("scenario_widgets push received (device_id=%s)", msg.target_device_id)
         try:
             payload = msg.to_dict()
         except Exception:
@@ -996,7 +1000,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             payload=payload,
         )
 
-        self.intent_dispatcher.request_dispatch()
+        self.intent_dispatcher.request_dispatch(source="ws-push")
 
     async def _on_ws_other_topic(self, msg: SocketMessageDto) -> None:
         """Логирование для topic'ов без специальной обработки.

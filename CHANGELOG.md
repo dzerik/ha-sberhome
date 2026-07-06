@@ -1,5 +1,20 @@
 # Changelog
 
+## [5.12.1] — 2026-07-06
+
+### Added — диагностика канала доставки intent'ов (issue #35)
+
+По обратной связи пользователя: на v5.10.8 события больше не теряются,
+но в большинстве случаев приходят с задержкой ~30 сек — это интервал
+safety-net poller'а, т.е. WS push `scenario_widgets` не доходит.
+Текстовый DEBUG-лог раньше не позволял отличить «push не пришёл» от
+«push пришёл, dispatch задержался». Теперь:
+
+- `scenario_widgets push received` — DEBUG-маркер прихода WS push;
+- `intent dispatch requested (source=ws-push|poller)` — кто запросил проход;
+- `intent dispatch: fired N event(s) for home ... (trigger=...)` — каким
+  каналом реально доставлены события.
+
 ## [5.12.0] — 2026-07-03
 
 ### Fixed — гонки состояния (quality-аудит)

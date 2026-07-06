@@ -312,6 +312,46 @@ class TestDispatchWorker:
 # ---------------------------------------------------------------------------
 
 
+class TestDispatchSourceDiagnostics:
+    """v5.12.1 (issue #35): worker логирует источник прохода (ws-push/poller).
+
+    Задержка ~30 сек у пользователя = события ловит только safety-net
+    poller; по trigger= в DEBUG-логе это теперь видно без гаданий.
+    """
+
+    @pytest.mark.asyncio
+    async def test_trigger_source_passed_to_dispatch_home(self):
+        disp, env = _dispatcher()
+        disp._dispatch_home = AsyncMock()
+        disp.request_dispatch(source="poller")
+        await disp._task
+        disp._dispatch_home.assert_awaited_once_with("home-1", trigger="poller")
+
+    @pytest.mark.asyncio
+    async def test_coalesced_sources_merged_and_cleared(self):
+        """WS push + poller во время одного pending → оба источника в trigger."""
+        disp, env = _dispatcher()
+        seen: list[str] = []
+
+        async def dispatch_stub(home_id, trigger="unknown"):
+            seen.append(trigger)
+
+        disp._dispatch_home = dispatch_stub
+        disp._pending = True
+        disp._pending_sources = {"ws-push", "poller"}
+        await disp._worker()
+        assert seen == ["poller,ws-push"]
+        assert disp._pending_sources == set()
+
+    @pytest.mark.asyncio
+    async def test_default_source_is_ws_push(self):
+        disp, env = _dispatcher()
+        disp._dispatch_home = AsyncMock()
+        disp.request_dispatch()
+        await disp._task
+        disp._dispatch_home.assert_awaited_once_with("home-1", trigger="ws-push")
+
+
 class TestPoller:
     @pytest.mark.asyncio
     async def test_poller_triggers_dispatch(self):
