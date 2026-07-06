@@ -31,6 +31,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Protocol
 from urllib.parse import urlencode
@@ -45,6 +46,12 @@ from ..dto import SocketMessageDto, Topic
 from ..exceptions import AuthError, NetworkError, SberError
 
 _LOGGER = logging.getLogger(__name__)
+
+# Сессия, прожившая дольше этого порога после успешного handshake, считается
+# «стабильной» — reconnect после неё идёт с начальным backoff'ом и сбрасывает
+# счётчик failures. Порог отсекает flap-loop (handshake проходит, соединение
+# рвётся мгновенно) — такие сессии продолжают наращивать backoff.
+WS_STABLE_SESSION_SEC = 60.0
 
 # ---------------------------------------------------------------------------
 # Protocol-уровень: контракт WebSocket-объекта, нужный нам
@@ -171,6 +178,9 @@ class WebSocketClient:
         self._stop_event = asyncio.Event()
         self._connection: WebSocketProtocol | None = None
         self._connected_event = asyncio.Event()
+        # monotonic успешного handshake текущей/последней сессии — для
+        # определения «стабильной сессии» в run() (сброс backoff).
+        self._connected_at: float | None = None
 
     @property
     def _url(self) -> str:
@@ -211,11 +221,9 @@ class WebSocketClient:
         backoff = self._backoff_initial
         consecutive_failures = 0
         while not self._stop_event.is_set():
+            self._connected_at = None
             try:
                 await self._connect_and_receive()
-                # Успешный recv-loop — сбросим счётчик, новый connect без backoff
-                consecutive_failures = 0
-                backoff = self._backoff_initial
             except AuthError:
                 # Critical: refresh не помог. Останавливаемся, callback должен решить дальше.
                 _LOGGER.error("WebSocket auth failed, stopping")
@@ -223,11 +231,10 @@ class WebSocketClient:
             except SberError as err:
                 consecutive_failures += 1
                 _LOGGER.warning(
-                    "WebSocket error (failure %d/%s): %s; reconnect in %.1fs",
+                    "WebSocket error (failure %d/%s): %s",
                     consecutive_failures,
                     self._max_consecutive_failures or "∞",
                     err,
-                    backoff,
                 )
             except asyncio.CancelledError:
                 _LOGGER.debug("WebSocket cancelled")
@@ -236,12 +243,25 @@ class WebSocketClient:
                 # Обычное закрытие соединения сервером (Sber WS имеет TTL,
                 # periodically reconnect даже при нормальной работе). Не
                 # считаем это failure'ом, логируем debug вместо ERROR.
-                _LOGGER.debug("WebSocket closed by peer (%s); reconnect in %.1fs", err, backoff)
+                _LOGGER.debug("WebSocket closed by peer (%s)", err)
             except Exception:
                 consecutive_failures += 1
-                _LOGGER.exception("Unexpected WebSocket error; reconnect in %.1fs", backoff)
+                _LOGGER.exception("Unexpected WebSocket error")
 
             self._connected_event.clear()
+
+            # Стабильная сессия (handshake прошёл и соединение прожило
+            # >= WS_STABLE_SESSION_SEC) сбрасывает backoff и счётчик
+            # failures. Раньше сброс стоял на unreachable-пути (нормальный
+            # return _connect_and_receive возможен только при stop) — каждый
+            # штатный TTL-close Sber'а удваивал reconnect-delay навсегда,
+            # до постоянных 60-секундных пауз (issue #35).
+            if (
+                self._connected_at is not None
+                and time.monotonic() - self._connected_at >= WS_STABLE_SESSION_SEC
+            ):
+                consecutive_failures = 0
+                backoff = self._backoff_initial
 
             if (
                 self._max_consecutive_failures is not None
@@ -256,6 +276,7 @@ class WebSocketClient:
 
             if self._stop_event.is_set():
                 break
+            _LOGGER.debug("WebSocket reconnect in %.1fs", backoff)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
                 # stop_event сработал → выходим
@@ -295,6 +316,7 @@ class WebSocketClient:
 
         self._connection = conn
         self._connected_event.set()
+        self._connected_at = time.monotonic()
         _LOGGER.debug("WebSocket connected to %s", url)
         try:
             while not self._stop_event.is_set():
@@ -321,6 +343,13 @@ class WebSocketClient:
 
         msg = SocketMessageDto.from_dict(payload)
         if msg is None:
+            return
+        if msg.topic is None:
+            # Ни одно из 8 известных полей не заполнено — неизвестный
+            # wire-формат или служебное сообщение. Раньше дропалось молча
+            # (TopicRouter выходил без лога) — слепое пятно диагностики:
+            # смену формата push'ей Sber'ом было не увидеть даже в DEBUG.
+            _LOGGER.debug("WS: unrecognized message shape (keys=%s)", sorted(payload.keys()))
             return
 
         try:

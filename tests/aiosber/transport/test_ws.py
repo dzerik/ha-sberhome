@@ -389,6 +389,80 @@ async def test_reconnect_with_backoff_on_factory_error():
     assert factory_calls >= 3
 
 
+async def test_stable_session_resets_failure_counter(monkeypatch):
+    """v5.12.2 (issue #35): стабильная сессия сбрасывает backoff/failures.
+
+    Раньше сброс стоял на unreachable-пути (нормальный return
+    _connect_and_receive возможен только при stop) — connect-fail'ы
+    накапливались через успешные сессии и рано или поздно достигали
+    max_consecutive_failures, а backoff рос навсегда.
+
+    Сценарий: fail, stable-сессия, fail, stable-сессия, fail, fail.
+    С reset'ом каждый одиночный fail обнуляется следующей стабильной
+    сессией — degraded exit наступает только на двух fail'ах подряд
+    (6 попыток). Без reset'а run() вышел бы уже на 3-й попытке.
+    """
+    from custom_components.sberhome.aiosber.transport import ws as ws_module
+
+    monkeypatch.setattr(ws_module, "WS_STABLE_SESSION_SEC", 0.0)
+
+    factory_calls = 0
+    plan = ["fail", "ok", "fail", "ok", "fail", "fail"]
+
+    async def factory(url, headers):
+        nonlocal factory_calls
+        step = plan[min(factory_calls, len(plan) - 1)]
+        factory_calls += 1
+        if step == "fail":
+            raise ConnectionError("transient network failure")
+        # Стабильная сессия: одно сообщение, потом peer close.
+        return FakeWebSocket([_msg_device_state()])
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: None,
+        factory=factory,
+        backoff_initial=0.001,
+        backoff_max=0.005,
+        max_consecutive_failures=2,
+    )
+    await asyncio.wait_for(client.run(), timeout=5.0)  # degraded exit сам
+
+    assert factory_calls == 6
+
+
+async def test_unrecognized_message_shape_logged_and_dropped(caplog):
+    """v5.12.2 (issue #35): payload без известных полей — debug-лог, не тишина."""
+    import logging as logging_mod
+
+    received = []
+    fake = FakeWebSocket([json.dumps({"totally_new_field": 1}), _msg_device_state()])
+
+    async def factory(url, headers):
+        return fake
+
+    client = WebSocketClient(
+        auth=_build_auth(), callback=lambda m: received.append(m), factory=factory
+    )
+    with caplog.at_level(
+        logging_mod.DEBUG, logger="custom_components.sberhome.aiosber.transport.ws"
+    ):
+        task = asyncio.create_task(client.run())
+        for _ in range(50):
+            if received:
+                break
+            await asyncio.sleep(0.01)
+        await client.stop()
+        task.cancel()
+        with contextlib.suppress(BaseException):
+            await task
+
+    assert len(received) == 1
+    assert received[0].topic is Topic.DEVICE_STATE
+    assert "unrecognized message shape" in caplog.text
+    assert "totally_new_field" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # stop()
 # ---------------------------------------------------------------------------

@@ -106,4 +106,27 @@ class TestMakeAiohttpFactory:
         session.ws_connect.assert_called_once_with(
             "wss://example/",
             headers={"Authorization": "Bearer X"},
+            heartbeat=30.0,
         )
+
+    @pytest.mark.asyncio
+    async def test_factory_default_heartbeat_enabled(self):
+        """v5.12.2 (issue #35): без heartbeat half-open TCP не детектируется —
+        recv() висит вечно, ws_connected остаётся True, push'и молча пропадают."""
+        session = MagicMock()
+        session.ws_connect = AsyncMock(return_value=MagicMock())
+
+        await make_aiohttp_factory(session)("wss://example/", {})
+
+        assert session.ws_connect.call_args.kwargs["heartbeat"] == 30.0
+
+    @pytest.mark.asyncio
+    async def test_factory_heartbeat_override_and_disable(self):
+        session = MagicMock()
+        session.ws_connect = AsyncMock(return_value=MagicMock())
+
+        await make_aiohttp_factory(session, heartbeat=10.0)("wss://example/", {})
+        assert session.ws_connect.call_args.kwargs["heartbeat"] == 10.0
+
+        await make_aiohttp_factory(session, heartbeat=None)("wss://example/", {})
+        assert session.ws_connect.call_args.kwargs["heartbeat"] is None

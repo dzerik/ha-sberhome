@@ -55,12 +55,22 @@ class AiohttpWsAdapter:
             await self._ws.close()
 
 
-def make_aiohttp_factory(session: aiohttp.ClientSession) -> Callable[..., Any]:
+def make_aiohttp_factory(
+    session: aiohttp.ClientSession,
+    heartbeat: float | None = 30.0,
+) -> Callable[..., Any]:
     """Создать `WebSocketFactory`-совместимую функцию на основе aiohttp session.
 
     Args:
         session: shared `aiohttp.ClientSession` (получи через
             `homeassistant.helpers.aiohttp_client.async_get_clientsession`).
+        heartbeat: интервал ping/pong в секундах (issue #35). Без heartbeat
+            half-open TCP (NAT/роутер молча дропает idle-мэппинг) не
+            детектируется: `recv()` блокируется навсегда, `ws_connected`
+            остаётся True, reconnect не происходит и все push'и молча
+            пропадают. aiohttp сам шлёт ping и закрывает соединение при
+            отсутствии pong — recv получает ошибку, reconnect-loop оживает.
+            None = отключить (поведение до v5.12.2).
 
     Returns:
         Async factory `(url, headers) -> AiohttpWsAdapter`. Передавай в
@@ -68,7 +78,7 @@ def make_aiohttp_factory(session: aiohttp.ClientSession) -> Callable[..., Any]:
     """
 
     async def factory(url: str, headers: dict[str, str]) -> AiohttpWsAdapter:
-        ws = await session.ws_connect(url, headers=headers)
+        ws = await session.ws_connect(url, headers=headers, heartbeat=heartbeat)
         return AiohttpWsAdapter(ws)
 
     return factory
