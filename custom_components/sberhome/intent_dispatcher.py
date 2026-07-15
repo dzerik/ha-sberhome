@@ -26,6 +26,7 @@ listener_registry через DI.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -64,6 +65,13 @@ INTENT_DEDUP_HISTORY = 128
 # event-log лагает больше окна между push'ами — poller гарантирует
 # доставку в течение этого интервала (issue #35 bug #6).
 INTENT_POLLER_INTERVAL_SEC = 30.0
+
+# Adaptive back-off: пока WS push доставлял событие не позже этого окна,
+# safety-net poller не дёргает event-log API (issue #35 — снижаем нагрузку и
+# лог-шум, когда push здоров). При тишине push > окна poller снова активен
+# каждый INTENT_POLLER_INTERVAL_SEC. Окно = несколько интервалов, чтобы
+# редкий пропуск одного push быстро подхватывался поллером.
+PUSH_HEALTHY_WINDOW_SEC = 180.0
 
 
 def parse_event_time(raw: str | None) -> datetime | None:
@@ -149,6 +157,8 @@ class IntentDispatcher:
         self._task: asyncio.Task | None = None
         # Safety-net poller.
         self._poller_task: asyncio.Task | None = None
+        # monotonic-время последнего ws-push (для adaptive back-off поллера).
+        self._last_push_at: float | None = None
 
     # ------------------------------------------------------------------
     # Public API (для coordinator)
@@ -170,6 +180,8 @@ class IntentDispatcher:
         """
         self._pending = True
         self._pending_sources.add(source)
+        if source == "ws-push":
+            self._last_push_at = time.monotonic()
         LOGGER.debug("intent dispatch requested (source=%s)", source)
         if self._task is None or self._task.done():
             self._task = self._hass.async_create_task(self._worker())
@@ -230,6 +242,13 @@ class IntentDispatcher:
         try:
             while True:
                 await asyncio.sleep(INTENT_POLLER_INTERVAL_SEC)
+                # Adaptive back-off: если WS push доставлял событие недавно —
+                # не дёргаем event-log API (push здоров). При тишине push резервный
+                # опрос возобновляется (issue #35 — снижаем нагрузку/лог-шум).
+                if self._last_push_at is not None and (
+                    time.monotonic() - self._last_push_at < PUSH_HEALTHY_WINDOW_SEC
+                ):
+                    continue
                 self.request_dispatch(source="poller")
         except asyncio.CancelledError:
             raise

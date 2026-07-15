@@ -1,5 +1,30 @@
 # Changelog
 
+## [5.12.3] — 2026-07-15
+
+### Fixed — шум в логе и лишняя нагрузка на API (issue #35, follow-up)
+
+По логу репортёра (v5.12.2, push уже работает — события идут `trigger=ws-push`,
+poller доставляет 0) устранены три остаточных пункта:
+
+- **`ERROR Unexpected error fetching data` + traceback** на транзиентных сетевых
+  сбоях (`NetworkError: [Errno -3] Try again` — DNS-икота у пользователя).
+  Причина: `_async_update_data` ловил только HA-адаптерную иерархию
+  (`.exceptions.*`), а запросы идут через `aiosber` и кидают свою
+  (`aiosber.exceptions.SberError → NetworkError/ApiError`). Теперь core-иерархия
+  тоже мапится: `AuthError → ConfigEntryAuthFailed`, остальное → мягкий
+  `UpdateFailed` (WARNING без traceback, сущности плавно восстанавливаются).
+- **`ApiError: HTTP 405` на `GET /devices/{id}/discovery`** каждый час: endpoint
+  не принимает GET на части аккаунтов/прошивок. Теперь 405 отключает
+  discovery-poll (через `_throttled_poll` disable-on-error) вместо hourly-спама
+  tracebacks; при этом основной update не роняется.
+- **Safety-net intent-poller (30 сек) дёргал event-log API впустую**, когда WS
+  push здоров. Добавлен **adaptive back-off**: пока push доставлял событие не
+  позже `PUSH_HEALTHY_WINDOW_SEC` (180 c) — poller не обращается к API (снижает
+  нагрузку и лог-шум `dispatch requested (source=poller)`); при тишине push
+  резервный опрос возобновляется. Ответ на вопрос репортёра «нормально ли
+  держать API на таком поводке».
+
 ## [5.12.2] — 2026-07-06
 
 ### Fixed — WS half-open соединения и вечно растущий reconnect-backoff (issue #35)

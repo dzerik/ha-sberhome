@@ -36,6 +36,9 @@ from .aiosber.dto import AttributeValueDto, IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto
 from .aiosber.dto.union import UnionDto
+from .aiosber.exceptions import ApiError as CoreApiError
+from .aiosber.exceptions import AuthError as CoreAuthError
+from .aiosber.exceptions import SberError as CoreSberError
 from .aiosber.transport import HttpTransport
 from .api import SberAPI
 from .command_tracker import CommandTracker
@@ -389,6 +392,18 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.error_count += 1
             LOGGER.warning("API communication error during update: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}") from err
+        # core-слой aiosber (запросы идут через него) кидает свою иерархию
+        # SberError → AuthError/NetworkError/ApiError. Ловим её тоже, иначе
+        # транзиентная DNS-икота (`[Errno -3] Try again`) утекает как
+        # «Unexpected error fetching data» ERROR+traceback (issue #35).
+        except CoreAuthError as err:
+            self.error_count += 1
+            LOGGER.warning("Authentication failed during update: %s", err)
+            raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
+        except CoreSberError as err:
+            self.error_count += 1
+            LOGGER.warning("API communication error during update: %s", err)
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
 
         # WebSocket — additive: запускаем после первого успешного refresh,
         # чтобы AuthManager уже имел валидный companion-токен (handshake
@@ -560,6 +575,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for dev_id in self._hub_device_ids():
             try:
                 info = await api.discover(dev_id)
+            except CoreApiError as err:
+                # 405 Method Not Allowed = endpoint не поддерживает GET на этом
+                # аккаунте/прошивке. Пробрасываем — _throttled_poll отключит
+                # discovery-poll, чтобы не спамить hourly-tracebacks (issue #35).
+                if err.status_code == 405:
+                    raise
+                LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
+                continue
             except Exception:
                 LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
                 continue
