@@ -37,6 +37,11 @@ class TestResolveCategoryExactMatch:
             ("tv", "tv"),
             ("hub", "hub"),
             ("intercom", "intercom"),
+            # SberBox Time (issue #43). Подстрока `dt_box` НЕ матчит
+            # `dt_sberbox_time_m`, поэтому нужна отдельная запись — без неё
+            # устройство проваливалось в «неизвестное».
+            ("dt_sberbox_time_m", "sber_speaker"),
+            ("dt_boom_r2_dark_blue_s", "sber_speaker"),
         ],
     )
     def test_known_types_resolve(self, image_set_type, expected):

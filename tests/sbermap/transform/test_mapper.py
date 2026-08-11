@@ -357,3 +357,67 @@ class TestDesiredOverride:
         from homeassistant.const import STATE_ON
 
         assert ents[Platform.LIGHT].state == STATE_ON
+
+
+class TestSberBoxTime:
+    """SberBox Time — issue #43, по полному JSON от владельца устройства.
+
+    Прибор рапортует четыре атрибута, но команды есть только у двух. Это и
+    определяет, что чем становится: без команды поле можно только читать.
+    """
+
+    REPORTED = [
+        {"key": "online", "bool_value": True},
+        {"key": "gamepad", "bool_value": False},
+        {"key": "staros_assistant_sounds_enabled", "bool_value": False},
+        {"key": "staros_age_mode", "enum_value": "adult"},
+    ]
+
+    def _entities(self):
+        return map_device_to_entities(_dto("dt_sberbox_time_m", self.REPORTED))
+
+    def test_recognised_as_a_speaker(self):
+        """Подстрока `dt_box` не покрывает `dt_sberbox_time_m`.
+
+        Без отдельной записи в IMAGE_TYPE_MAP устройство не получало категории
+        вовсе, а значит и ни одной сущности — ровно то, с чем пришёл владелец.
+        """
+        assert self._entities(), "устройство не дало ни одной сущности"
+
+    def test_assistant_sounds_is_writable(self):
+        """У поля есть команда, значит это переключатель, а не датчик."""
+        ent = next(
+            e for e in self._entities() if e.unique_id.endswith("staros_assistant_sounds_enabled")
+        )
+        assert ent.platform is Platform.SWITCH
+
+    def test_age_mode_offers_both_options(self):
+        ent = next(e for e in self._entities() if e.unique_id.endswith("staros_age_mode"))
+        assert ent.platform is Platform.SELECT
+        assert set(ent.options or ()) == {"adult", "child"}
+
+    def test_gamepad_is_read_only(self):
+        """Команды на gamepad прибор не объявляет.
+
+        Сделать его переключателем значило бы обещать управление, которого нет:
+        нажатие ушло бы в облако и молча ничего не изменило.
+        """
+        ent = next(e for e in self._entities() if e.unique_id.endswith("gamepad"))
+        assert ent.platform is Platform.BINARY_SENSOR
+
+    def test_commands_carry_the_value_and_nothing_else(self):
+        """Проверяется содержимое, а не факт «что-то вернулось».
+
+        build_command принимает пары «фича=значение» и молча превращает любой
+        неизвестный kwarg в атрибут с таким именем. Утверждение вида
+        `assert cmd` поэтому проходит даже на полностью неверном вызове.
+        """
+        age = build_command("dev-1", staros_age_mode="child")
+        assert len(age) == 1
+        assert age[0].key == "staros_age_mode"
+        assert age[0].enum_value == "child"
+
+        sounds = build_command("dev-1", staros_assistant_sounds_enabled=True)
+        assert len(sounds) == 1
+        assert sounds[0].key == "staros_assistant_sounds_enabled"
+        assert sounds[0].bool_value is True

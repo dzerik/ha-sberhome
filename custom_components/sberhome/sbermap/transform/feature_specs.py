@@ -107,6 +107,31 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         icon="mdi:zigbee",
         categories=_cats("sber_speaker", "hub"),
     ),
+    # ---- SberBox Time (issue #43) ----
+    # Прибор рапортует `gamepad` без соответствующей команды, то есть это
+    # состояние, а не переключатель: подключён геймпад или нет.
+    "gamepad": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(device_class=BinarySensorDeviceClass.CONNECTIVITY),
+        entity_category=_DIAG,
+        icon="mdi:gamepad-variant",
+        categories=_cats("sber_speaker"),
+    ),
+    "staros_assistant_sounds_enabled": FeatureSpec(
+        platform=Platform.SWITCH,
+        codec=BoolCodec(),
+        entity_category=_CFG,
+        icon="mdi:volume-high",
+        categories=_cats("sber_speaker"),
+    ),
+    "staros_age_mode": FeatureSpec(
+        platform=Platform.SELECT,
+        codec=EnumCodec(),
+        options=("adult", "child"),
+        entity_category=_CFG,
+        icon="mdi:account-child",
+        categories=_cats("sber_speaker"),
+    ),
     "matter_ready": FeatureSpec(
         platform=Platform.BINARY_SENSOR,
         codec=BoolCodec(),

@@ -1,0 +1,439 @@
+- generic [ref=f11e2]:
+  - navigation [ref=f11e3]:
+    - generic [ref=f11e8]:
+      - link [ref=f11e9] [cursor=pointer]:
+        - /url: /docs/
+      - generic [ref=f11e16]:
+        - generic [ref=f11e17]: Документация
+        - link "Разработчикам" [ref=f11e24] [cursor=pointer]:
+          - /url: https://developers.sber.ru/dev
+  - generic [ref=f11e35]:
+    - complementary [ref=f11e37]:
+      - navigation [ref=f11e40]:
+        - list [ref=f11e42]:
+          - listitem [ref=f11e43]:
+            - link "Умный дом Sber" [ref=f11e44] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/overview
+          - listitem [ref=f11e49]:
+            - link "Об интеграции с умным домом" [ref=f11e51] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/about/overview
+            - list [ref=f11e55]:
+              - listitem [ref=f11e56]:
+                - link "Кто и как может подключиться" [ref=f11e57] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/about/ability-to-connect
+              - listitem [ref=f11e59]:
+                - link "Какие устройства поддерживает умный дом Sber" [ref=f11e60] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/about/devices-list
+              - listitem [ref=f11e62]:
+                - link "Какие контроллеры поддерживаются" [ref=f11e63] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/about/controllers-list
+              - listitem [ref=f11e65]:
+                - link "Наши Cloud-to-Cloud партнеры и их устройства" [ref=f11e66] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/about/partners
+          - listitem [ref=f11e68]:
+            - link "Как создать интеграцию" [ref=f11e69] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/about/integration-quick-start
+          - listitem [ref=f11e71]:
+            - link "Регистрация пространства и верификация компании" [ref=f11e73] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/space/registration-and-verification
+          - listitem [ref=f11e77]:
+            - link "Интеграция Cloud-to-Cloud" [ref=f11e79] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/c2c/cloud-to-cloud
+          - listitem [ref=f11e83]:
+            - link "MQTT-to-Cloud для интегратора" [ref=f11e85] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/mqtt-integrators/mqtt-to-integrators
+          - listitem [ref=f11e89]:
+            - link "Связаться с нами" [ref=f11e91] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/contacts/overview
+          - listitem [ref=f11e95]:
+            - link "Справочник структур и запросов" [ref=f11e97] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/reference/structures-and-queries
+            - list [ref=f11e101]:
+              - listitem [ref=f11e102]:
+                - link "Структуры" [ref=f11e104] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/c2c/structures
+              - listitem [ref=f11e108]:
+                - link "Устройства" [ref=f11e110] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/c2c/devices
+                - list [ref=f11e114]:
+                  - listitem [ref=f11e115]:
+                    - link "curtain" [ref=f11e116] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/curtain
+                  - listitem [ref=f11e118]:
+                    - link "gate" [ref=f11e119] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/gate
+                  - listitem [ref=f11e121]:
+                    - link "hub" [ref=f11e122] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hub
+                  - listitem [ref=f11e124]:
+                    - link "hvac_ac" [ref=f11e125] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_ac
+                  - listitem [ref=f11e127]:
+                    - link "hvac_air_purifier" [ref=f11e128] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_air_purifier
+                  - listitem [ref=f11e130]:
+                    - link "hvac_boiler" [ref=f11e131] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_boiler
+                  - listitem [ref=f11e133]:
+                    - link "hvac_fan" [ref=f11e134] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_fan
+                  - listitem [ref=f11e136]:
+                    - link "hvac_heater" [ref=f11e137] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_heater
+                  - listitem [ref=f11e139]:
+                    - link "hvac_humidifier" [ref=f11e140] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_humidifier
+                  - listitem [ref=f11e142]:
+                    - link "hvac_radiator" [ref=f11e143] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_radiator
+                  - listitem [ref=f11e145]:
+                    - link "hvac_underfloor_heating" [ref=f11e146] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/hvac_underfloor_heating
+                  - listitem [ref=f11e148]:
+                    - link "intercom" [ref=f11e149] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/intercom
+                  - listitem [ref=f11e151]:
+                    - link "kettle" [ref=f11e152] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/kettle
+                  - listitem [ref=f11e154]:
+                    - link "led_strip" [ref=f11e155] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/led_strip
+                  - listitem [ref=f11e157]:
+                    - link "light" [ref=f11e158] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/light
+                  - listitem [ref=f11e160]:
+                    - link "relay" [ref=f11e161] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/relay
+                  - listitem [ref=f11e163]:
+                    - link "scenario_button" [ref=f11e164] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/scenario_button
+                  - listitem [ref=f11e166]:
+                    - link "sensor_air" [ref=f11e167] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_air
+                  - listitem [ref=f11e169]:
+                    - link "sensor_door" [ref=f11e170] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_door
+                  - listitem [ref=f11e172]:
+                    - link "sensor_gas" [ref=f11e173] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_gas
+                  - listitem [ref=f11e175]:
+                    - link "sensor_pir" [ref=f11e176] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_pir
+                  - listitem [ref=f11e178]:
+                    - link "sensor_smoke" [ref=f11e179] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_smoke
+                  - listitem [ref=f11e181]:
+                    - link "sensor_temp" [ref=f11e182] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_temp
+                  - listitem [ref=f11e184]:
+                    - link "sensor_water_leak" [ref=f11e185] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_water_leak
+                  - listitem [ref=f11e187]:
+                    - link "socket" [ref=f11e188] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/socket
+                  - listitem [ref=f11e190]:
+                    - link "tv" [ref=f11e191] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/tv
+                  - listitem [ref=f11e193]:
+                    - link "vacuum_cleaner" [ref=f11e194] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/vacuum_cleaner
+                  - listitem [ref=f11e196]:
+                    - link "valve" [ref=f11e197] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/valve
+                  - listitem [ref=f11e199]:
+                    - link "window_blind" [ref=f11e200] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/window_blind
+              - listitem [ref=f11e202]:
+                - link "Функции устройств" [ref=f11e204] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/c2c/functions
+              - listitem [ref=f11e208]:
+                - link "Протокол для облачных интеграций" [ref=f11e210] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/reference/cloud-integrations
+          - listitem [ref=f11e214]:
+            - link "История обновлений" [ref=f11e215] [cursor=pointer]:
+              - /url: /docs/ru/smarthome/changelog
+          - listitem [ref=f11e217]:
+            - link "Документация на английском" [ref=f11e218] [cursor=pointer]:
+              - /url: https://developers.sber.ru/docs/en/smarthome/overview
+    - main [ref=f11e225]:
+      - generic [ref=f11e227]:
+        - article [ref=f11e231]:
+          - navigation "breadcrumbs" [ref=f11e233]:
+            - list [ref=f11e234]:
+              - listitem [ref=f11e235]:
+                - link [ref=f11e237] [cursor=pointer]:
+                  - /url: /docs/
+              - listitem [ref=f11e243]:
+                - link "Умный дом" [ref=f11e245] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/overview
+              - listitem [ref=f11e251]:
+                - link "Справочник структур и запросов" [ref=f11e253] [cursor=pointer]:
+                  - /url: /docs/ru/smarthome/reference/structures-and-queries
+              - listitem [ref=f11e259]:
+                - button [ref=f11e263] [cursor=pointer]
+              - listitem [ref=f11e271]:
+                - generic [ref=f11e272]: sensor_temp
+          - generic [ref=f11e276]:
+            - generic [ref=f11e280]:
+              - heading "sensor_temp" [level=1] [ref=f11e281]
+              - generic [ref=f11e282]: Обновлено 28 октября 2025
+            - paragraph [ref=f11e284]: Датчик температуры и/или влажности.
+            - heading [level=2] [ref=f11e285]:
+              - text: Доступные функции устройства
+              - link [ref=f11e287] [cursor=pointer]:
+                - /url: "#dostupnye-funktsii-ustroystva18"
+            - paragraph [ref=f11e291]:
+              - text: У устройства могут быть все нижеперечисленные функции или только часть из них. Например, если датчик не умеет сообщать об уровне заряда батареи, включать функцию
+              - code [ref=f11e292]: battery_percentage
+              - text: в описание его модели не нужно.
+            - paragraph [ref=f11e293]:
+              - text: Для датчика обязательной является функция
+              - code [ref=f11e294]: online
+              - text: ". Также обязательно должна быть описана хотя бы одна из следующих функций:"
+              - code [ref=f11e295]: humidity
+              - text: ","
+              - code [ref=f11e296]: temperature
+              - text: . Например, если вы описываете датчик температуры, для него обязательно нужно перечислить функции
+              - code [ref=f11e297]: online
+              - text: и
+              - code [ref=f11e298]: temperature
+              - text: ", а функцию"
+              - code [ref=f11e299]: humidity
+              - text: указывать не нужно.
+            - paragraph [ref=f11e300]:
+              - text: "Если же вы описываете датчик температуры и влажности, обязательно нужно перечислить все три функции:"
+              - code [ref=f11e301]: online
+              - text: ","
+              - code [ref=f11e302]: humidity
+              - text: ","
+              - code [ref=f11e303]: temperature
+              - text: .
+            - table [ref=f11e304]:
+              - rowgroup [ref=f11e305]:
+                - row [ref=f11e306]:
+                  - cell [ref=f11e307]:
+                    - strong [ref=f11e308]: Функция
+                  - cell [ref=f11e309]:
+                    - strong [ref=f11e310]: Обязательная?
+                  - cell [ref=f11e311]:
+                    - strong [ref=f11e312]: Описание
+                - row [ref=f11e313]:
+                  - cell [ref=f11e314]:
+                    - link "air_pressure" [ref=f11e315] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/air_pressure
+                  - cell [ref=f11e316]
+                  - cell [ref=f11e317]:
+                    - paragraph [ref=f11e318]: Текущее атмосферное давление
+                - row [ref=f11e319]:
+                  - cell [ref=f11e320]:
+                    - link "battery_low_power" [ref=f11e321] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/battery_low_power
+                  - cell [ref=f11e322]
+                  - cell "Разряжена ли батарея или нет" [ref=f11e323]
+                - row [ref=f11e324]:
+                  - cell [ref=f11e325]:
+                    - link "battery_percentage" [ref=f11e326] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/battery_percentage
+                  - cell [ref=f11e327]
+                  - cell "Уровень заряда батареи" [ref=f11e328]
+                - row [ref=f11e329]:
+                  - cell [ref=f11e330]:
+                    - link "humidity" [ref=f11e331] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/humidity
+                  - cell [ref=f11e332]:
+                    - paragraph [ref=f11e333]:
+                      - text: ✔︎
+                      - superscript [ref=f11e334]: "*"
+                  - cell [ref=f11e335]:
+                    - paragraph [ref=f11e336]: Текущая влажность. Функция обязательна для датчиков влажности и датчиков температуры и влажности. Для датчиков температуры, которые влажность не измеряют, ее указывать не нужно
+                - row [ref=f11e337]:
+                  - cell [ref=f11e338]:
+                    - link "online" [ref=f11e339] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/online
+                  - cell "✔︎" [ref=f11e340]
+                  - 'cell "Доступность устройства: офлайн или онлайн" [ref=f11e341]'
+                - row [ref=f11e342]:
+                  - cell [ref=f11e343]:
+                    - link "sensor_sensitive" [ref=f11e344] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/sensor_sensitive
+                  - cell [ref=f11e345]
+                  - cell [ref=f11e346]:
+                    - paragraph [ref=f11e347]: Чувствительность датчика
+                - row [ref=f11e348]:
+                  - cell [ref=f11e349]:
+                    - link "signal_strength" [ref=f11e350] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/signal_strength
+                  - cell [ref=f11e351]
+                  - cell [ref=f11e352]:
+                    - paragraph [ref=f11e353]: Сила сигнала
+                - row [ref=f11e354]:
+                  - cell [ref=f11e355]:
+                    - link "temp_unit_view" [ref=f11e356] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/temp_unit_view
+                  - cell [ref=f11e357]
+                  - cell [ref=f11e358]:
+                    - paragraph [ref=f11e359]: "Температурная шкала, в которой датчик сейчас выводит информацию о температуре на свой экран: °C или °F. Используйте только для датчиков с экраном, которые умеют показывать температуру в разных температурных шкалах"
+                - row [ref=f11e360]:
+                  - cell [ref=f11e361]:
+                    - link "temperature" [ref=f11e362] [cursor=pointer]:
+                      - /url: /docs/ru/smarthome/c2c/temperature
+                  - cell [ref=f11e363]:
+                    - paragraph [ref=f11e364]:
+                      - text: ✔︎
+                      - superscript [ref=f11e365]: "*"
+                  - cell [ref=f11e366]:
+                    - paragraph [ref=f11e367]: Текущая температура. Функция обязательна для датчиков температуры и датчиков температуры и влажности. Для датчиков влажности, которые температуру не измеряют, ее указывать не нужно
+            - heading [level=2] [ref=f11e368]:
+              - text: Пример описания модели датчика температуры и влажности
+              - link [ref=f11e370] [cursor=pointer]:
+                - /url: "#primer-opisaniya-modeli-datchika-temperatury-i-vlazhnosti"
+            - paragraph [ref=f11e374]:
+              - text: Модель описывается в соответствии со структурой
+              - link "model" [ref=f11e375] [cursor=pointer]:
+                - /url: /docs/ru/smarthome/c2c/model
+              - text: . В примере описан датчик температуры и влажности, который умеет сообщать о температуре, влажности и атмосферном давлении. Также датчик сообщает о силе сигнала, уровне заряда батареи и разряжена ли батарея, имеет настройку чувствительности. Датчик оснащен экраном, умеет показывать на экране температуру в °C и °F.
+            - paragraph [ref=f11e376]:
+              - text: Кроме того, у модели
+              - link "изменены" [ref=f11e377] [cursor=pointer]:
+                - /url: /docs/ru/smarthome/c2c/allowed_values
+              - text: доступные значения для функции
+              - code [ref=f11e378]: sensor_sensitive
+              - text: "(чувствительность датчика): эта модель поддерживает только два уровня чувствительности. Средний уровень"
+              - code [ref=f11e379]: medium
+              - text: не поддерживается и исключен.
+            - generic [ref=f11e381]:
+              - code [ref=f11e383]:
+                - generic [ref=f11e384]: "{"
+                - generic [ref=f11e385]: "\"id\": \"QWERTY124\","
+                - generic [ref=f11e386]: "\"manufacturer\": \"Xiaqara\","
+                - generic [ref=f11e387]: "\"model\": \"SM1123456789\","
+                - generic [ref=f11e388]: "\"hw_version\": \"3.1\","
+                - generic [ref=f11e389]: "\"sw_version\": \"5.6\","
+                - generic [ref=f11e390]: "\"description\": \"Умный датчик температуры и влажности Xiaqara\","
+                - generic [ref=f11e391]: "\"category\": \"sensor_temp\","
+                - generic [ref=f11e392]: "\"features\": ["
+                - generic [ref=f11e393]: "\"online\","
+                - generic [ref=f11e394]: "\"humidity\","
+                - generic [ref=f11e395]: "\"temperature\","
+                - generic [ref=f11e396]: "\"air_pressure\","
+                - generic [ref=f11e397]: "\"battery_low_power\","
+                - generic [ref=f11e398]: "\"battery_percentage\","
+                - generic [ref=f11e399]: "\"sensor_sensitive\","
+                - generic [ref=f11e400]: "\"signal_strength\","
+                - generic [ref=f11e401]: "\"temp_unit_view\""
+                - generic [ref=f11e402]: "],"
+                - generic [ref=f11e403]: "\"allowed_values\": {"
+                - generic [ref=f11e404]: "\"sensor_sensitive\": {"
+                - generic [ref=f11e405]: "\"type\": \"ENUM\","
+                - generic [ref=f11e406]: "\"enum_values\": {"
+                - generic [ref=f11e407]: "\"values\": ["
+                - generic [ref=f11e408]: "\"auto\","
+                - generic [ref=f11e409]: "\"high\""
+                - generic [ref=f11e410]: "]"
+                - generic [ref=f11e411]: "}"
+                - generic [ref=f11e412]: "}"
+                - generic [ref=f11e413]: "}"
+                - generic [ref=f11e414]: "}"
+              - button "Скопировать в буфер обмена" [ref=f11e416] [cursor=pointer]
+            - heading [level=2] [ref=f11e423]:
+              - text: Пример описания датчика температуры и влажности
+              - link [ref=f11e425] [cursor=pointer]:
+                - /url: "#primer-opisaniya-datchika-temperatury-i-vlazhnosti"
+            - paragraph [ref=f11e429]:
+              - text: Устройство описывается в соответствии со структурой
+              - link "device" [ref=f11e430] [cursor=pointer]:
+                - /url: /docs/ru/smarthome/c2c/device
+              - text: . В примере нет описания модели датчика — считаем, что модели описаны отдельно, поэтому достаточно указать только ID модели (здесь — QWERTY124).
+            - paragraph [ref=f11e431]:
+              - text: Для датчика указан
+              - code [ref=f11e432]: parent_id
+              - text: — идентификатор хаба, через который датчик подключен к умному дому.
+            - generic [ref=f11e434]:
+              - code [ref=f11e436]:
+                - generic [ref=f11e437]: "{"
+                - generic [ref=f11e438]: "\"id\": \"ABCD_004\","
+                - generic [ref=f11e439]: "\"parent_id\": \"A_002\","
+                - generic [ref=f11e440]: "\"name\": \"Мой датчик температуры и влажности\","
+                - generic [ref=f11e441]: "\"default_name\": \"Умный датчик температуры и влажности\","
+                - generic [ref=f11e442]: "\"home\": \"Мой дом\","
+                - generic [ref=f11e443]: "\"room\": \"Гостиная\","
+                - generic [ref=f11e444]: "\"model_id\": \"QWERTY124\","
+                - generic [ref=f11e445]: "\"hw_version\": \"3.1\","
+                - generic [ref=f11e446]: "\"sw_version\": \"5.6\","
+                - generic [ref=f11e447]: "\"partner_meta\": {"
+                - generic [ref=f11e448]: "\"internal-id\": 1234,"
+                - generic [ref=f11e449]: "\"specificity\": \"microchip 2A\""
+                - generic [ref=f11e450]: "},"
+                - generic [ref=f11e451]: "}"
+              - button "Скопировать в буфер обмена" [ref=f11e453] [cursor=pointer]
+          - generic [ref=f11e461]:
+            - paragraph [ref=f11e462]: Заметили ошибку?
+            - paragraph [ref=f11e463]:
+              - text: Выделите текст и нажмите
+              - code [ref=f11e464]: Ctrl
+              - text: +
+              - code [ref=f11e465]: Enter
+              - text: ", чтобы сообщить нам о ней"
+        - list [ref=f11e470]:
+          - listitem [ref=f11e471]:
+            - link [ref=f11e472] [cursor=pointer]:
+              - /url: "#dostupnye-funktsii-ustroystva18"
+              - text: Доступные функции устройства
+          - listitem [ref=f11e473]:
+            - link [ref=f11e474] [cursor=pointer]:
+              - /url: "#primer-opisaniya-modeli-datchika-temperatury-i-vlazhnosti"
+              - text: Пример описания модели датчика температуры и влажности
+          - listitem [ref=f11e475]:
+            - link [ref=f11e476] [cursor=pointer]:
+              - /url: "#primer-opisaniya-datchika-temperatury-i-vlazhnosti"
+              - text: Пример описания датчика температуры и влажности
+        - navigation [ref=f11e478]:
+          - link "sensor_smoke" [ref=f11e480] [cursor=pointer]:
+            - /url: /docs/ru/smarthome/c2c/sensor_smoke
+          - link "sensor_water_leak" [ref=f11e485] [cursor=pointer]:
+            - /url: /docs/ru/smarthome/c2c/sensor_water_leak
+  - contentinfo [ref=f11e492]:
+    - generic [ref=f11e493]:
+      - generic [ref=f11e494]:
+        - generic [ref=f11e495]: Витрина технологий
+        - link "Для бизнеса" [ref=f11e496] [cursor=pointer]:
+          - /url: https://developers.sber.ru/business
+        - link "Для разработчиков" [ref=f11e500] [cursor=pointer]:
+          - /url: https://developers.sber.ru/
+        - link "База знаний" [ref=f11e504] [cursor=pointer]:
+          - /url: https://developers.sber.ru/help
+        - link "Документация" [ref=f11e508] [cursor=pointer]:
+          - /url: https://developers.sber.ru/docs
+        - link "IT-вакансии" [ref=f11e512] [cursor=pointer]:
+          - /url: https://developers.sber.ru/kak-v-sbere/vacancies
+      - generic [ref=f11e516]:
+        - generic [ref=f11e517]: Наши продукты
+        - link "GigaChat API" [ref=f11e518] [cursor=pointer]:
+          - /url: https://developers.sber.ru/portal/products/gigachat-api
+        - link "SaluteJazz" [ref=f11e522] [cursor=pointer]:
+          - /url: https://developers.sber.ru/portal/products/jazz-by-sber
+        - link "SaluteSpeech" [ref=f11e526] [cursor=pointer]:
+          - /url: https://developers.sber.ru/portal/products/smartspeech
+        - link "SaluteBot" [ref=f11e530] [cursor=pointer]:
+          - /url: https://developers.sber.ru/portal/products/salutebot-chat-bot
+        - link "Салют Отели" [ref=f11e534] [cursor=pointer]:
+          - /url: https://developers.sber.ru/portal/products/salute-hotels
+      - generic [ref=f11e538]:
+        - generic [ref=f11e539]: Контакты
+        - link "smarthome@sberdevices.ru" [ref=f11e540] [cursor=pointer]:
+          - /url: mailto:smarthome@sberdevices.ru
+        - link "Поддержка в Telegram" [ref=f11e548] [cursor=pointer]:
+          - /url: https://t.me/sberdevices_chat
+    - generic [ref=f11e555]:
+      - generic [ref=f11e557]:
+        - text: © 1997–2026 ПАО Сбербанк. Генеральная лицензия на осуществление банковских операций от 11 августа 2015 года. Регистрационный номер — 1481
+        - link "www.sberbank.ru" [ref=f11e558] [cursor=pointer]:
+          - /url: https://www.sberbank.ru
+      - generic [ref=f11e559]:
+        - link "Политика конфиденциальности" [ref=f11e561] [cursor=pointer]:
+          - /url: https://developers.sber.ru/docs/ru/policies/privacy-policy
+        - link "Политика обработки данных" [ref=f11e564] [cursor=pointer]:
+          - /url: https://www.sberbank.ru/privacy/policy#pdn
+        - link "Юридические документы" [ref=f11e567] [cursor=pointer]:
+          - /url: https://developers.sber.ru/docs/ru/policies/overview
+  - iframe [ref=f11e569]

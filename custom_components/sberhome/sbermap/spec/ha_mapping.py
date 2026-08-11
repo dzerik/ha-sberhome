@@ -72,7 +72,12 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
     # Gateway REST доступны только hub/diag-атрибуты — media-control
     # для своих колонок идёт через VPS и не наш scope. Здесь делаем
     # минимум: онлайн/Zigbee/Matter readiness + LED-индикатор как light.
-    "sber_speaker": (Platform.BINARY_SENSOR, Platform.LIGHT, Platform.SELECT),
+    "sber_speaker": (
+        Platform.BINARY_SENSOR,
+        Platform.LIGHT,
+        Platform.SELECT,
+        Platform.SWITCH,
+    ),
 }
 
 
@@ -220,6 +225,10 @@ IMAGE_TYPE_MAP: Final[dict[str, str]] = {
     # суффиксами (`dt_boom_r2_dark_blue_s` и т.п.).
     "dt_boom": "sber_speaker",
     "dt_portal": "sber_speaker",
+    # `dt_sberbox` идёт перед `dt_box`: подстрока `dt_box` не матчит
+    # `dt_sberbox_time_m`, поэтому без отдельной записи SberBox Time
+    # проваливался в «неизвестное устройство» (issue #43).
+    "dt_sberbox": "sber_speaker",
     "dt_box": "sber_speaker",
     "dt_satellite": "sber_speaker",
 }
@@ -269,7 +278,7 @@ CATEGORY_KEYWORDS: Final[dict[str, frozenset[str]]] = {
     "tv": frozenset({"tv"}),
     "hub": frozenset({"hub"}),
     "intercom": frozenset({"intercom"}),
-    "sber_speaker": frozenset({"boom", "portal", "satellite"}),
+    "sber_speaker": frozenset({"boom", "portal", "satellite", "sberbox"}),
 }
 
 

@@ -1,0 +1,99 @@
+[ 3160811ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3161827ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3163832ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3166890ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3171010ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3176018ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3181081ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[ 3186570ms] Object
+[11064821ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11065832ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11067836ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11070872ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11074877ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11079886ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11084901ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[11090269ms] Object
+[11266777ms] TypeError: Cannot read properties of undefined (reading 'html_url')
+    at h (http://192.168.1.40:8123/frontend_latest/50998.f3e489f80990942d.js:1:636)
+    at p._createPanel (http://192.168.1.40:8123/frontend_latest/50998.f3e489f80990942d.js:1:1826)
+    at p.update (http://192.168.1.40:8123/frontend_latest/50998.f3e489f80990942d.js:1:1467)
+    at p.performUpdate (http://192.168.1.40:8123/frontend_latest/app.1acec4fe4ac86dee.js:123:278267)
+    at p.scheduleUpdate (http://192.168.1.40:8123/frontend_latest/app.1acec4fe4ac86dee.js:123:277787)
+    at p._$EP (http://192.168.1.40:8123/frontend_latest/app.1acec4fe4ac86dee.js:123:277695)
+[11266818ms] [INFO] %c≡ kiosk-mode             %c⋮%c
+%cversion 14.0.1           %c⋮ border-color:#424242;border-style:solid;display:inline-block;font-family:monospace;font-size:12px;background:#03a9f4;color:white;padding:1px 0px 1px 5px;border-width:1px 0 0 1px border-color:#424242;border-style:solid;display:inline-block;font-family:monospace;font-size:12px;background:#03a9f4;color:white;padding:1px 5px;border-width:1px 1px 0 0  border-color:#424242;border-style:solid;display:inline-block;font-family:monospace;font-size:12px;background:white;color:#424242;padding:1px 0px 1px 10px;border-width:0 0 1px 1px border-color:#424242;border-style:solid;display:inline-block;font-family:monospace;font-size:12px;background:white;color:white;padding:1px 5px 1px 0px;border-width:0 1px 1px 0 @ http://192.168.1.40:8123/hacsfiles/kiosk-mode/kiosk-mode.js?hacstag=4973191281401:0
+[11266865ms] [INFO] %c XIAOMI-HUMIDIFIER-CARD %c 2.3.0  color: white; background: #03a9f4; font-weight: bold; color: #03a9f4; background: white; font-weight: bold; @ http://192.168.1.40:8123/hacsfiles/xiaomi-humidifier-card/xiaomi-humidifier-card.js?hacstag=1112601996230:961
+[11266874ms] [INFO] %c↔️ Swipe navigation ↔️ - v1.16.0 color: #2980b9; font-weight: 700; @ http://192.168.1.40:8123/hacsfiles/hass-swipe-navigation/swipe-navigation.js?hacstag=5017254791160:0
+[11266883ms] [INFO] %c   SWIPE-CARD  
+%c Version 5.0.0  color: orange; font-weight: bold; background: black color: white; font-weight: bold; background: dimgray @ http://192.168.1.40:8123/hacsfiles/swipe-card/swipe-card.js:18
+[11266889ms] [INFO] %c MELITTA-BARISTA-CARD %c v2.3.3  color: white; background: #795548; font-weight: bold; padding: 2px 6px; border-radius: 3px 0 0 3px; color: #795548; background: #efebe9; font-weight: bold; padding: 2px 6px; border-radius: 0 3px 3px 0; @ http://192.168.1.40:8123/hacsfiles/melitta-barista-card/melitta-barista-card.js?hacstag=1175200974233:1525
+[11267298ms] [INFO] %c PLOTLY-GRAPH %c 3.3.5 production color: orange; font-weight: bold; background: black color: white; font-weight: bold; background: dimgray @ http://192.168.1.40:8123/hacsfiles/lovelace-plotly-graph-card/plotly-graph-card.js:2227
+[11267299ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://192.168.1.40:8123/webrtc/webrtc-camera.js?v=v3.5.2:0
+[11267342ms] /192.168.1.40:8123/webrtc/webrtc-camera.js?v=v3.5.2
+[11268004ms] [INFO] %c SBOOM-CARD %c v0.1.0  background:#7c5cff;color:#fff;border-radius:3px 0 0 3px;padding:2px 6px background:#1c1f26;color:#e8eaed;border-radius:0 3px 3px 0;padding:2px 6px @ http://192.168.1.40:8123/local/sboom-card/sboom-card.js?v=0.1.0-idle:817
+[11268029ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://192.168.1.40:8123/unknown/node_modules/@lit/reactive-element/src/reactive-element.ts:0
+[12558937ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12559963ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12561966ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12564971ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12568982ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12573997ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12579015ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[12584514ms] Object
+[19560686ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19561697ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19563710ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19566723ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19570728ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19575806ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19580814ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19586224ms] Object
+[19904900ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19905914ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19907939ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19910945ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19914955ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19919973ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19924987ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[19930255ms] Object
+[20536311ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20537333ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20539339ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20542345ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20546357ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20551368ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20556375ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[20561662ms] Object
+[50632204ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50633242ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50635251ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50638256ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50642267ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50647275ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50652297ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[50657609ms] Object
+[51403482ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51404498ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51406511ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51409522ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51413540ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51418554ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51423570ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[51428836ms] Object
+[52785910ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52786994ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52788998ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52792011ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52796015ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52801028ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52806045ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52811305ms] Object
+[52986302ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52987311ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52989318ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52992324ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[52996331ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[53001340ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[53006351ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.346d4a99e5b7345a.js:0
+[53011727ms] Object

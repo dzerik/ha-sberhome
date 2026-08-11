@@ -1,0 +1,69 @@
+[    1151ms] [ERROR] Access to fetch at 'https://sentry-api.sberdevices.ru/api/51/envelope/?sentry_key=22b6c9315a954f32b969c8d98c5f0bff&sentry_version=7&sentry_client=sentry.javascript.react%2F7.11.1' from origin 'https://developers.sber.ru' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air:0
+[    1152ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://sentry-api.sberdevices.ru/api/51/envelope/?sentry_key=22b6c9315a954f32b969c8d98c5f0bff&sentry_version=7&sentry_client=sentry.javascript.react%2F7.11.1:0
+[    1807ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Xe (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:82:103)
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:253:283)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Lk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:158)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:271)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: 
+    at nav
+    at z (https://media.sberdevices.ru…927.0/docs/assets/js/main.59707f56.js:309:899732), digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1809ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Xe (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:82:103)
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:253:283)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Lk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:158)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:271)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: 
+    at div
+    at d (https://media.sberdevices.ru…927.0/docs/assets/js/main.59707f56.js:309:899732), digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1810ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Xe (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:82:103)
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:253:283)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Lk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:158)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:271)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: 
+    at div
+    at z (https://media.sberdevices.ru…927.0/docs/assets/js/main.59707f56.js:309:899732), digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1810ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Xe (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:82:103)
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:253:283)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Lk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:158)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:271)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: 
+    at div
+    at z (https://media.sberdevices.ru…927.0/docs/assets/js/main.59707f56.js:309:899732), digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1810ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Xe (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:82:103)
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:253:283)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Lk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:158)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:271)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: 
+    at iframe
+    at ej (https://media.sberdevice…927.0/docs/assets/js/main.59707f56.js:309:899732), digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1810ms] [ERROR] Docusaurus React Root onRecoverableError: Error: Minified React error #423; visit https://reactjs.org/docs/error-decoder.html?invariant=423 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Rk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:252:444)
+    at Si (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:185)
+    at Pk (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:195:116)
+    at Nd (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:194:492)
+    at Qf (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:187:439)
+    at Oi (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react-dom/react-dom-18.2.0.min.js:185:400)
+    at S (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:17:25)
+    at MessagePort.U (https://cdn-app.sberdevices.ru/shared-static/0.0.0/js/react/react-18.2.0.min.js:21:60) {componentStack: , digest: null} @ https://media.sberdevices.ru/bsm-docs/0.927.0/docs/assets/js/main.59707f56.js:315
+[    1828ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://kanzas.prom.app.sberdevices.ru/?utm_source=bsm-docs:0
+[    2347ms] [ERROR] Access to fetch at 'https://sentry-api.sberdevices.ru/api/51/envelope/?sentry_key=22b6c9315a954f32b969c8d98c5f0bff&sentry_version=7&sentry_client=sentry.javascript.react%2F7.11.1' from origin 'https://developers.sber.ru' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air:0
+[    2347ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://sentry-api.sberdevices.ru/api/51/envelope/?sentry_key=22b6c9315a954f32b969c8d98c5f0bff&sentry_version=7&sentry_client=sentry.javascript.react%2F7.11.1:0
+[    3642ms] [WARNING] It is recommended that a robustness level be specified. Not specifying the robustness level could result in unexpected behavior. @ https://smartcaptcha.yandexcloud.net/captchapgrd:0
+[    3710ms] [WARNING] It is recommended that a robustness level be specified. Not specifying the robustness level could result in unexpected behavior. @ https://smartcaptcha.yandexcloud.net/captchapgrd:0
+[   11558ms] [WARNING] The resource https://cdn-app.sberdevices.ru/asset/q80/aHR0cHM6Ly9jZG4tYXBwLnNiZXJkZXZpY2VzLnJ1L21pc2MvMC4wLjAvYXNzZXRzL2JzbS1kb2NzL2MxOGU0MWQ1X21haW4tcGFnZS1oZWFkZXIucG5n was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air:0
+[   23431ms] [WARNING] The resource https://cdn-app.sberdevices.ru/asset/q80/aHR0cHM6Ly9jZG4tYXBwLnNiZXJkZXZpY2VzLnJ1L21pc2MvMC4wLjAvYXNzZXRzL2JzbS1kb2NzL2MxOGU0MWQ1X21haW4tcGFnZS1oZWFkZXIucG5n was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air:0
+[  188624ms] [WARNING] The resource https://cdn-app.sberdevices.ru/asset/q80/aHR0cHM6Ly9jZG4tYXBwLnNiZXJkZXZpY2VzLnJ1L21pc2MvMC4wLjAvYXNzZXRzL2JzbS1kb2NzL2MxOGU0MWQ1X21haW4tcGFnZS1oZWFkZXIucG5n was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://developers.sber.ru/docs/ru/smarthome/c2c/sensor_air:0
