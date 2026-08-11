@@ -36,7 +36,7 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data
     entities: list[SberClimateEntity] = []
-    for device_id, dto in coordinator.devices.items():
+    for device_id, dto in coordinator.enabled_devices.items():
         category = resolve_device_category(dto)
         if category is None:
             continue

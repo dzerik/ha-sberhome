@@ -262,6 +262,27 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.state_cache.get_all_devices()
 
     @property
+    def enabled_devices(self) -> dict[str, DeviceDto]:
+        """Только устройства, выбранные пользователем в панели.
+
+        `devices` отдаёт весь state_cache, включая то, что пользователь не
+        выбирал: кэш нужен целиком, иначе панели нечего было бы показывать в
+        списке доступного. Платформы обязаны ходить сюда, а не в `devices`,
+        иначе интеграция создаст сущности для чужих устройств и протащит их в
+        Home Assistant мимо opt-in выбора (issue #45).
+
+        None в `enabled_device_ids` означает «выбор не настроен» — это старые
+        установки, где показывалось всё, и ломать их нельзя.
+        """
+        enabled = self.enabled_device_ids
+        all_devices = self.state_cache.get_all_devices()
+        if enabled is None:
+            return all_devices
+        return {
+            device_id: dto for device_id, dto in all_devices.items() if device_id in enabled
+        }
+
+    @property
     def groups(self) -> dict[str, UnionDto]:
         """Typed group cache — делегирует к StateCache."""
         return self.state_cache.get_all_groups()

@@ -114,6 +114,9 @@ def _make_coordinator(raw_devices: dict) -> MagicMock:
     coord = MagicMock()
     coord.data = raw_devices
     coord.devices, coord.entities = build_coordinator_caches(raw_devices)
+    # Платформы обязаны читать enabled_devices, а не devices (issue #45).
+    # В моке выбор не настроен, поэтому он совпадает с полным кэшем.
+    coord.enabled_devices = coord.devices
     cache = StateCache()
     cache.update_from_devices(coord.devices)
     coord.state_cache = cache

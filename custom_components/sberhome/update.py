@@ -32,7 +32,7 @@ async def async_setup_entry(
     entities: list[UpdateEntity] = []
     # Per-enabled-device firmware updater. Создаётся даже без pending
     # update — installed=latest, и HA отрисует «Up-to-date».
-    for device_id in coordinator.devices:
+    for device_id in coordinator.enabled_devices:
         entities.append(SberFirmwareUpdate(coordinator, device_id))
     async_add_entities(entities)
 

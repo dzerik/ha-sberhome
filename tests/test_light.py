@@ -35,6 +35,9 @@ def _coord_with_raw(raw_devices: dict[str, dict]) -> MagicMock:
     cache.update_from_devices(devices)
     coord = MagicMock()
     coord.devices = devices
+    # Платформы обязаны читать enabled_devices, а не devices (issue #45).
+    # В моке выбор не настроен, поэтому он совпадает с полным кэшем.
+    coord.enabled_devices = devices
     coord.state_cache = cache
     coord.async_send_device_state = AsyncMock()
     return coord
