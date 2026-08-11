@@ -28,6 +28,13 @@ function pickPhotoUrl(raw) {
   );
 }
 
+// Фирменная подложка Сбера под карточку устройства: у каждого типа своя,
+// приглушённая, с прозрачностью. Нужна только в открытой модалке, поэтому
+// грузится лениво и отсутствие её ничего не ломает.
+function pickBackgroundUrl(raw) {
+  return imgUrl(raw?.images?.salute_background);
+}
+
 function attrCurrentValue(raw, key) {
   const entry = (raw?.reported_state || []).find((s) => s.key === key);
   if (!entry) return null;
@@ -571,12 +578,27 @@ class SberHomeDeviceModal extends LitElement {
         overflow: hidden;
       }
       header {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 16px;
         padding: 16px 20px;
         background: var(--secondary-background-color);
         border-bottom: 1px solid var(--divider-color);
+      }
+      /* Подложка тонирует шапку, а не заменяет её фон. Картинка сама по себе
+         тёмно-серая: на полной непрозрачности тёмный текст светлой темы стал бы
+         нечитаемым, поэтому она приглушена и работает одинаково в обеих темах. */
+      header .hero-bg {
+        position: absolute;
+        inset: 0;
+        background-position: center;
+        background-size: cover;
+        opacity: 0.32;
+        pointer-events: none;
+      }
+      header > *:not(.hero-bg) {
+        position: relative;
       }
       header img.photo {
         width: 72px;
@@ -983,6 +1005,7 @@ class SberHomeDeviceModal extends LitElement {
     }
     const raw = this._detail.raw_payload || {};
     const photo = pickPhotoUrl(raw);
+    const background = pickBackgroundUrl(raw);
     const model =
       raw.device_info?.model ||
       raw.device_info?.product_id ||
@@ -1004,6 +1027,12 @@ class SberHomeDeviceModal extends LitElement {
       <div class="backdrop" @click=${this._onBackdropClick}>
         <div class="dialog" @click=${(e) => e.stopPropagation()}>
           <header>
+            ${background
+              ? html`<div
+                  class="hero-bg"
+                  style=${`background-image:url(${background})`}
+                ></div>`
+              : ""}
             ${photo
               ? html`<img class="photo" src=${photo} alt="" loading="lazy" />`
               : ""}
