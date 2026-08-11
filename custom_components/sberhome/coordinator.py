@@ -278,9 +278,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_devices = self.state_cache.get_all_devices()
         if enabled is None:
             return all_devices
-        return {
-            device_id: dto for device_id, dto in all_devices.items() if device_id in enabled
-        }
+        return {device_id: dto for device_id, dto in all_devices.items() if device_id in enabled}
 
     @property
     def groups(self) -> dict[str, UnionDto]:

@@ -25,9 +25,21 @@ COMPONENT = pathlib.Path("custom_components/sberhome")
 # Платформы создают сущности; всё остальное (диагностика, панель, WS-API)
 # имеет право видеть весь кэш — панели надо показывать и невыбранное.
 PLATFORM_FILES = [
-    "binary_sensor.py", "button.py", "climate.py", "cover.py", "event.py",
-    "fan.py", "humidifier.py", "light.py", "media_player.py", "number.py",
-    "select.py", "sensor.py", "switch.py", "update.py", "vacuum.py",
+    "binary_sensor.py",
+    "button.py",
+    "climate.py",
+    "cover.py",
+    "event.py",
+    "fan.py",
+    "humidifier.py",
+    "light.py",
+    "media_player.py",
+    "number.py",
+    "select.py",
+    "sensor.py",
+    "switch.py",
+    "update.py",
+    "vacuum.py",
 ]
 
 
@@ -67,10 +79,14 @@ class TestEnabledDevices:
 
         coord = object.__new__(SberHomeCoordinator)
         coord.state_cache = type(
-            "Cache", (), {"get_all_devices": lambda self: {
-                "dev-1": DeviceDto(id="dev-1"),
-                "dev-2": DeviceDto(id="dev-2"),
-            }}
+            "Cache",
+            (),
+            {
+                "get_all_devices": lambda self: {
+                    "dev-1": DeviceDto(id="dev-1"),
+                    "dev-2": DeviceDto(id="dev-2"),
+                }
+            },
         )()
         options = {} if enabled is None else {CONF_ENABLED_DEVICE_IDS: enabled}
         coord.config_entry = type("Entry", (), {"options": options})()
