@@ -107,6 +107,31 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         icon="mdi:zigbee",
         categories=_cats("sber_speaker", "hub"),
     ),
+    # ---- SberBox Time (issue #43) ----
+    # Прибор рапортует `gamepad` без соответствующей команды, то есть это
+    # состояние, а не переключатель: подключён геймпад или нет.
+    "gamepad": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(device_class=BinarySensorDeviceClass.CONNECTIVITY),
+        entity_category=_DIAG,
+        icon="mdi:gamepad-variant",
+        categories=_cats("sber_speaker"),
+    ),
+    "staros_assistant_sounds_enabled": FeatureSpec(
+        platform=Platform.SWITCH,
+        codec=BoolCodec(),
+        entity_category=_CFG,
+        icon="mdi:volume-high",
+        categories=_cats("sber_speaker"),
+    ),
+    "staros_age_mode": FeatureSpec(
+        platform=Platform.SELECT,
+        codec=EnumCodec(),
+        options=("adult", "child"),
+        entity_category=_CFG,
+        icon="mdi:account-child",
+        categories=_cats("sber_speaker"),
+    ),
     "matter_ready": FeatureSpec(
         platform=Platform.BINARY_SENSOR,
         codec=BoolCodec(),
@@ -114,24 +139,6 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         icon="mdi:matter",
         categories=_cats("sber_speaker", "hub"),
     ),
-    # ---- Почему здесь нет остальных staros_* (issue #46) ----
-    # Облако объявляет для них команды, но значений не держит. Доказательство —
-    # `last_sync` двух устройств одного аккаунта:
-    #
-    #   detector                          2026-08-11T14:34  (живое, менялось при проверке)
-    #   staros_LedBrightness              2026-06-03T15:41:39.294
-    #   staros_assistant_sounds_enabled   2026-06-03T15:41:39.294
-    #   staros_age_mode                   2026-06-03T15:41:39.294
-    #   staros_multi_profile              2026-06-03T15:41:39.294
-    #
-    # Все staros_* помечены одной меткой до миллисекунды: это снимок настроек,
-    # сделанный однажды, а не поток значений. Отсюда и поведение, с которым
-    # пришёл пользователь: переключатель откатывался, а смена настройки в
-    # приложении Сбера до Home Assistant не доходила.
-    #
-    # Так что списку `commands` от облака верить нельзя. Прежде чем заводить
-    # сущность на новый ключ, посмотрите `last_sync` в сыром JSON устройства:
-    # свежая метка — атрибут живой, старая или 1970-01-01 — нет.
     "staros_has_hub": FeatureSpec(
         platform=Platform.BINARY_SENSOR,
         codec=BoolCodec(),

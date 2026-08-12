@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from .const import DOMAIN, LOGGER
 
@@ -20,26 +20,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .aiosber import StateCache
-
-
-# Suffix'ы unique_id, которые интеграция больше не выпускает. Убрать спеку из
-# реестра фич недостаточно: запись в entity registry остаётся и показывается
-# как «недоступно» — ровно это и случилось в 5.13.3 (issue #46).
-#
-# Чистка идёт по `endswith`, поэтому suffix обязан начинаться с `_`: иначе
-# рискуем зацепить чужой ключ.
-#
-# ВНИМАНИЕ: это чёрный список, он работает на каждом старте. Если для какого-то
-# ключа найдётся рабочий канал управления и сущность вернётся — строку отсюда
-# ОБЯЗАТЕЛЬНО убрать, иначе новая сущность будет удаляться при каждой загрузке
-# интеграции. Актуально для `staros_*`: шлюз ими только зеркалит настройки, но
-# сама колонка отдаёт их по локальной сети, и запись там не исключена.
-RETIRED_UNIQUE_ID_SUFFIXES: Final[tuple[str, ...]] = (
-    # 5.13.3 — облако не отслеживает эти настройки, значения не живые.
-    "_gamepad",
-    "_staros_age_mode",
-    "_staros_assistant_sounds_enabled",
-)
 
 
 def prune_stale_devices(
@@ -158,42 +138,4 @@ def remove_unlinked_devices(
                 break
 
 
-def remove_retired_entities(hass: HomeAssistant, config_entry_id: str) -> int:
-    """Убрать из entity_registry сущности, которые интеграция больше не создаёт.
-
-    Вызывается на setup, до форварда платформ. Без этого пользователь после
-    обновления видит устройство с серым списком: сущности не создаются кодом,
-    но записи о них остаются, и HA показывает их как недоступные.
-
-    Чистим строго по списку снятых ключей, а не «всё, чего нет в маппере»:
-    нетривиальные платформы (light, climate, cover, fan, humidifier,
-    media_player, vacuum, update) собирают сущности своими ветками, мимо
-    ``map_device_to_entities``. Сравнение с ним вынесло бы их подчистую.
-
-    Возвращает число удалённых записей (для лога и тестов).
-    """
-    try:
-        from homeassistant.helpers import entity_registry as er
-
-        entity_reg = er.async_get(hass)
-        doomed = [
-            entity.entity_id
-            for entity in er.async_entries_for_config_entry(entity_reg, config_entry_id)
-            if entity.unique_id.endswith(RETIRED_UNIQUE_ID_SUFFIXES)
-        ]
-
-        for entity_id in doomed:
-            entity_reg.async_remove(entity_id)
-            LOGGER.info("Removed retired entity %s from registry", entity_id)
-        return len(doomed)
-    except Exception:  # noqa: BLE001 — best-effort, не ломаем setup
-        LOGGER.debug("Retired entity cleanup failed (ignored)", exc_info=True)
-        return 0
-
-
-__all__ = [
-    "RETIRED_UNIQUE_ID_SUFFIXES",
-    "prune_stale_devices",
-    "remove_retired_entities",
-    "remove_unlinked_devices",
-]
+__all__ = ["prune_stale_devices", "remove_unlinked_devices"]

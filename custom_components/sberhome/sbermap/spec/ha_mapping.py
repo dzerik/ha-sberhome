@@ -72,7 +72,12 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
     # Gateway REST доступны только hub/diag-атрибуты — media-control
     # для своих колонок идёт через VPS и не наш scope. Здесь делаем
     # минимум: онлайн/Zigbee/Matter readiness + LED-индикатор как light.
-    "sber_speaker": (Platform.BINARY_SENSOR, Platform.LIGHT, Platform.SELECT),
+    "sber_speaker": (
+        Platform.BINARY_SENSOR,
+        Platform.LIGHT,
+        Platform.SELECT,
+        Platform.SWITCH,
+    ),
 }
 
 

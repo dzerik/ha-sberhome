@@ -36,7 +36,6 @@ from .intents.reconciler import reconcile_intents
 from .intents.service import IntentService
 from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
 from .listeners import LISTENERS_SCHEMA, load_listeners_from_config
-from .registry_maintenance import remove_retired_entities
 from .websocket_api import async_setup_websocket_api
 
 # YAML-config для voice intents — опциональная декларативная альтернатива
@@ -231,12 +230,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         raise ConfigEntryNotReady(str(err)) from err
 
     entry.runtime_data = coordinator
-
-    # До форварда убираем записи о сущностях, которые интеграция больше не
-    # выпускает. Иначе после обновления пользователь видит устройство с серым
-    # списком недоступных сущностей — они не создаются кодом, но остаются в
-    # entity registry (issue #46).
-    remove_retired_entities(hass, entry.entry_id)
 
     # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
     # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
