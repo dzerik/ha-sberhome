@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     from .state_cache import StateCache
 
 
+# Размер страницы в `/devices`. Общего количества API не возвращает, поэтому
+# «пришло ровно страницу» — единственный доступный признак усечения.
+_DEVICES_PAGE_LIMIT = 500
+
+
 class DeviceService:
     """High-level device operations backed by StateCache."""
 
@@ -36,6 +41,12 @@ class DeviceService:
         self._api = api
         self._cache = cache
         self._transport = transport
+        # «Выдаче нельзя доверять целиком». Ставится, когда refresh ушёл на
+        # запасной путь (тогда видны устройства только дома по умолчанию) или
+        # когда список устройств упёрся в размер страницы и мог быть усечён.
+        # Потребитель — обслуживание реестра: удалять записи по неполной выдаче
+        # значит стирать у пользователя исправные устройства.
+        self.last_refresh_degraded: bool = False
 
     # ------------------------------------------------------------------
     # Queries (from cache, no HTTP)
@@ -136,10 +147,16 @@ class DeviceService:
                 self._fetch_devices_with_raw(),
             )
         except Exception:
+            # Запасной путь отдаёт только дом по умолчанию: устройства прочих
+            # домов пропадут из кэша, хотя в аккаунте они есть.
+            self.last_refresh_degraded = True
             await self._refresh_via_tree(fetch_started_at=fetch_started_at)
             return
 
         devices, raw_devices = devices_resp
+        # Ровно страница записей — признак того, что выдача могла быть усечена:
+        # общего количества API не сообщает.
+        self.last_refresh_degraded = len(devices) >= _DEVICES_PAGE_LIMIT
         self._cache.update_from_flat(
             homes,
             rooms,
@@ -162,7 +179,7 @@ class DeviceService:
         """`/devices?pagination` → (DTO list, raw_by_id) одним вызовом."""
         resp = await self._transport.get(
             "/devices",
-            params={"pagination.offset": "0", "pagination.limit": "500"},
+            params={"pagination.offset": "0", "pagination.limit": str(_DEVICES_PAGE_LIMIT)},
         )
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:

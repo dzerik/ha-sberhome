@@ -17,6 +17,7 @@ from custom_components.sberhome.aiosber.dto.state import (
 )
 from custom_components.sberhome.aiosber.transport import HttpTransport
 from custom_components.sberhome.api import SberAPI
+from custom_components.sberhome.const import PRUNE_MIN_CONSECUTIVE_MISSES
 from custom_components.sberhome.coordinator import SberHomeCoordinator
 from custom_components.sberhome.exceptions import (
     SberApiError,
@@ -729,9 +730,57 @@ def test_prune_stale_devices_removes_truly_stale(coordinator):
             return_value=[stale_entry],
         ),
     ):
+        # Отсрочка: одиночный промах ничего не доказывает — облако могло не
+        # отдать устройство в конкретной выдаче. Удаление наступает только
+        # после нескольких промахов подряд.
         coordinator._prune_stale_devices()
+        device_reg.async_remove_device.assert_not_called()
+        for _ in range(PRUNE_MIN_CONSECUTIVE_MISSES - 1):
+            coordinator._prune_stale_devices()
 
     device_reg.async_remove_device.assert_called_once_with(stale_entry.id)
+
+
+def test_prune_stale_devices_miss_counter_resets_on_return(coordinator):
+    """Вернулось до истечения отсрочки — счётчик обнуляется.
+
+    Иначе устройство с нестабильной связью накопило бы промахи за неделю и
+    было бы удалено, хотя каждый раз возвращалось.
+    """
+    from custom_components.sberhome.const import DOMAIN
+
+    stale_entry = _make_device_entry({(DOMAIN, "flaky-device")})
+    device_reg = MagicMock()
+    device_reg.async_remove_device = MagicMock()
+
+    def _prune():
+        with (
+            patch(
+                "homeassistant.helpers.device_registry.async_get",
+                return_value=device_reg,
+            ),
+            patch(
+                "homeassistant.helpers.device_registry.async_entries_for_config_entry",
+                return_value=[stale_entry],
+            ),
+        ):
+            coordinator._prune_stale_devices()
+
+    _patch_prune_state(coordinator, homes=[], groups={}, real_devices={})
+    _prune()
+    # Устройство вернулось в выдачу — прогресс отсрочки сбрасывается.
+    _patch_prune_state(
+        coordinator,
+        homes=[],
+        groups={},
+        real_devices={"flaky-device": MagicMock(serial_number=None, id="flaky-device")},
+    )
+    _prune()
+    _patch_prune_state(coordinator, homes=[], groups={}, real_devices={})
+    for _ in range(PRUNE_MIN_CONSECUTIVE_MISSES - 1):
+        _prune()
+
+    device_reg.async_remove_device.assert_not_called()
 
 
 def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
@@ -755,7 +804,8 @@ def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
             return_value=[orphan],
         ),
     ):
-        coordinator._prune_stale_devices()
+        for _ in range(PRUNE_MIN_CONSECUTIVE_MISSES):
+            coordinator._prune_stale_devices()
 
     device_reg.async_remove_device.assert_called_once_with(orphan.id)
 

@@ -12,6 +12,7 @@ from .aiosber.dto import AttributeValueDto
 from .aiosber.exceptions import AuthError
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeCoordinator
+from .identity import device_uid
 
 if TYPE_CHECKING:
     from .aiosber.dto.device import DeviceDto
@@ -79,9 +80,10 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         dto = self._device_dto
-        serial = (
-            (dto.serial_number if dto else None) or (dto.id if dto else None) or self._device_id
-        )
+        # Единое правило идентичности (identity.device_uid): тем же ключом
+        # ключуется выбор устройств. Расхождение этих двух правил и приводило к
+        # тому, что переподключённое устройство теряло все сущности.
+        serial = device_uid(dto, self._device_id)
         name = dto.display_name if dto else None
         model = dto.device_info.model if dto and dto.device_info else None
         sw_version = dto.sw_version if dto else None

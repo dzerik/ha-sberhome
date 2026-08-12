@@ -44,10 +44,14 @@ from .api import SberAPI
 from .command_tracker import CommandTracker
 from .const import (
     CONF_ENABLED_DEVICE_IDS,
+    CONF_ENABLED_DEVICE_UIDS,
     CONF_SCAN_INTERVAL,
+    CONF_SELECTION_MIRROR,
+    CONF_SELECTION_SCHEMA,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
+    SELECTION_SCHEMA_VERSION,
     WS_CONNECTED_SCAN_INTERVAL,
 )
 from .exceptions import (
@@ -56,6 +60,7 @@ from .exceptions import (
     SberConnectionError,
     SberSmartHomeError,
 )
+from .identity import device_match_keys, resolve_enabled_ids, to_uids
 from .intent_dispatcher import (
     EVENT_SBERHOME_INTENT,  # noqa: F401 — re-export (тесты/панель импортируют отсюда)
     IntentDispatcher,
@@ -183,6 +188,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.state_cache: StateCache = self._client.state
         # sbermap entities cache (rebuilt from state_cache after each refresh).
         self.entities: dict[str, list[HaEntityData]] = {}
+        # Обслуживание реестра — видимое состояние вместо молчаливого best-effort.
+        self.registry_maintenance_failures: int = 0
+        self.last_prune_removed: int = 0
+        # Перевод выбора на стабильный ключ мог быть отложен из-за неполной выдачи.
+        self.selection_migration_pending: bool = False
         # Stats для panel (PR #12) — count + last timestamps.
         self.last_polling_at: float | None = None
         self.polling_count: int = 0
@@ -382,6 +392,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # удалим запись из device_registry — иначе на странице конфигурации
             # интеграции накапливаются "призраки".
             self._prune_stale_devices()
+            # Перевод выбора на стабильный ключ мог быть отложен на setup из-за
+            # неполной выдачи. Повторяем при первом же пригодном опросе, а не
+            # ждём следующего запуска Home Assistant.
+            await self._maybe_retry_selection_migration()
             # Sber scenarios + at_home — отдельный poll-cadence
             # (SCENARIO_POLL_INTERVAL_SEC), чтобы не нагружать API на
             # каждый device tick. Best-effort: ошибка не валит refresh.
@@ -475,16 +489,63 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_devices = {k: v for k, v in all_devices.items() if k in enabled}
         return {did: dto.to_dict() for did, dto in all_devices.items()}
 
+    async def _maybe_retry_selection_migration(self) -> None:
+        """Догнать отложенный перевод выбора на стабильный ключ."""
+        if not getattr(self, "selection_migration_pending", False):
+            return
+        try:
+            from .selection_migration import async_migrate_selection
+
+            if await async_migrate_selection(self.hass, self.config_entry, self):
+                self.selection_migration_pending = False
+        except Exception:  # noqa: BLE001 — не роняем refresh
+            LOGGER.warning("Повтор перевода выбора устройств не удался", exc_info=True)
+
     def _prune_stale_devices(self) -> None:
-        """Delegate → registry_maintenance.prune_stale_devices (SOLID-вынос)."""
+        """Обслуживание реестра устройств после успешного опроса.
+
+        Счётчики промахов живут в ``hass.data``, а не на инстансе: перезагрузка
+        интеграции пересоздаёт координатор, и накопленная отсрочка иначе
+        обнулялась бы, а устройство висело бы в реестре бесконечно.
+
+        Сбои считаются отдельно: тихая уборка, которая может годами не работать
+        и молчать об этом, — ровно то, из-за чего причину искали вслепую.
+        """
         if self.config_entry is None:
             return
-        prune_stale_devices(
-            self.hass,
-            self.config_entry.entry_id,
-            self.state_cache,
-            self.enabled_device_ids,
-        )
+
+        counters_key = f"{DOMAIN}_prune_misses_{self.config_entry.entry_id}"
+        store = self.hass.data if isinstance(self.hass.data, dict) else None
+        if store is not None:
+            counters = store.setdefault(counters_key, {})
+        else:
+            # Запасной вариант, когда hass подменён: отсрочка продолжает
+            # работать, просто не переживает перезагрузку интеграции.
+            counters = self.__dict__.setdefault("_prune_misses", {})
+        service = getattr(self.client, "device_service", None)
+        # Строго `is True`: признак неполной выдачи — настоящий флаг, а не любое
+        # правдоподобное значение. Иначе достаточно подменить слой работы с API
+        # заглушкой, чтобы обслуживание реестра молча выключилось навсегда.
+        degraded = getattr(service, "last_refresh_degraded", False) is True
+
+        try:
+            removed = prune_stale_devices(
+                self.hass,
+                self.config_entry.entry_id,
+                self.state_cache,
+                self.enabled_device_ids,
+                degraded=degraded,
+                miss_counters=counters,
+            )
+        except Exception:  # noqa: BLE001 — обслуживание не должно ронять опрос
+            # getattr: координатор в тестах создаётся в обход __init__.
+            self.registry_maintenance_failures = (
+                getattr(self, "registry_maintenance_failures", 0) + 1
+            )
+            return
+
+        self.registry_maintenance_failures = 0
+        self.last_prune_removed = removed
 
     # ------------------------------------------------------------------
     # Sber scenarios + at_home variable
@@ -690,36 +751,120 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.client.device_service.set_state(device_id, attrs)
 
     @property
-    def enabled_device_ids(self) -> set[str] | None:
-        """Set of device_ids выбранных пользователем, либо None если не настроено.
+    def enabled_device_uids(self) -> set[str] | None:
+        """Сохранённый выбор КАК ЕСТЬ, без сопоставления с текущим кэшем.
 
-        Хранится в `config_entry.options["enabled_device_ids"]`. None означает
-        "не настроено" (legacy/новая установка) → backward-compat passthrough.
-        Пустой список означает "явно выбрано ничего" — opt-in 0 устройств.
+        Новый ключ — источник истины, старый читается как запасной: установка
+        могла ещё не мигрировать, либо пользователь откатывался на предыдущую
+        версию интеграции и та писала выбор по-своему.
+
+        ``None`` означает «выбор не настроен» — так живут установки, которым
+        показывалось всё. Превращать это молчанием в пустой выбор нельзя.
         """
         if self.config_entry is None:
             return None
-        if CONF_ENABLED_DEVICE_IDS not in self.config_entry.options:
+        options = self.config_entry.options
+        if CONF_ENABLED_DEVICE_UIDS in options:
+            return set(options[CONF_ENABLED_DEVICE_UIDS])
+        if CONF_ENABLED_DEVICE_IDS in options:
+            return set(options[CONF_ENABLED_DEVICE_IDS])
+        return None
+
+    @property
+    def enabled_device_ids(self) -> set[str] | None:
+        """Выбранные устройства в виде ТЕКУЩИХ ключей кэша.
+
+        Контракт для платформ не изменился, изменился способ получения. Раньше
+        сохранённые значения сравнивались с ключами кэша напрямую, а значит
+        переставали совпадать, как только облако выдавало устройству новый id
+        (например, после переподключения). Теперь сопоставление идёт по любому
+        известному идентификатору устройства, поэтому переживает и смену id, и
+        старый формат хранения.
+
+        Результат мемоизируется: свойство читается на каждом push, а разбор —
+        полный проход по кэшу. Ключ мемоизации включает ревизию набора
+        устройств, поэтому не протухает и не пересчитывается на точечных
+        патчах состояния.
+        """
+        stored = self.enabled_device_uids
+        if stored is None:
             return None
-        return set(self.config_entry.options[CONF_ENABLED_DEVICE_IDS])
+
+        cache = self.state_cache
+        revision = getattr(cache, "devices_revision", None)
+        memo_key = (revision, frozenset(stored))
+        memo = getattr(self, "_enabled_memo", None)
+        if memo is not None and memo[0] == memo_key:
+            return memo[1]
+
+        resolved = resolve_enabled_ids(cache.get_all_devices(), stored)
+        self._enabled_memo = (memo_key, resolved)
+        return resolved
+
+    async def async_enable_device(self, cloud_id: str) -> None:
+        """Отметить устройство выбранным.
+
+        Точечное добавление, а не перезапись всего списка: в сохранённом наборе
+        могут лежать ключи устройств, которых сейчас нет в выдаче (офлайн,
+        другой дом), и перезапись вычеркнула бы их молча.
+        """
+        stored = self.enabled_device_uids
+        base = set(stored) if stored is not None else set(self.devices.keys())
+        await self._async_persist_selection(base | {cloud_id}, removed_keys=set())
+
+    async def async_disable_device(self, cloud_id: str) -> None:
+        """Снять отметку с устройства."""
+        stored = self.enabled_device_uids
+        base = set(stored) if stored is not None else set(self.devices.keys())
+        keys = device_match_keys(self.state_cache.get_device(cloud_id), cloud_id)
+        await self._async_persist_selection(base - keys, removed_keys=base & keys)
 
     async def async_set_enabled_device_ids(self, device_ids: list[str]) -> None:
-        """Persist enabled set в config_entry.options + убрать отвязанные
-        устройства из device_registry, затем триггерить reload платформ.
+        """Задать выбор целиком (команда панели «сохранить список»).
 
-        Раньше snимание галочки в панели оставляло "orphan device" (с
-        потеряными entities) в Device registry HA — пользователь видел
-        их бесконечно. Теперь вычисляем diff со старым set и удаляем
-        устройства, которые были отвязаны.
+        Значения, которые сейчас ни с чем не сопоставляются, сохраняются: иначе
+        одно сохранение списка при недоступном облаке стёрло бы выбор
+        отсутствующих в выдаче устройств.
         """
-        previous = self.enabled_device_ids or set()
-        new_set = set(device_ids)
-        removed_ids = previous - new_set if previous else set()
+        stored = self.enabled_device_uids or set()
+        requested = set(device_ids)
+        resolved_now = self.enabled_device_ids or set()
+
+        unresolvable = {
+            key
+            for key in stored
+            if not any(key in device_match_keys(dto, did) for did, dto in self.devices.items())
+        }
+        removed_keys = {
+            key
+            for did in resolved_now - requested
+            for key in device_match_keys(self.devices.get(did), did)
+        } & stored
+
+        await self._async_persist_selection(requested | unresolvable, removed_keys=removed_keys)
+
+    async def _async_persist_selection(
+        self, new_stored: set[str], *, removed_keys: set[str]
+    ) -> None:
+        """Записать выбор в options и убрать отвязанные устройства из реестра.
+
+        Пишется сразу три значения. Стабильные ключи — источник истины. Зеркало
+        из текущих облачных id нужно на случай отката интеграции на предыдущую
+        версию: та прочитает привычный ей ключ и продолжит работать. Копия
+        зеркала позволяет позже отличить нашу запись от чужой.
+        """
+        devices = self.devices
+        stored_uids = to_uids(devices, new_stored)
+        mirror = sorted(resolve_enabled_ids(devices, stored_uids) or set())
 
         new_options = {
             **self.config_entry.options,
-            CONF_ENABLED_DEVICE_IDS: list(device_ids),
+            CONF_ENABLED_DEVICE_UIDS: stored_uids,
+            CONF_ENABLED_DEVICE_IDS: mirror,
+            CONF_SELECTION_MIRROR: mirror,
+            CONF_SELECTION_SCHEMA: SELECTION_SCHEMA_VERSION,
         }
+        removed_ids = set(removed_keys)
 
         # Обновляем snapshot ПЕРЕД update_entry, чтобы update_listener
         # (`_async_entry_updated`) увидел prev == current и пропустил

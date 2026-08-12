@@ -386,12 +386,25 @@ def _normalize_phone(raw: str) -> str | None:
 
 
 class SberHomeOptionsFlow(OptionsFlowWithReload):
-    """Handle options for SberHome."""
+    """Handle options for SberHome.
+
+    `automatic_reload` выключен намеренно. Базовый класс сам перезагружает entry
+    после сохранения, но HA запрещает это делать интеграциям с update-listener'ом
+    («It's not allowed to use this class if the integration uses config entry
+    update listeners»), а листенер у нас есть — `__init__.py`, `add_update_listener`.
+    Перезагрузку обеспечивает он же: options меняются, листенер срабатывает.
+    """
+
+    automatic_reload = False
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            # Сохраняем поверх существующих options, а не вместо них. Форма знает
+            # только про scan_interval, а в options живёт ещё и выбор устройств.
+            # `async_create_entry(data=user_input)` заменял бы словарь целиком, и
+            # сохранение интервала опроса стирало бы выбор пользователя.
+            return self.async_create_entry(data={**self.config_entry.options, **user_input})
 
         return self.async_show_form(
             step_id="init",

@@ -15,7 +15,23 @@ WS_CONNECTED_SCAN_INTERVAL = 600  # seconds (10 минут)
 # опечатка в одном месте не дала silent mismatch с другим.
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TOKEN = "token"  # SberID token (OAuth2 access/refresh/id triplet)
-CONF_ENABLED_DEVICE_IDS = "enabled_device_ids"  # opt-in device picker
+CONF_ENABLED_DEVICE_IDS = "enabled_device_ids"  # opt-in device picker (legacy + зеркало)
+
+# Выбор устройств хранится по стабильному ключу (серийник), а не по облачному id:
+# облачный id меняется при переподключении устройства, и выбор терялся.
+CONF_ENABLED_DEVICE_UIDS = "enabled_device_uids"  # источник истины
+CONF_SELECTION_MIRROR = "selection_mirror"  # копия зеркала — детектор внешней записи
+CONF_SELECTION_SCHEMA = "selection_schema"
+SELECTION_SCHEMA_VERSION = 2
+
+# Сколько опросов подряд устройство должно отсутствовать, прежде чем его запись
+# будет удалена из реестра. Одиночный промах — обычное дело: облако может не
+# отдать устройство в конкретной выдаче, и удалять его сразу значит терять
+# сущности вместе с историей.
+PRUNE_MIN_CONSECUTIVE_MISSES = 3
+
+ISSUE_REGISTRY_MAINTENANCE = "registry_maintenance_failed"
+ISSUE_STALE_SELECTION = "stale_selection_keys"
 
 # Метод авторизации (см. aiosber.const.AUTH_METHOD_SBERID / AUTH_METHOD_CSAFRONT).
 # Default отсутствует — legacy entries без этого ключа считаются SberID.

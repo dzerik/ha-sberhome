@@ -87,20 +87,20 @@ async def ws_toggle_device(
             "Unsupported device category — cannot connect to Home Assistant",
         )
         return
-    current = coord.enabled_device_ids
-    if current is None:
-        # Legacy mode — на первом toggle инициализируем set всеми known device_ids
-        # (backward-compat — пока что все были «enabled»).
-        current = set(coord.devices.keys())
-    new_set = set(current)
+    # Точечное изменение, а не перезапись списка целиком. В сохранённом выборе
+    # могут лежать устройства, которых сейчас нет в выдаче (офлайн, другой дом);
+    # пересборка списка из видимого вычёркивала бы их при каждом клике.
     if msg["enabled"]:
-        new_set.add(msg["device_id"])
+        await coord.async_enable_device(msg["device_id"])
     else:
-        new_set.discard(msg["device_id"])
-    await coord.async_set_enabled_device_ids(sorted(new_set))
+        await coord.async_disable_device(msg["device_id"])
     connection.send_result(
         msg["id"],
-        {"success": True, "enabled": msg["enabled"], "total_enabled": len(new_set)},
+        {
+            "success": True,
+            "enabled": msg["enabled"],
+            "total_enabled": len(coord.enabled_device_uids or set()),
+        },
     )
 
 

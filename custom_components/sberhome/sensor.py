@@ -35,7 +35,13 @@ async def async_setup_entry(
     # Diagnostic: для каждого hub-устройства — sub-device counter из
     # discovery. Создаются всегда, даже если discovery ещё не успел
     # отработать; до первого poll отдают None (unavailable в HA UI).
+    # Только выбранные: счётчик подустройств хаба — такая же сущность, как
+    # прочие, и создавать её для невыбранного устройства значит тащить его в
+    # Home Assistant мимо выбора пользователя.
+    enabled = coordinator.enabled_devices
     for device_id in coordinator._hub_device_ids():
+        if device_id not in enabled:
+            continue
         entities.append(SberHubSubdeviceCount(coordinator, device_id))
     async_add_entities(entities)
 

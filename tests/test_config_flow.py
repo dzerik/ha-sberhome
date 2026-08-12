@@ -295,6 +295,10 @@ async def test_options_flow_saves_values():
     """Test that options flow saves user input."""
     flow = SberHomeOptionsFlow()
 
+    mock_entry = MagicMock()
+    mock_entry.options = {}
+    type(flow).config_entry = PropertyMock(return_value=mock_entry)
+
     created_entry = {}
 
     def mock_create_entry(**kwargs):
@@ -303,8 +307,56 @@ async def test_options_flow_saves_values():
 
     flow.async_create_entry = mock_create_entry
 
-    result = await flow.async_step_init(user_input={CONF_SCAN_INTERVAL: 60})
+    await flow.async_step_init(user_input={CONF_SCAN_INTERVAL: 60})
     assert created_entry["data"][CONF_SCAN_INTERVAL] == 60
+
+    del type(flow).config_entry
+
+
+@pytest.mark.asyncio
+async def test_options_flow_preserves_selection():
+    """Сохранение интервала опроса не должно стирать выбор устройств.
+
+    Форма знает только про scan_interval, а в options рядом живёт список
+    выбранных устройств. `async_create_entry(data=user_input)` заменял словарь
+    целиком: пользователь заходил поправить интервал и терял весь выбор, после
+    чего интеграция считала, что выбор не настроен, и импортировала весь аккаунт.
+    """
+    flow = SberHomeOptionsFlow()
+
+    mock_entry = MagicMock()
+    mock_entry.options = {
+        CONF_SCAN_INTERVAL: 30,
+        "enabled_device_ids": ["dev-1", "dev-2"],
+        "enabled_device_uids": ["serial-1", "serial-2"],
+    }
+    type(flow).config_entry = PropertyMock(return_value=mock_entry)
+
+    created_entry = {}
+
+    def mock_create_entry(**kwargs):
+        created_entry.update(kwargs)
+        return {"type": "create_entry", **kwargs}
+
+    flow.async_create_entry = mock_create_entry
+
+    await flow.async_step_init(user_input={CONF_SCAN_INTERVAL: 60})
+
+    assert created_entry["data"][CONF_SCAN_INTERVAL] == 60
+    assert created_entry["data"]["enabled_device_ids"] == ["dev-1", "dev-2"]
+    assert created_entry["data"]["enabled_device_uids"] == ["serial-1", "serial-2"]
+
+    del type(flow).config_entry
+
+
+def test_options_flow_does_not_self_reload() -> None:
+    """HA запрещает автоперезагрузку из options flow при наличии update-listener'а.
+
+    Листенер у интеграции есть (`__init__.py`, add_update_listener), поэтому
+    базовый `OptionsFlowWithReload` с `automatic_reload = True` — неподдерживаемая
+    комбинация. Перезагрузку делает сам листенер на изменение options.
+    """
+    assert SberHomeOptionsFlow.automatic_reload is False
 
 
 # -----------------------------------------------------------------------------

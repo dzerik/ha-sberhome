@@ -1,20 +1,31 @@
-"""Device-registry maintenance — prune stale + удаление отвязанных устройств.
+"""Обслуживание реестра устройств: удаление пропавших и отвязанных.
 
-Вынесено из ``coordinator.py`` (SOLID-аудит: God Object; `_prune_stale_devices`
-была самой сложной функцией кодовой базы — CC 18). Coordinator делегирует
-сюда две операции:
+Coordinator делегирует сюда две операции:
 
-- :func:`prune_stale_devices` — после каждого успешного refresh удаляет
-  из HA device_registry устройства, пропавшие из Sber-аккаунта;
-- :func:`remove_unlinked_devices` — при снятии галочки в панели убирает
-  явно отвязанные устройства (иначе HA показывал бы orphan-записи вечно).
+- :func:`prune_stale_devices` — после каждого успешного опроса убирает записи
+  устройств, которых больше нет в аккаунте;
+- :func:`remove_unlinked_devices` — при снятии галочки в панели убирает явно
+  отвязанное устройство, иначе Home Assistant показывал бы его вечно.
+
+Здесь легко навредить сильнее, чем помочь: удаление записи устройства уносит
+каскадом все его сущности вместе с историей и ссылками из автоматизаций. А
+поводов ошибиться много — облако может не отдать устройство в конкретной
+выдаче, запасной путь опроса возвращает только дом по умолчанию, список
+устройств может быть усечён по размеру страницы. Раньше любого из этих поводов
+хватало, чтобы стереть исправное устройство.
+
+Поэтому два разных режима. Устройство, которое пользователь снял в панели,
+удаляется сразу: это его осознанное решение, и тянуть незачем. Устройство,
+которое просто пропало из выдачи, удаляется только после нескольких промахов
+подряд, и не удаляется вовсе, если выдаче нельзя доверять.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, PRUNE_MIN_CONSECUTIVE_MISSES
+from .identity import device_match_keys
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -27,65 +38,89 @@ def prune_stale_devices(
     config_entry_id: str,
     state_cache: StateCache,
     enabled_device_ids: set[str] | None,
-) -> None:
-    """Удалить из device_registry устройства, пропавшие из Sber API.
+    *,
+    degraded: bool = False,
+    miss_counters: dict[str, int] | None = None,
+) -> int:
+    """Убрать из реестра записи, которым там больше не место.
 
-    HA автоматически удалит привязанные entities вместе с DeviceEntry.
-    Stale-детектор: DeviceEntry привязан к нашему config_entry_id, но его
-    identifier не встречается ни в `state_cache` (serial_number / device_id),
-    ни в whitelist'е виртуальных identifiers (home:/group:/indicator/
-    scenarios — см. issue #25 / PR #26).
+    ``degraded`` означает «выдаче нельзя доверять целиком»: в этом случае
+    пропавшие устройства не трогаем вовсе, а счётчики промахов не двигаем,
+    чтобы сетевой сбой не приближал удаление.
 
-    Весь вызов обёрнут в try/except — если в моках недоступен реальный
-    DeviceRegistry, coordinator refresh не валится.
+    Возвращает число удалённых записей. Ошибки не пробрасываются — обслуживание
+    не должно ронять опрос, — но и не замалчиваются: раньше сбой уходил в
+    отладочный лог, и годами неработающая чистка выглядела как работающая.
     """
+    counters = miss_counters if miss_counters is not None else {}
     try:
         from homeassistant.helpers import device_registry as dr
 
         device_reg = dr.async_get(hass)
-        live_identifiers = _collect_live_identifiers(state_cache, enabled_device_ids)
+        live, opted_out = _collect_identifiers(state_cache, enabled_device_ids)
 
-        stale: list[str] = []
+        doomed: list[tuple[str, str]] = []
         for device in dr.async_entries_for_config_entry(device_reg, config_entry_id):
             our_idents = {ident for (domain, ident) in device.identifiers if domain == DOMAIN}
             if not our_idents:
                 continue
-            if our_idents.isdisjoint(live_identifiers):
-                stale.append(device.id)
 
-        for dev_reg_id in stale:
+            if not our_idents.isdisjoint(live):
+                # Устройство на месте — сбрасываем накопленные промахи.
+                for ident in our_idents:
+                    counters.pop(ident, None)
+                continue
+
+            if not our_idents.isdisjoint(opted_out):
+                # Снято пользователем в панели — решение осознанное, ждать нечего.
+                doomed.append((device.id, "снято в панели"))
+                continue
+
+            if degraded:
+                # Выдача неполная: отсутствие устройства ничего не доказывает.
+                continue
+
+            key = sorted(our_idents)[0]
+            counters[key] = counters.get(key, 0) + 1
+            if counters[key] >= PRUNE_MIN_CONSECUTIVE_MISSES:
+                doomed.append((device.id, "пропало из аккаунта"))
+                counters.pop(key, None)
+
+        for dev_reg_id, reason in doomed:
             device_reg.async_remove_device(dev_reg_id)
-            LOGGER.info("Pruned stale device %s from registry", dev_reg_id)
-    except Exception:  # noqa: BLE001 — best-effort, не ломаем refresh
-        LOGGER.debug("Stale device pruning failed (ignored)", exc_info=True)
+            LOGGER.info("Удалена запись устройства %s (%s)", dev_reg_id, reason)
+        return len(doomed)
+    except Exception:
+        LOGGER.warning(
+            "Обслуживание реестра устройств не выполнено — записи могли устареть",
+            exc_info=True,
+        )
+        raise
 
 
-def _collect_live_identifiers(
+def _collect_identifiers(
     state_cache: StateCache,
     enabled_device_ids: set[str] | None,
-) -> set[str]:
-    """Собрать все identifiers, которые считаются «живыми».
+) -> tuple[set[str], set[str]]:
+    """Разделить идентификаторы на «живые» и «снятые пользователем».
 
-    Реальные устройства (serial + device_id, с учётом enabled-фильтра)
-    + виртуальные device_registry-записи, создаваемые вне sbermap:
+    Разница принципиальная. Живые не трогаем. Снятые удаляем сразу. Всё
+    остальное — это устройства, которых в выдаче не оказалось: они не попадают
+    ни в одно из множеств и проходят через отсрочку.
 
-    - ``home:{home.id}`` — NotifyEntity (notify.py);
-    - ``group:{group_id}`` — SberGroupSwitch (switch_groups.py);
-    - ``indicator`` — SberIndicatorLight (light.py);
-    - ``scenarios`` — SberScenarioButton/switch/binary_sensor.
-
-    Без whitelist'а виртуальные записи выпиливались prune'ом каждые
-    несколько секунд, каскадно убивая entities (issue #25).
+    В живые попадают и виртуальные записи, создаваемые вне реестра устройств:
+    дома, группы, индикатор и сценарии. Без них чистка выпиливала бы их каждые
+    несколько секунд, каскадно убивая сущности.
     """
     live: set[str] = set()
+    opted_out: set[str] = set()
+
     for dev_id, dto in state_cache.get_all_devices().items():
+        keys = device_match_keys(dto, dev_id)
         if enabled_device_ids is not None and dev_id not in enabled_device_ids:
-            continue
-        if dto.serial_number:
-            live.add(dto.serial_number)
-        if dto.id:
-            live.add(dto.id)
-        live.add(dev_id)
+            opted_out |= keys
+        else:
+            live |= keys
 
     for home in state_cache.get_homes():
         if home.id:
@@ -97,7 +132,10 @@ def _collect_live_identifiers(
 
     live.add("indicator")
     live.add("scenarios")
-    return live
+
+    # Устройство могло попасть в оба множества, если серийник делят выбранная и
+    # невыбранная записи. Живое важнее: лучше оставить лишнее, чем стереть нужное.
+    return live, opted_out - live
 
 
 def remove_unlinked_devices(
@@ -105,11 +143,11 @@ def remove_unlinked_devices(
     state_cache: StateCache,
     removed_ids: set[str],
 ) -> None:
-    """Удалить из device_registry устройства, отвязанные пользователем.
+    """Удалить из реестра устройства, отвязанные пользователем.
 
-    Вызывается из ``async_set_enabled_device_ids`` при снятии галочки в
-    панели. DeviceInfo в entity.py использует `serial_number OR device_id`
-    как identifier — пробуем оба варианта плюс сам sber_device_id.
+    Вызывается при снятии галочки в панели. Реестр ключуется серийником, но на
+    входе может прийти любой известный идентификатор устройства, поэтому
+    перебираем все.
     """
     if not removed_ids:
         return
@@ -131,7 +169,7 @@ def remove_unlinked_devices(
             if device_entry is not None:
                 device_reg.async_remove_device(device_entry.id)
                 LOGGER.info(
-                    "Removed unlinked device %s (%s) from registry",
+                    "Отвязанное устройство %s (%s) убрано из реестра",
                     device_entry.name_by_user or device_entry.name,
                     sber_device_id,
                 )

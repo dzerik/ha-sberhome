@@ -28,6 +28,23 @@ def _read_integration_version() -> str | None:
 _VERSION = _read_integration_version()
 
 
+def _selection_health(coord) -> dict:
+    """Сколько выбранных устройств сопоставилось с текущей выдачей.
+
+    Несопоставленное — не обязательно поломка: устройство может быть офлайн.
+    Но именно из этого числа видно, что выбор протух целиком.
+    """
+    stored = coord.enabled_device_uids
+    if stored is None:
+        return {"stored": None, "resolved": None, "unresolved": 0}
+    resolved = coord.enabled_device_ids or set()
+    return {
+        "stored": len(stored),
+        "resolved": len(resolved),
+        "unresolved": max(len(stored) - len(resolved), 0),
+    }
+
+
 @websocket_api.websocket_command({vol.Required("type"): "sberhome/get_status"})
 @callback
 def ws_get_status(
@@ -63,6 +80,16 @@ def ws_get_status(
                 if coord.enabled_device_ids is not None
                 else len(coord.devices)
             ),
+            # Сохранённых ключей может быть больше, чем сопоставленных: часть
+            # устройств бывает офлайн или в другом доме. Раньше такое
+            # расхождение было невидимым, и «пропал выбор» выяснялось только по
+            # исчезнувшим сущностям.
+            "selection": _selection_health(coord),
+            "registry": {
+                "maintenance_failures": getattr(coord, "registry_maintenance_failures", 0),
+                "last_prune_removed": getattr(coord, "last_prune_removed", 0),
+                "migration_pending": getattr(coord, "selection_migration_pending", False),
+            },
             "polling": {
                 "last_at": coord.last_polling_at,
                 "count": coord.polling_count,

@@ -27,7 +27,10 @@ def _coord_with(*devices: tuple[str, str | None]) -> MagicMock:
         for dev_id, image_set_type in devices
     }
     coord.enabled_device_ids = set()
+    coord.enabled_device_uids = set()
     coord.async_set_enabled_device_ids = AsyncMock()
+    coord.async_enable_device = AsyncMock()
+    coord.async_disable_device = AsyncMock()
     return coord
 
 
@@ -59,7 +62,7 @@ class TestToggleDeviceUnsupported:
             )
         connection.send_error.assert_called_once()
         assert connection.send_error.call_args[0][1] == "unsupported_category"
-        coord.async_set_enabled_device_ids.assert_not_called()
+        coord.async_enable_device.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_enable_supported_allowed(self, hass, connection):
@@ -74,7 +77,7 @@ class TestToggleDeviceUnsupported:
                 {"id": 2, "device_id": "dev-light", "enabled": True},
             )
         connection.send_error.assert_not_called()
-        coord.async_set_enabled_device_ids.assert_awaited_once()
+        coord.async_enable_device.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_disable_unsupported_still_allowed(self, hass, connection):
@@ -91,7 +94,7 @@ class TestToggleDeviceUnsupported:
                 {"id": 3, "device_id": "dev-bad", "enabled": False},
             )
         connection.send_error.assert_not_called()
-        coord.async_set_enabled_device_ids.assert_awaited_once()
+        coord.async_disable_device.assert_awaited_once()
 
 
 class TestSetEnabledUnsupported:

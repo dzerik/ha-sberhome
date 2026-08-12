@@ -27,6 +27,11 @@ class StateCache:
     """
 
     def __init__(self) -> None:
+        # Счётчик замен НАБОРА устройств. Растёт только там, где меняется состав
+        # ключей, и не растёт при точечных патчах состояния: потребители
+        # мемоизируют по нему тяжёлый разбор выбора, а патчи состояния приходят
+        # на каждый push и состав устройств не меняют.
+        self.devices_revision: int = 0
         self._devices: dict[str, DeviceDto] = {}
         self._groups: dict[str, UnionDto] = {}
         self._tree: UnionTreeDto | None = None
@@ -266,6 +271,7 @@ class StateCache:
 
         self._protect_fresh_local_state(devices, fetch_started_at)
         self._devices = devices
+        self.devices_revision += 1
         self._groups = groups
         self._device_to_room_name = device_to_room_name
         self._device_to_room_id = device_to_room_id
@@ -290,6 +296,7 @@ class StateCache:
         `state_cache._devices` напрямую (нарушение инкапсуляции).
         """
         self._devices = dict(devices)
+        self.devices_revision += 1
         self._rebuild_devices_by_group_index()
         # Остальные структуры не трогаем — либо они уже пусты (первый refresh
         # до tree), либо остаются от прошлого успешного update_from_tree.
@@ -359,6 +366,7 @@ class StateCache:
         self._protect_fresh_local_state(devices_map, fetch_started_at)
         self._devices = devices_map
         self._groups = groups_map
+        self.devices_revision += 1
         self._device_to_room_name = device_to_room_name
         self._device_to_room_id = device_to_room_id
         self._device_to_home_id = device_to_home_id

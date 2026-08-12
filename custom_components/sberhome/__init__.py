@@ -29,13 +29,22 @@ from .aiosber.transport import HttpTransport
 from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
 from .conflict import ISSUE_ID as CONFLICT_ISSUE_ID
 from .conflict import async_update_conflict_issue
-from .const import CONF_AUTH_METHOD, CONF_ENABLED_DEVICE_IDS, CONF_TOKEN, DOMAIN, LOGGER
+from .const import (
+    CONF_AUTH_METHOD,
+    CONF_ENABLED_DEVICE_IDS,
+    CONF_ENABLED_DEVICE_UIDS,
+    CONF_TOKEN,
+    DOMAIN,
+    LOGGER,
+)
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
 from .intents.reconciler import reconcile_intents
 from .intents.service import IntentService
 from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
 from .listeners import LISTENERS_SCHEMA, load_listeners_from_config
+from .selection_migration import async_migrate_selection
+from .unique_id_repair import async_repair_rotated_unique_ids
 from .websocket_api import async_setup_websocket_api
 
 # YAML-config для voice intents — опциональная декларативная альтернатива
@@ -230,6 +239,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         raise ConfigEntryNotReady(str(err)) from err
 
     entry.runtime_data = coordinator
+
+    # Выбор устройств переводится на стабильный ключ здесь, а не в
+    # `async_migrate_entry`: там нет ни сети, ни кэша, и сопоставить облачный id
+    # с серийником не из чего. Обе операции идут до форварда платформ, чтобы
+    # сущности сразу поднялись с правильными идентификаторами.
+    coordinator.selection_migration_pending = not await async_migrate_selection(
+        hass, entry, coordinator
+    )
+    await async_repair_rotated_unique_ids(hass, entry, coordinator)
 
     # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
     # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
@@ -598,9 +616,15 @@ def _should_forward_platforms(entry: SberHomeConfigEntry) -> bool:
     - `enabled_device_ids` непустой → форвардим, платформы создадут
       entities только для выбранных (фильтр в `coordinator._filter_enabled`).
     """
-    enabled = entry.options.get(CONF_ENABLED_DEVICE_IDS)
+    enabled = entry.options.get(CONF_ENABLED_DEVICE_UIDS)
+    if enabled is None:
+        enabled = entry.options.get(CONF_ENABLED_DEVICE_IDS)
     if enabled is None:
         return True
+    # Решение принимается по ДЛИНЕ сохранённого списка, а не по числу
+    # сопоставленных устройств: при недоступном облаке сопоставленных ноль, и
+    # завязка на них означала бы, что у пользователя разом исчезают все
+    # сущности при первом же сетевом сбое.
     return len(enabled) > 0
 
 
