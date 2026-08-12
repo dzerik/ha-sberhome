@@ -30,8 +30,6 @@ SELECTION_SCHEMA_VERSION = 2
 # сущности вместе с историей.
 PRUNE_MIN_CONSECUTIVE_MISSES = 3
 
-ISSUE_REGISTRY_MAINTENANCE = "registry_maintenance_failed"
-ISSUE_STALE_SELECTION = "stale_selection_keys"
 
 # Метод авторизации (см. aiosber.const.AUTH_METHOD_SBERID / AUTH_METHOD_CSAFRONT).
 # Default отсутствует — legacy entries без этого ключа считаются SberID.
