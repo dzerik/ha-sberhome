@@ -100,26 +100,5 @@
       "title": "Detected another Sber integration",
       "description": "Two integrations for Sber devices are installed: SberHome and {domains}. Running two integrations against the same Sber account at once can cause conflicts — intercepted state updates, incorrect mode display, command races. It is recommended to keep only one of them enabled."
     }
-  },
-  "entity": {
-    "binary_sensor": {
-      "gamepad": {
-        "name": "Gamepad"
-      }
-    },
-    "switch": {
-      "staros_assistant_sounds_enabled": {
-        "name": "Assistant sounds"
-      }
-    },
-    "select": {
-      "staros_age_mode": {
-        "name": "Age mode",
-        "state": {
-          "adult": "Adult",
-          "child": "Child"
-        }
-      }
-    }
   }
 }

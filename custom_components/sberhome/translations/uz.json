@@ -100,26 +100,5 @@
       "title": "Boshqa Sber integratsiyasi aniqlandi",
       "description": "Sber qurilmalari uchun ikkita integratsiya o'rnatilgan: SberHome va {domains}. Bitta Sber hisobi bilan ikkita integratsiyaning bir vaqtda ishlashi nizolarni keltirib chiqarishi mumkin — holat yangilanishlarini ushlab qolish, rejimlarni noto'g'ri ko'rsatish, buyruq poygalari. Ulardan faqat bittasini yoqilgan holda qoldirish tavsiya etiladi."
     }
-  },
-  "entity": {
-    "binary_sensor": {
-      "gamepad": {
-        "name": "Geympad"
-      }
-    },
-    "switch": {
-      "staros_assistant_sounds_enabled": {
-        "name": "Yordamchi tovushlari"
-      }
-    },
-    "select": {
-      "staros_age_mode": {
-        "name": "Yosh rejimi",
-        "state": {
-          "adult": "Kattalar",
-          "child": "Bolalar"
-        }
-      }
-    }
   }
 }

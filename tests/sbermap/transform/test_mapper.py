@@ -360,10 +360,15 @@ class TestDesiredOverride:
 
 
 class TestSberBoxTime:
-    """SberBox Time — issue #43, по полному JSON от владельца устройства.
+    """SberBox Time — issue #43 и #46, по JSON от владельцев устройств.
 
-    Прибор рапортует четыре атрибута, но команды есть только у двух. Это и
-    определяет, что чем становится: без команды поле можно только читать.
+    Приставка должна распознаваться как колонка Sber. Но сущностей для её
+    настроек `staros_*` быть не должно: облако объявляет к ним команды и не
+    держит значений. Доказательство — метки `last_sync` на живом аккаунте:
+    `detector` обновляется в момент проверки, а все `staros_*` помечены одной
+    меткой двухмесячной давности, до миллисекунды одинаковой. Это снимок, а не
+    поток. У пользователя переключатели откатывались, а смена настройки в
+    приложении Сбера до Home Assistant не доходила.
     """
 
     REPORTED = [
@@ -384,26 +389,22 @@ class TestSberBoxTime:
         """
         assert self._entities(), "устройство не дало ни одной сущности"
 
-    def test_assistant_sounds_is_writable(self):
-        """У поля есть команда, значит это переключатель, а не датчик."""
-        ent = next(
-            e for e in self._entities() if e.unique_id.endswith("staros_assistant_sounds_enabled")
-        )
-        assert ent.platform is Platform.SWITCH
+    def test_no_entities_for_settings_the_cloud_does_not_track(self):
+        """Ни переключателя, ни выбора: они не работали и откатывались.
 
-    def test_age_mode_offers_both_options(self):
-        ent = next(e for e in self._entities() if e.unique_id.endswith("staros_age_mode"))
-        assert ent.platform is Platform.SELECT
-        assert set(ent.options or ()) == {"adult", "child"}
-
-    def test_gamepad_is_read_only(self):
-        """Команды на gamepad прибор не объявляет.
-
-        Сделать его переключателем значило бы обещать управление, которого нет:
-        нажатие ушло бы в облако и молча ничего не изменило.
+        Управление, которое молча ничего не меняет, хуже отсутствующего:
+        пользователь считает, что настройка применилась.
         """
-        ent = next(e for e in self._entities() if e.unique_id.endswith("gamepad"))
-        assert ent.platform is Platform.BINARY_SENSOR
+        keys = [e.unique_id for e in self._entities()]
+        assert not [k for k in keys if "staros_" in k], keys
+
+    def test_no_entity_for_an_attribute_never_synced(self):
+        """`gamepad` в присланном JSON имеет last_sync = 1970-01-01.
+
+        То есть облако не получало его значения ни разу. Показывать «не
+        подключён» на этом основании значит выдавать заглушку за показание.
+        """
+        assert not [e for e in self._entities() if e.unique_id.endswith("gamepad")]
 
     def test_commands_carry_the_value_and_nothing_else(self):
         """Проверяется содержимое, а не факт «что-то вернулось».
@@ -412,12 +413,7 @@ class TestSberBoxTime:
         неизвестный kwarg в атрибут с таким именем. Утверждение вида
         `assert cmd` поэтому проходит даже на полностью неверном вызове.
         """
-        age = build_command("dev-1", staros_age_mode="child")
-        assert len(age) == 1
-        assert age[0].key == "staros_age_mode"
-        assert age[0].enum_value == "child"
-
-        sounds = build_command("dev-1", staros_assistant_sounds_enabled=True)
-        assert len(sounds) == 1
-        assert sounds[0].key == "staros_assistant_sounds_enabled"
-        assert sounds[0].bool_value is True
+        cmd = build_command("dev-1", on_off=True)
+        assert len(cmd) == 1
+        assert cmd[0].key == "on_off"
+        assert cmd[0].bool_value is True
