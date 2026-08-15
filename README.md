@@ -21,7 +21,7 @@
 ## 🔊 Работает в паре с SberBoom (`sboom_ha`)
 
 Для **колонок Сбер** есть родственная интеграция
-[**sboom_ha**](https://github.com/dzerik/sboom_ha) — локальное управление плеером
+[**sboom_ha**](https://github.com/TohaRG2/sboom_ha) — локальное управление плеером
 (медиа, громкость, каталог Звука) + Lovelace-карточка
 [**ha-sboom-card**](https://github.com/dzerik/ha-sboom-card). Вместе они дают
 **полный контроль над колонкой из одной карточки устройства**:
