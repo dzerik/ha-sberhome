@@ -219,6 +219,30 @@ def test_radio_options_from_screen_field():
     assert ent.option_titles["30"] == "30 секунд"
 
 
+def test_child_inherits_parent_card_title():
+    """Лист без title берёт заголовок родительской CARD («Светомузыка»)."""
+    ents = _map(
+        [
+            {
+                "id": "led_equalizer_duration",
+                "type": "CARD",
+                "title": "Светомузыка",
+                "action": "openScreen",
+                "items": [
+                    {
+                        "id": "led_equalizer_settings",
+                        "type": "RADIO_BUTTONS",
+                        "checked": "3600",
+                        "screen": [{"title": "Всегда включена", "value": "3600"}],
+                    }
+                ],
+            }
+        ]
+    )
+    ent = next(e for e in ents if e.node_id == "led_equalizer_settings")
+    assert ent.name == "Светомузыка"
+
+
 def test_settings_group_included_settings_expanded():
     """SETTINGS_GROUP с includedSettings раскрывается; сам контейнер — skip."""
     ents = _map(

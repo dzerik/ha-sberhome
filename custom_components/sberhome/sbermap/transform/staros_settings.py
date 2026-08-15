@@ -213,15 +213,19 @@ def map_settings_screen_to_entities(
             seen_ids.add(entity.node_id)
             result.append(entity)
 
-    def walk(node: SettingNodeDto) -> None:
+    def walk(node: SettingNodeDto, parent_title: str | None = None) -> None:
         # Эквалайзер — один узел, но раскрывается в несколько сущностей.
         if node.type == _EQUALIZER_TYPE:
             for ent in _make_equalizer(node, product, serial):
                 _add(ent)
         else:
-            _add(_node_to_entity(node, product, serial))
+            _add(_node_to_entity(node, product, serial, fallback_title=parent_title))
+        # У листовых узлов часто нет своего title — он на родительской карточке
+        # (напр. RADIO_BUTTONS «Светомузыка» лежит в CARD с этим заголовком).
+        # Пробрасываем заголовок контейнера детям как fallback имени.
+        child_title = node.title or parent_title
         for child in node.children:
-            walk(child)
+            walk(child, child_title)
 
     for node in screen.settings:
         walk(node)
@@ -248,7 +252,13 @@ def build_staros_value(node_type: str, value: Any) -> Any:
 
 
 # --- Internal --------------------------------------------------------------
-def _node_to_entity(node: SettingNodeDto, product: str, serial: str) -> StarosSettingEntity | None:
+def _node_to_entity(
+    node: SettingNodeDto,
+    product: str,
+    serial: str,
+    *,
+    fallback_title: str | None = None,
+) -> StarosSettingEntity | None:
     """Один узел → сущность (или None, если узел не управляемый)."""
     node_id = node.id
     node_type = node.type
@@ -256,7 +266,7 @@ def _node_to_entity(node: SettingNodeDto, product: str, serial: str) -> StarosSe
         return None
 
     unique_id = f"staros_{serial}_{node_id}"
-    name = node.title or node_id
+    name = node.title or fallback_title or node_id
     enabled_by_default = node.disabled is not True
 
     common = {

@@ -73,6 +73,15 @@ export class SberhomeSpeakersView extends LitElement {
     setTimeout(() => this._load(), 400);
   }
 
+  _setNumber(entityId, value) {
+    if (!entityId) return;
+    this.hass.callService("number", "set_value", {
+      entity_id: entityId,
+      value,
+    });
+    setTimeout(() => this._load(), 400);
+  }
+
   _fmtFreq(hz) {
     if (hz == null) return "";
     return hz >= 1000 ? `${(hz / 1000).toFixed(hz % 1000 ? 1 : 0)}k` : `${hz}`;
@@ -202,18 +211,39 @@ export class SberhomeSpeakersView extends LitElement {
       </div>`;
     }
     if (spec.platform === "select") {
+      const titles = spec.option_titles || {};
       return html`<div class="row">
         <span>${spec.name}</span>
         <select
           @change=${(e) => this._select(spec.entity_id, e.target.value)}
         >
           ${(spec.options || []).map(
-            (opt) => html`<option ?selected=${opt === spec.state}>${opt}</option>`
+            (opt) => html`<option value=${opt} ?selected=${opt === spec.state}>
+              ${titles[opt] || opt}
+            </option>`
           )}
         </select>
       </div>`;
     }
-    // number и прочее — read-only отображение
+    if (spec.platform === "number") {
+      // ползунок (яркость LED и т.п.) — интерактивно
+      return html`<div class="row">
+        <span>${spec.name}</span>
+        <div class="numctl">
+          <input
+            type="range"
+            .min=${spec.min ?? 0}
+            .max=${spec.max ?? 100}
+            .step=${spec.step ?? 1}
+            .value=${String(spec.state)}
+            @change=${(e) =>
+              this._setNumber(spec.entity_id, Number(e.target.value))}
+          />
+          <span class="val">${spec.state}${spec.unit ? " " + spec.unit : ""}</span>
+        </div>
+      </div>`;
+    }
+    // прочее — read-only отображение
     return html`<div class="row">
       <span>${spec.name}</span>
       <span class="val">${spec.state}${spec.unit ? " " + spec.unit : ""}</span>
@@ -302,6 +332,15 @@ export class SberhomeSpeakersView extends LitElement {
         .val {
           color: var(--secondary-text-color, #666);
           font-variant-numeric: tabular-nums;
+        }
+        .numctl {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .numctl input[type="range"] {
+          width: 130px;
+          accent-color: var(--primary-color, #03a9f4);
         }
         .pill {
           border: 1px solid var(--divider-color, #ccc);

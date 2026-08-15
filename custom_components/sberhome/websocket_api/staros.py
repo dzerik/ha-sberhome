@@ -34,6 +34,7 @@ def _spec_to_dict(spec: Any, entity_id: str | None) -> dict[str, Any]:
         "node_id": spec.node_id,
         "state": spec.state,
         "options": list(spec.options),
+        "option_titles": dict(spec.option_titles),
         "min": spec.min_value,
         "max": spec.max_value,
         "step": spec.step,
