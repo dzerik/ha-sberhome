@@ -195,6 +195,60 @@ def test_equalizer_expands_to_switch_select_and_bands():
     assert len({e.unique_id for e in ents}) == len(ents)
 
 
+def test_radio_options_from_screen_field():
+    """Опции RADIO_BUTTONS в поле `screen` (список) — «Светомузыка»."""
+    ents = _map(
+        [
+            {
+                "id": "led_equalizer_settings",
+                "type": "RADIO_BUTTONS",
+                "checked": "3600",
+                "screen": [
+                    {"title": "Всегда включена", "value": "3600"},
+                    {"title": "30 секунд", "value": "30"},
+                    {"title": "Выключена", "value": "0"},
+                ],
+            }
+        ]
+    )
+    assert len(ents) == 1
+    ent = ents[0]
+    assert ent.platform is Platform.SELECT
+    assert ent.options == ("3600", "30", "0")
+    assert ent.state == "3600"
+    assert ent.option_titles["30"] == "30 секунд"
+
+
+def test_settings_group_included_settings_expanded():
+    """SETTINGS_GROUP с includedSettings раскрывается; сам контейнер — skip."""
+    ents = _map(
+        [
+            {
+                "id": "grp",
+                "type": "SETTINGS_GROUP",
+                "includedSettings": [
+                    {"id": "enableAutoLedBrightness", "type": "TOGGLE", "enabled": False},
+                    {
+                        "id": "LedBrightness",
+                        "type": "SLIDER",
+                        "value": 66,
+                        "min": 10,
+                        "max": 100,
+                        "unitSymbol": "%",
+                    },
+                ],
+            }
+        ]
+    )
+    by_id = {e.node_id: e for e in ents}
+    # контейнер группы сущности не даёт
+    assert "grp" not in by_id
+    assert by_id["enableAutoLedBrightness"].platform is Platform.SWITCH
+    br = by_id["LedBrightness"]
+    assert br.platform is Platform.NUMBER
+    assert br.state == 66 and br.min_value == 10 and br.max_value == 100 and br.unit == "%"
+
+
 def test_synthetic_equalizer_structure():
     """Синтетический эквалайзер: 5 полос @ известные частоты + пресеты."""
     from custom_components.sberhome.sbermap import (

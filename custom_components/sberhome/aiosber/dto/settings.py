@@ -96,9 +96,18 @@ class SettingNodeDto:
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:
         if not isinstance(data, dict):
             return None
+        # Опции RADIO_BUTTONS приходят в разных полях: `radioButtons`,
+        # `values`, либо (у части узлов, напр. «Светомузыка») прямо в `screen`
+        # как список {title,value}. Поле `screen` бывает и строкой (id
+        # подэкрана CARD) — как опции берём его только когда это список.
+        screen_field = data.get("screen")
         opts_raw = data.get("radioButtons") or data.get("values") or []
+        if not opts_raw and isinstance(screen_field, list):
+            opts_raw = screen_field
         options = [o for o in (SettingOptionDto.from_dict(x) for x in opts_raw) if o]
-        items_raw = data.get("items") or []
+        # Дети группы: `items` (SETTINGS_SECTION_GROUP) либо `includedSettings`
+        # (SETTINGS_GROUP, напр. группа адаптивной яркости + слайдера LedBrightness).
+        items_raw = data.get("items") or data.get("includedSettings") or []
         children = [c for c in (cls.from_dict(x) for x in items_raw) if c]
         mms = data.get("minMaxStep") or []
         # Текущие уровни полос эквалайзера: userPreset.user, либо value.user.

@@ -35,6 +35,7 @@ _DECOR_TYPES: frozenset[str] = frozenset(
         "SECTION_HEADER",
         "HEADER_TEXT",
         "SETTINGS_SECTION_GROUP",
+        "SETTINGS_GROUP",
         "CARD",
         "LANDING_CARD",
         "LANDING_CARD_V2",
