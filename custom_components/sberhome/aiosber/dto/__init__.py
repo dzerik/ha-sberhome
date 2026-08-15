@@ -120,6 +120,12 @@ from .group import GroupStateDto
 from .home import HomeChangeVariableDto
 from .ota import OtaUpdateInfoDto
 from .scenario import ScenarioDto, ScenarioEventDto, ScenarioWidgetDto
+from .settings import (
+    SettingNodeDto,
+    SettingOptionDto,
+    SettingScreenDto,
+    StarosDeviceDto,
+)
 from .state import (
     DesiredDeviceStateDto,
     DesiredGroupStateDto,
@@ -239,7 +245,11 @@ __all__ = [
     "SdStatusAttr",
     "SensorLevelAttr",
     "SensorSensitiveAttr",
+    "SettingNodeDto",
+    "SettingOptionDto",
+    "SettingScreenDto",
     "SignalStrengthAttr",
+    "StarosDeviceDto",
     "SourceAttr",
     "TemperatureUnitAttr",
     "Topic",

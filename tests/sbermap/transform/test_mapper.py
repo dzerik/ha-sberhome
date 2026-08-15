@@ -384,17 +384,27 @@ class TestSberBoxTime:
         """
         assert self._entities(), "устройство не дало ни одной сущности"
 
-    def test_assistant_sounds_is_writable(self):
-        """У поля есть команда, значит это переключатель, а не датчик."""
+    def test_assistant_sounds_gateway_is_read_only(self):
+        """Gateway-зеркало настройки — READ-ONLY (binary_sensor).
+
+        Запись в gateway этого ключа сервер не применяет (значение
+        «откатывается»); реальное управление идёт по каналу /v18. Поэтому
+        gateway-представление экспонируем как датчик, а не переключатель.
+        """
         ent = next(
             e for e in self._entities() if e.unique_id.endswith("staros_assistant_sounds_enabled")
         )
-        assert ent.platform is Platform.SWITCH
+        assert ent.platform is Platform.BINARY_SENSOR
 
-    def test_age_mode_offers_both_options(self):
+    def test_age_mode_gateway_is_read_only(self):
+        """Gateway-зеркало возрастного режима — READ-ONLY (sensor).
+
+        Управление возрастными ограничениями идёт через /v18-сущности
+        («Ограничения для детей/всех»), а gateway-значение только отражает
+        текущее состояние.
+        """
         ent = next(e for e in self._entities() if e.unique_id.endswith("staros_age_mode"))
-        assert ent.platform is Platform.SELECT
-        assert set(ent.options or ()) == {"adult", "child"}
+        assert ent.platform is Platform.SENSOR
 
     def test_gamepad_is_read_only(self):
         """Команды на gamepad прибор не объявляет.

@@ -52,7 +52,13 @@ async def test_step_sberid_starts_external_flow():
     flow.hass.async_add_executor_job = AsyncMock(side_effect=lambda fn, *a: fn(*a))
     flow.flow_id = "test-flow-id"
 
-    with patch("custom_components.sberhome.config_flow.SberAPI") as mock_sber_cls:
+    with (
+        patch("custom_components.sberhome.config_flow.SberAPI") as mock_sber_cls,
+        patch(
+            "custom_components.sberhome.config_flow.get_url",
+            return_value="http://ha.local:8123",
+        ),
+    ):
         mock_sber_cls.return_value.create_authorization_url.return_value = (
             "https://example.com/auth"
         )
@@ -65,6 +71,7 @@ async def test_step_sberid_starts_external_flow():
         result = await flow.async_step_sberid(user_input=None)
 
     assert result["type"] == "external"
+    assert result["url"].startswith("http://ha.local:8123/")
     assert "auth/sberhome" in result["url"]
     assert "test-flow-id" in result["url"]
     assert flow.hass.http.register_view.call_count == 2
@@ -187,7 +194,13 @@ async def test_step_reauth_confirm_starts_external_auth():
     mock_entry.data = {"token": {}}
     flow._get_reauth_entry = MagicMock(return_value=mock_entry)
 
-    with patch("custom_components.sberhome.config_flow.SberAPI") as mock_sber_cls:
+    with (
+        patch("custom_components.sberhome.config_flow.SberAPI") as mock_sber_cls,
+        patch(
+            "custom_components.sberhome.config_flow.get_url",
+            return_value="http://ha.local:8123",
+        ),
+    ):
         mock_sber_cls.return_value.create_authorization_url.return_value = (
             "https://example.com/auth"
         )

@@ -18,13 +18,16 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 
 from ._ha_token_store import HACsafrontTokenStore, HATokenStore
+from .aiosber.api import StarosSettingsAPI
 from .aiosber.auth import (
     AuthManager,
     AuthManagerProtocol,
     CsafrontAuthManager,
     CsafrontTokens,
+    SberIdBearerAuth,
+    SberIdTokens,
 )
-from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID
+from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID, COMPANION_BASE_URL
 from .aiosber.transport import HttpTransport
 from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
 from .conflict import ISSUE_ID as CONFLICT_ISSUE_ID
@@ -214,7 +217,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         )
     transport = HttpTransport(http=http, auth=auth)
 
-    coordinator = SberHomeCoordinator(hass, entry, sber, transport, auth)
+    # Канал настроек умных колонок Сбера (companion-хост, Authorization: Bearer).
+    # Нужен companion access token от SberID-пользователя. У SberID-входа это
+    # тот же `auth`. У SMS-входа (CSAFront) основной токен сюда не подходит,
+    # но если при входе получен отдельный SberID-набор — поднимаем свой
+    # AuthManager для этого канала. Иначе домен настроек недоступен.
+    # Каналу настроек нужен СЫРОЙ SberID access_token (клиент b1f0f0c6), а не
+    # обменянный на нём companion smart_home-токен (его отдаёт AuthManager для
+    # gateway). Поэтому поднимаем отдельный SberIdBearerAuth из подходящего
+    # набора SberID-токенов: у SberID-входа это основной `token`, у SMS-входа —
+    # отдельный `companion_settings_tokens` (если он получен).
+    settings_auth: AuthManagerProtocol | None = None
+    settings_token_key = (
+        CONF_TOKEN
+        if auth_method == AUTH_METHOD_SBERID
+        else ("companion_settings_tokens" if entry.data.get("companion_settings_tokens") else None)
+    )
+    if settings_token_key:
+        bundle = entry.data.get(settings_token_key)
+        if bundle and bundle.get("access_token"):
+            settings_store = HATokenStore(hass, entry, sberid_key=settings_token_key)
+            settings_auth = SberIdBearerAuth(
+                http,
+                SberIdTokens.from_dict(bundle),
+                on_refreshed=settings_store.save_sberid,
+            )
+
+    staros_settings_api: StarosSettingsAPI | None = None
+    if settings_auth is not None:
+        settings_transport = HttpTransport(
+            http=http,
+            auth=settings_auth,
+            base_url=COMPANION_BASE_URL,
+            auth_header_name="Authorization",
+            auth_header_prefix="Bearer ",
+        )
+        staros_settings_api = StarosSettingsAPI(settings_transport)
+
+    coordinator = SberHomeCoordinator(
+        hass, entry, sber, transport, auth, staros_settings_api=staros_settings_api
+    )
     # Shared http нужен coordinator.async_shutdown() чтобы закрыть его
     # один раз (aclose у sber теперь no-op при DI, transport не владеет http).
     coordinator._shared_http = http
@@ -449,6 +491,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             coord: SberHomeCoordinator = entry.runtime_data
             await coord.async_request_refresh()
+            # Форсируем и настройки колонок (/v18) — они на отдельном опросе,
+            # обычный refresh их не тянет. Так action «Обновить» подтягивает
+            # правки, сделанные в приложении Сбера.
+            await coord.async_refresh_staros()
             refreshed += 1
         return {"ok": True, "refreshed_entries": refreshed}
 

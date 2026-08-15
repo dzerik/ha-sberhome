@@ -37,6 +37,7 @@ from .jwt import decode_jwt_unverified
 from .manager import AuthManager
 from .oauth import exchange_code_for_tokens, refresh_sberid_tokens
 from .pkce import PkceParams, build_authorize_url, extract_code_from_redirect
+from .sberid_bearer import SberIdBearerAuth, SberIdRefreshedCallback
 from .store import (
     AuthManagerProtocol,
     CsafrontTokenStore,
@@ -49,6 +50,8 @@ from .tokens import CompanionTokens, CsafrontTokens, SberIdTokens
 __all__ = [
     "AuthManager",
     "AuthManagerProtocol",
+    "SberIdBearerAuth",
+    "SberIdRefreshedCallback",
     "CompanionTokens",
     "CsafrontAuthManager",
     "CsafrontTokenStore",

@@ -74,4 +74,7 @@ async def ws_force_refresh(
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
     await coord.async_request_refresh()
+    # Настройки колонок опрашиваются отдельным (часовым) троттлом — форсируем
+    # их тоже, иначе правки из приложения Сбера не подтянутся по «Обновить».
+    await coord.async_refresh_staros()
     connection.send_result(msg["id"], {"success": True})

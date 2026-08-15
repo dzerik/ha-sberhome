@@ -9,7 +9,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
-from .sbermap import HaEntityData, build_number_command
+from .sbermap import HaEntityData, StarosSettingEntity, build_number_command
+from .staros_settings_entity import SberStarosSettingBase
 
 
 async def async_setup_entry(
@@ -18,11 +19,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SberSbermapNumber] = []
+    entities: list[NumberEntity] = []
     for device_id, ha_entities in coordinator.entities.items():
         for ent in ha_entities:
             if ent.platform is Platform.NUMBER:
                 entities.append(SberSbermapNumber(coordinator, device_id, ent))
+    # Настройки-слайдеры умных колонок Сбера (громкость подсказок и т.п.).
+    for specs in coordinator.staros_settings_entities.values():
+        for spec in specs:
+            if spec.platform is Platform.NUMBER:
+                entities.append(SberStarosSettingNumber(coordinator, spec))
     async_add_entities(entities)
 
 
@@ -74,3 +80,34 @@ class SberSbermapNumber(SberBaseEntity, NumberEntity):
                 scale=self._scale,
             )
         )
+
+
+class SberStarosSettingNumber(SberStarosSettingBase, NumberEntity):
+    """Настройка-слайдер умной колонки Сбера."""
+
+    _attr_mode = NumberMode.AUTO
+
+    def __init__(
+        self,
+        coordinator: SberHomeCoordinator,
+        spec: StarosSettingEntity,
+    ) -> None:
+        super().__init__(coordinator, spec)
+        if spec.min_value is not None:
+            self._attr_native_min_value = spec.min_value
+        if spec.max_value is not None:
+            self._attr_native_max_value = spec.max_value
+        if spec.step is not None:
+            self._attr_native_step = spec.step
+        if spec.unit is not None:
+            self._attr_native_unit_of_measurement = spec.unit
+
+    @property
+    def native_value(self) -> float | None:
+        spec = self._current()
+        if spec is None or spec.state is None:
+            return None
+        return float(spec.state)
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self._async_write(value)

@@ -51,11 +51,18 @@ class HttpTransport:
         *,
         base_url: str = GATEWAY_BASE_URL,
         user_agent: str = DEFAULT_USER_AGENT,
+        auth_header_name: str = "X-AUTH-jwt",
+        auth_header_prefix: str = "",
     ) -> None:
         self._http = http
         self._auth = auth
         self._base_url = base_url.rstrip("/")
         self._user_agent = user_agent
+        # Gateway использует X-AUTH-jwt без префикса; companion-канал настроек
+        # колонок — Authorization: Bearer <token>. Одна транспортная логика,
+        # различается только имя/префикс auth-заголовка.
+        self._auth_header_name = auth_header_name
+        self._auth_header_prefix = auth_header_prefix
 
     # ----- HTTP verbs -----
     async def get(self, path: str, **kwargs: Any) -> httpx.Response:
@@ -212,8 +219,9 @@ class HttpTransport:
         token = await self._auth.access_token()
         # Gateway требует X-AUTH-jwt (без префикса Bearer). Это отличие от
         # стандартного OAuth2 — Sber использует custom-header для companion-токена.
+        # Companion settings-канал переопределяет имя на Authorization + "Bearer ".
         headers = {
-            "X-AUTH-jwt": token,
+            self._auth_header_name: f"{self._auth_header_prefix}{token}",
             "User-Agent": self._user_agent,
             "Accept": "application/json",
             "x-trace-id": str(uuid.uuid4()),

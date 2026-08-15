@@ -166,3 +166,46 @@ class TestAsyncSetupEntry:
             "device_vacuum_1_vacuum_cleaner_program",
             "device_door_1_sensor_sensitive",
         }
+
+
+class TestStarosSettingSelect:
+    """SELECT настройки колонки: показываем заголовки, пишем wire-значения."""
+
+    def _make(self):
+        from custom_components.sberhome.sbermap import StarosSettingEntity
+        from custom_components.sberhome.select import SberStarosSettingSelect
+
+        spec = StarosSettingEntity(
+            platform=Platform.SELECT,
+            unique_id="staros_SN_theme",
+            name="Тема",
+            node_id="theme",
+            node_type="RADIO_BUTTONS",
+            product="sberboom",
+            serial="SN",
+            state="dark",
+            options=("dark", "light"),
+            option_titles={"dark": "Тёмная", "light": "Светлая"},
+        )
+        coord = MagicMock()
+        coord.last_update_success = True
+        coord.staros_settings_entities = {"SN": [spec]}
+        coord.async_set_staros_setting = AsyncMock()
+        return SberStarosSettingSelect(coord, spec), coord
+
+    def test_options_are_titles(self):
+        ent, _ = self._make()
+        assert ent.options == ["Тёмная", "Светлая"]
+
+    def test_current_option_is_title(self):
+        ent, _ = self._make()
+        assert ent.current_option == "Тёмная"
+
+    @pytest.mark.asyncio
+    async def test_select_writes_wire_value(self):
+        ent, coord = self._make()
+        await ent.async_select_option("Светлая")
+        coord.async_set_staros_setting.assert_awaited_once()
+        args = coord.async_set_staros_setting.await_args.args
+        # (serial, product, node_id, node_type, value) → пишем wire-значение "light".
+        assert args[4] == "light"

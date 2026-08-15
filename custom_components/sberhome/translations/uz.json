@@ -36,7 +36,8 @@
       "already_configured": "Qurilma allaqachon sozlangan",
       "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi",
       "wrong_account": "Boshlang'ich yozuvdan farqli Sber hisob bilan kirildi. To'g'ri hisob bilan qaytadan kiring.",
-      "cannot_connect": "Sber serverlariga ulanib bo'lmadi. Ulanishni tekshirib, qayta urinib ko'ring."
+      "cannot_connect": "Sber serverlariga ulanib bo'lmadi. Ulanishni tekshirib, qayta urinib ko'ring.",
+      "no_url_available": "Home Assistant uchun ochiq URL sozlanmagan. Sozlamalar → Tizim → Tarmoq bo‘limida tashqi yoki ichki manzilni belgilang va qayta urinib ko‘ring."
     },
     "error": {
       "cannot_connect": "Ulanib bo'lmadi",

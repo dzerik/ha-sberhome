@@ -30,9 +30,19 @@ class HATokenStore:
     Поэтому нам достаточно вызвать `hass.config_entries.async_update_entry(...)`.
     """
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        *,
+        sberid_key: str = CONF_TOKEN,
+    ) -> None:
         self._hass = hass
         self._entry = entry
+        # Куда persist'ить ротированные SberID-токены. По умолчанию — основной
+        # `token`. Для отдельного канала (настройки колонок при SMS-входе)
+        # передаётся свой ключ, чтобы не перетирать основной токен.
+        self._sberid_key = sberid_key
 
     async def load(self) -> CompanionTokens | None:
         data = self._entry.data.get(CONF_COMPANION_TOKENS)
@@ -51,14 +61,17 @@ class HATokenStore:
         self._hass.config_entries.async_update_entry(self._entry, data=new_data)
 
     async def save_sberid(self, tokens: SberIdTokens) -> None:
-        """Persist ротированные SberID-токены в `entry.data["token"]`.
+        """Persist ротированные SberID-токены в `entry.data[self._sberid_key]`.
 
         Вызывается `AuthManager` callback'ом после каждой успешной ротации
         refresh_token'а. Без этого новый refresh_token остаётся только
         в памяти и после рестарта HA используется устаревший (invalid)
         → forced reauth.
+
+        Ключ настраивается: основной токен пишется в `token`, а отдельный
+        канал (настройки колонок при SMS-входе) — в свой ключ.
         """
-        new_data = {**self._entry.data, CONF_TOKEN: tokens.to_dict()}
+        new_data = {**self._entry.data, self._sberid_key: tokens.to_dict()}
         self._hass.config_entries.async_update_entry(self._entry, data=new_data)
 
 

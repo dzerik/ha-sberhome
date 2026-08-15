@@ -54,6 +54,16 @@ from .media_players import (
 )
 from .numbers import build_number_command
 from .selects import build_select_command
+from .staros_settings import (
+    EQ_PRESET_MANUAL,
+    StarosSettingEntity,
+    build_staros_value,
+    build_synthetic_equalizer,
+    builtin_equalizer_preset_names,
+    equalizer_preset_bands,
+    map_settings_screen_to_entities,
+    product_supports_equalizer,
+)
 from .switches import build_switch_command
 from .vacuums import VacuumCommand, build_vacuum_command
 
@@ -63,9 +73,15 @@ __all__ = [
     "ClimateState",
     "CoverConfig",
     "CoverStateSnapshot",
+    "EQ_PRESET_MANUAL",
     "HaEntityData",
     "LightConfig",
+    "StarosSettingEntity",
     "VacuumCommand",
+    "build_synthetic_equalizer",
+    "builtin_equalizer_preset_names",
+    "equalizer_preset_bands",
+    "product_supports_equalizer",
     "build_button_press_command",
     "build_climate_on_off_command",
     "build_climate_set_fan_mode_command",
@@ -82,7 +98,9 @@ __all__ = [
     "build_light_command",
     "build_number_command",
     "build_select_command",
+    "build_staros_value",
     "build_switch_command",
+    "map_settings_screen_to_entities",
     "build_tv_channel_command",
     "build_tv_custom_key_command",
     "build_tv_direction_command",

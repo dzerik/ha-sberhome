@@ -25,6 +25,20 @@ TOKEN_ENDPOINT: Final = "https://online.sberbank.ru:4431/CSAFront/api/service/oi
 COMPANION_BASE_URL: Final = "https://companion.devices.sberbank.ru"
 COMPANION_TOKEN_PATH: Final = "/v13/smarthome/token"
 
+# Канал настроек StarOS-устройств (колонки) — тот же companion-хост, но
+# авторизация Authorization: Bearer <companion access token>, НЕ X-AUTH-jwt.
+# Поле screen со значением null сервер не принимает — за это отвечает
+# omit_none при сериализации тела запроса.
+COMPANION_STAROS_DEVICES_PATH: Final = "/v18/devices"
+COMPANION_STAROS_SETTINGS_PATH: Final = "/v18/devices/settings"
+COMPANION_STAROS_SETTINGS_SET_PATH: Final = "/v18/devices/settings/device"
+
+# Poll-интервал канала настроек колонок. Настройки меняются из приложения
+# Сбера, и пользователь ждёт, что правки подтянутся в HA без часовой задержки,
+# поэтому опрашиваем раз в 10 минут (канал лёгкий). Мгновенно — по кнопке
+# «Обновить» (ws_force_refresh → async_refresh_staros, мимо троттла).
+STAROS_SETTINGS_POLL_INTERVAL_SEC: Final = 600
+
 # Gateway REST + WebSocket
 GATEWAY_BASE_URL: Final = "https://gateway.iot.sberdevices.ru/gateway/v1"
 # WebSocket: path `/v1`, auth через `Authorization: Bearer`, подписка на topic'и

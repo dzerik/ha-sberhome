@@ -59,6 +59,7 @@ from .rooms import (
     ws_rename_room,
 )
 from .settings import ws_force_refresh, ws_get_settings, ws_update_settings
+from .staros import ws_staros_list
 from .state_diffs import (
     ws_clear_state_diffs,
     ws_state_diffs,
@@ -136,6 +137,8 @@ _COMMANDS = (
     ws_status_tts_surrogate,
     ws_ensure_tts_surrogate,
     ws_test_tts_surrogate,
+    # v5.21.0 — настройки умных колонок (канал /v18): таб «Колонки»
+    ws_staros_list,
 )
 
 
@@ -172,6 +175,7 @@ __all__ = [
     "ws_replay_ws_message",
     "ws_set_device_area",
     "ws_set_enabled",
+    "ws_staros_list",
     "ws_state_diffs",
     "ws_status_tts_surrogate",
     "ws_subscribe_commands",

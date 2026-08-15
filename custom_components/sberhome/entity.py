@@ -10,7 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .aiosber.dto import AttributeValueDto
 from .aiosber.exceptions import AuthError
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, SPEAKER_MERGE_DOMAIN
 from .coordinator import SberHomeCoordinator
 from .identity import device_uid
 
@@ -88,8 +88,16 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         model = dto.device_info.model if dto and dto.device_info else None
         sw_version = dto.sw_version if dto else None
         room_name = self.coordinator.state_cache.device_room(self._device_id)
+        identifiers = {(DOMAIN, serial)}
+        # Колонкам добавляем общий с sboom_ha identifier — HA сольёт устройства
+        # в одну карточку (медиа sboom_ha + настройки sberhome). Общий ключ —
+        # тот же serial, которым обе интеграции ключуют колонку.
+        from .sbermap import resolve_device_category
+
+        if dto is not None and resolve_device_category(dto) == "sber_speaker":
+            identifiers.add((SPEAKER_MERGE_DOMAIN, serial))
         return DeviceInfo(
-            identifiers={(DOMAIN, serial)},
+            identifiers=identifiers,
             name=name,
             manufacturer="Sber",
             model=model,

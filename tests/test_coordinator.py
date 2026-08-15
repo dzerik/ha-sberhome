@@ -148,6 +148,12 @@ def coordinator(
     coord.indicator_colors = None
     coord._indicator_poll = ThrottledPoll(3600, "Indicator")
     coord._indicator_poll.disabled = True
+    # Домен настроек колонок — по умолчанию отключён в unit-тестах.
+    coord._staros_api = None
+    coord.staros_settings_entities = {}
+    coord.staros_devices = []
+    coord._staros_poll = ThrottledPoll(3600, "StarosSettings")
+    coord._staros_poll.disabled = True
     # Voice-intent dispatcher — вынесен в intent_dispatcher.py (SOLID);
     # coordinator держит инстанс и делегирует, тесты dispatcher'а — в
     # tests/test_intent_dispatcher.py.

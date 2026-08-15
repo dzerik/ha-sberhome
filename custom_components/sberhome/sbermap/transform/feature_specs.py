@@ -117,18 +117,22 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         icon="mdi:gamepad-variant",
         categories=_cats("sber_speaker"),
     ),
+    # Настройки колонки из gateway reported_state — READ-ONLY: gateway отдаёт
+    # актуальное значение push'ем, но запись в него сервер не применяет
+    # (реальная запись идёт по каналу /v18 — см. staros_settings_entity). Чтобы
+    # не было «отката» при попытке переключить gateway-зеркало, экспонируем их
+    # как сенсоры. Управление — через /v18-сущности («Звуковой отклик» и т.п.).
     "staros_assistant_sounds_enabled": FeatureSpec(
-        platform=Platform.SWITCH,
+        platform=Platform.BINARY_SENSOR,
         codec=BoolCodec(),
-        entity_category=_CFG,
+        entity_category=_DIAG,
         icon="mdi:volume-high",
         categories=_cats("sber_speaker"),
     ),
     "staros_age_mode": FeatureSpec(
-        platform=Platform.SELECT,
+        platform=Platform.SENSOR,
         codec=EnumCodec(),
-        options=("adult", "child"),
-        entity_category=_CFG,
+        entity_category=_DIAG,
         icon="mdi:account-child",
         categories=_cats("sber_speaker"),
     ),

@@ -3,6 +3,12 @@
 import logging
 
 DOMAIN = "sberhome"
+
+# Общий identifier-домен для устройства-колонки. Обе интеграции (эта и sboom_ha)
+# добавляют колонке identifier ("sber_speaker", <serial>) — HA сливает устройства
+# с общим identifier в одну карточку, так медиа (sboom_ha) и настройки/эквалайзер
+# (sberhome) оказываются на одном устройстве. serial у обеих интеграций общий.
+SPEAKER_MERGE_DOMAIN = "sber_speaker"
 LOGGER = logging.getLogger(__package__)
 
 DEFAULT_SCAN_INTERVAL = 30  # seconds (user-настраиваемый, fallback когда WS offline)

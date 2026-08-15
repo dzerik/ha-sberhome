@@ -28,6 +28,7 @@ await Promise.all([
   import(`./components/sberhome-automations-view.js${_q}`),
   import(`./components/sberhome-intent-modal.js${_q}`),
   import(`./components/sberhome-home-switcher.js${_q}`),
+  import(`./components/sberhome-speakers-view.js${_q}`),
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
@@ -341,6 +342,9 @@ class SberHomePanel extends LitElement {
 
   render() {
     const tabs = ["Devices", "Automations", "Monitor", "Debug", "Settings"];
+    // Таб «Колонки» — только когда обнаружена колонка Сбер. Добавляем в конец,
+    // чтобы не сдвигать индексы существующих вкладок (this._tab).
+    if (this._status?.speaker_present) tabs.push("Колонки");
     return html`
       <div class="top">
         <div class="header">
@@ -390,6 +394,13 @@ class SberHomePanel extends LitElement {
             включённой только одну.
           </div>`
         : ""}
+      ${this._status?.speaker_present &&
+      this._status?.staros_settings_available === false
+        ? html`<div class="warning">
+            Обнаружена колонка Сбер. Вход выполнен по SMS — управление
+            настройками колонки недоступно. Переавторизуйтесь через Сбер ID.
+          </div>`
+        : ""}
       <div class="content"
         @toast=${this._onToast}
         @show-device-detail=${this._onShowDeviceDetail}
@@ -411,6 +422,8 @@ class SberHomePanel extends LitElement {
           </sberhome-debug-view>` : ""}
         ${this._tab === 4 ? html`
           <sberhome-settings .hass=${this.hass}></sberhome-settings>` : ""}
+        ${this._tab === 5 ? html`
+          <sberhome-speakers-view .hass=${this.hass}></sberhome-speakers-view>` : ""}
       </div>
       <sberhome-toast></sberhome-toast>
       ${this._modalDeviceId

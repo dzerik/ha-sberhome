@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import time
 from collections.abc import Callable
 from datetime import timedelta
@@ -19,6 +20,7 @@ from typing import Any
 
 import httpx
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_OFF, STATE_ON, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -30,11 +32,13 @@ from homeassistant.helpers.update_coordinator import (
 
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
-from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI
+from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI, StarosSettingsAPI
 from .aiosber.auth import AuthManagerProtocol
+from .aiosber.const import STAROS_SETTINGS_POLL_INTERVAL_SEC
 from .aiosber.dto import AttributeValueDto, IndicatorColor, IndicatorColors
 from .aiosber.dto.device import DeviceDto
 from .aiosber.dto.scenario import ScenarioDto
+from .aiosber.dto.settings import StarosDeviceDto
 from .aiosber.dto.union import UnionDto
 from .aiosber.exceptions import ApiError as CoreApiError
 from .aiosber.exceptions import AuthError as CoreAuthError
@@ -68,8 +72,15 @@ from .intent_dispatcher import (
 from .listeners import ListenerRegistry
 from .registry_maintenance import prune_stale_devices, remove_unlinked_devices
 from .sbermap import (
+    EQ_PRESET_MANUAL,
     HaEntityData,
+    StarosSettingEntity,
+    build_staros_value,
+    build_synthetic_equalizer,
+    equalizer_preset_bands,
     map_device_to_entities,
+    map_settings_screen_to_entities,
+    product_supports_equalizer,
 )
 from .schema_validator import ValidationCollector
 from .state_diff import DiffCollector
@@ -111,6 +122,16 @@ INDICATOR_POLL_INTERVAL_SEC = 3600
 # Zigbee+Matter hub, intercom иногда несёт sub-streams.
 HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
 
+# Минимальный интервал между перечитками /v18-настроек, форсированными
+# gateway-WS push'ем колонки. Push'и приходят пачками (несколько attrs за раз),
+# поэтому дебаунсим, чтобы не дёргать REST-канал на каждый.
+STAROS_WS_TRIGGER_MIN_INTERVAL_SEC = 15
+
+# Окно после записи настройки колонки, в течение которого автоматические
+# перечитки /v18 пропускаются (сервер ещё отдаёт старое значение). Защита
+# optimistic-состояния от преждевременного затирания.
+STAROS_WRITE_COOLDOWN_SEC = 12
+
 
 class ThrottledPoll:
     """Throttle-состояние одного best-effort polling-домена.
@@ -140,6 +161,23 @@ class ThrottledPoll:
         self.disabled = False
 
 
+def _optimistic_staros_state(platform: Platform, value: Any) -> Any:
+    """HA-представление нового значения настройки колонки (optimistic)."""
+    if platform is Platform.SWITCH:
+        return STATE_ON if value else STATE_OFF
+    if platform is Platform.SELECT:
+        return str(value)
+    return value
+
+
+def _as_float(value: Any) -> float:
+    """Best-effort приведение к float (для полос эквалайзера)."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 
 
@@ -155,6 +193,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sber_api: SberAPI,
         transport: HttpTransport,
         auth_manager: AuthManagerProtocol,
+        staros_settings_api: StarosSettingsAPI | None = None,
     ) -> None:
         scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
@@ -240,9 +279,29 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.discovery_info: dict[str, dict[str, Any]] = {}
         self._discover_poll = ThrottledPoll(DISCOVER_POLL_INTERVAL_SEC, "Discovery")
         # Sber-wide LED indicator colors — настройки кольца на колонках.
-        # Не per-device, а одна настройка на аккаунт (как в мобильном app).
+        # Не per-device, а одна настройка на аккаунт (как в приложении Сбер).
         self.indicator_colors: IndicatorColors | None = None
         self._indicator_poll = ThrottledPoll(INDICATOR_POLL_INTERVAL_SEC, "Indicator")
+        # Настройки умных колонок Сбера (server-driven UI). Отдельный
+        # канал/токен от gateway-устройств, поэтому свой api + кэш.
+        # Ключ кэша сущностей — serial колонки. Домен best-effort:
+        # ошибка poll'а не валит основной refresh; AuthError выключает
+        # домен целиком (SMS-вход не даёт нужный токен).
+        self._staros_api = staros_settings_api
+        self.staros_settings_entities: dict[str, list[StarosSettingEntity]] = {}
+        self.staros_devices: list[StarosDeviceDto] = []
+        self._staros_poll = ThrottledPoll(STAROS_SETTINGS_POLL_INTERVAL_SEC, "StarosSettings")
+        # Троттл для перечитки /v18 по gateway-WS push колонки: изменения режимов
+        # (детский/возрастной и т.п.) зеркалятся в gateway reported_state и
+        # приходят push'ем — по нему форсируем staros-опрос (не чаще, чтобы не
+        # штормить). Сам эквалайзер в gateway не зеркалится (только /v18).
+        self._staros_ws_trigger_at: float | None = None
+        # Cooldown после записи настройки колонки: сразу после команды сервер
+        # /v18 ещё какое-то время отдаёт СТАРОЕ значение, поэтому автоматические
+        # перечитки (WS-push, пассивный опрос) в этом окне пропускаются — иначе
+        # они затирают optimistic и тумблер «откатывается». Ручное «Обновить»
+        # cooldown игнорирует.
+        self._staros_write_cooldown_until: float = 0.0
         # Listener registry (v5.5.0): YAML-managed map Sber-events → HA events.
         # Заполняется в __init__.py:async_setup_entry из CONFIG_SCHEMA.
         # До setup'а — пустой registry, find_matching возвращает [].
@@ -403,6 +462,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._maybe_poll_ota()
             await self._maybe_poll_discovery()
             await self._maybe_poll_indicator()
+            await self._maybe_poll_staros()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -701,6 +761,256 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 current_colors=new_current,
             )
         self.async_set_updated_data(self.data or {})
+
+    # ------------------------------------------------------------------
+    # Настройки умных колонок Сбера (server-driven settings)
+    # ------------------------------------------------------------------
+    async def _maybe_poll_staros(self) -> None:
+        """Throttled best-effort poll настроек колонок.
+
+        В отличие от прочих доменов, `AuthError` не просто отключает
+        throttle до ручного refresh, а насовсем гасит домен
+        (``_staros_api = None``): для SMS-входа нужного токена нет, и
+        повторные попытки бессмысленны. Основной refresh при этом не падает.
+        """
+        if self._staros_api is None:
+            return
+        now = time.time()
+        if not self._staros_poll.due(now):
+            return
+        # Не перечитываем сразу после записи — сервер ещё отдаёт старое значение.
+        if now < self._staros_write_cooldown_until:
+            return
+        try:
+            await self._refresh_staros()
+        except CoreAuthError as err:
+            LOGGER.warning(
+                "Настройки колонок недоступны для этого входа — отключаю домен: %s",
+                err,
+            )
+            self._staros_api = None
+        except Exception:
+            LOGGER.debug("Staros settings polling failed", exc_info=True)
+        finally:
+            self._staros_poll.last_poll_at = now
+
+    async def async_refresh_staros(self, *, respect_cooldown: bool = False) -> bool:
+        """Немедленно перечитать настройки колонок (мимо интервала опроса).
+
+        Нужно, чтобы правки, сделанные в приложении Сбера, подтягивались по
+        кнопке «Обновить»/HA-action, а не ждали интервала. ``respect_cooldown``
+        (для автоматических путей — WS-push) пропускает перечитку в окне сразу
+        после записи, чтобы не затереть optimistic старым значением сервера.
+        Возвращает True, если опрос выполнен (домен доступен).
+        """
+        if self._staros_api is None:
+            return False
+        if respect_cooldown and time.time() < self._staros_write_cooldown_until:
+            return False
+        try:
+            await self._refresh_staros()
+        except CoreAuthError as err:
+            LOGGER.warning(
+                "Настройки колонок недоступны для этого входа — отключаю домен: %s",
+                err,
+            )
+            self._staros_api = None
+            return False
+        except Exception:
+            LOGGER.debug("Staros settings force-refresh failed", exc_info=True)
+            return False
+        else:
+            self._staros_poll.last_poll_at = time.time()
+            self.async_set_updated_data(self.data)
+            return True
+
+    async def _refresh_staros(self) -> None:
+        """Загрузить устройства + экраны настроек, перемапить в сущности."""
+        api = self._staros_api
+        if api is None:
+            return
+        devices = await api.list_devices()
+        self.staros_devices = devices
+        new_entities: dict[str, list[StarosSettingEntity]] = {}
+        for dev in devices:
+            product = dev.product
+            serial = dev.serial_number
+            if not product or not serial:
+                continue
+            screen = await api.get_settings_deep(product, serial)
+            entities = (
+                map_settings_screen_to_entities(screen, product, serial)
+                if screen is not None
+                else []
+            )
+            # Аудио-эквалайзер сервер отдаёт в дереве не для всех прошивок, хотя
+            # запись поддерживается. Если узла нет, а колонка его поддерживает —
+            # синтезируем набор с известной структурой, перенося полосы с прошлого
+            # опроса (реального read у канала нет, состояние optimistic).
+            has_eq = any(e.eq_group for e in entities)
+            if not has_eq and product_supports_equalizer(product):
+                entities.extend(
+                    self._synthetic_equalizer_entities(product, serial)
+                )
+            if screen is None and not entities:
+                continue
+            new_entities[serial] = entities
+        self.staros_settings_entities = new_entities
+
+    def _synthetic_equalizer_entities(
+        self, product: str, serial: str
+    ) -> list[StarosSettingEntity]:
+        """Синтетический эквалайзер, сохраняя полосы/enabled с прошлого опроса."""
+        prev = self.staros_settings_entities.get(serial, [])
+        bands: list[float] = []
+        enabled = True
+        for e in sorted(
+            (x for x in prev if x.eq_role == "band" and x.eq_band_index is not None),
+            key=lambda x: x.eq_band_index,
+        ):
+            bands.append(_as_float(e.state))
+        for e in prev:
+            if e.eq_role == "enabled":
+                enabled = e.state == STATE_ON
+        return build_synthetic_equalizer(
+            product,
+            serial,
+            enabled=enabled,
+            bands=bands or None,
+        )
+
+    async def async_set_staros_setting(
+        self,
+        serial: str,
+        product: str,
+        node_id: str,
+        node_type: str,
+        value: Any,
+    ) -> None:
+        """Записать одну настройку колонки + optimistic update.
+
+        Следующий poll подтвердит реальное состояние. HA-value приводится к
+        wire-типу через `build_staros_value`.
+        """
+        if self._staros_api is None:
+            return
+        # Эквалайзер — особый случай: запись любой из его сущностей (enabled /
+        # пресет / полоса) шлёт весь объект целиком, собранный из текущих
+        # состояний набора.
+        if node_type == "EQUALIZER":
+            await self._write_staros_equalizer(serial, product, node_id, value)
+            return
+        await self._staros_api.set_setting(
+            product, serial, node_id, node_type, build_staros_value(node_type, value)
+        )
+        self._staros_write_cooldown_until = time.time() + STAROS_WRITE_COOLDOWN_SEC
+        entities = self.staros_settings_entities.get(serial)
+        if entities:
+            self.staros_settings_entities[serial] = [
+                dataclasses.replace(ent, state=_optimistic_staros_state(ent.platform, value))
+                if ent.node_id == node_id
+                else ent
+                for ent in entities
+            ]
+        self.async_set_updated_data(self.data)
+
+    async def _write_staros_equalizer(
+        self, serial: str, product: str, node_id: str, value: Any
+    ) -> None:
+        """Собрать полный объект эквалайзера из состояний набора + записать.
+
+        Сервер принимает эквалайзер только целиком
+        (``{enabled, activePreset, user:[полосы]}``), поэтому при изменении
+        одной сущности читаем текущие состояния всех сущностей группы
+        (``eq_group``), патчим изменённое поле и шлём объект.
+        """
+        if self._staros_api is None:
+            return
+        entities = self.staros_settings_entities.get(serial) or []
+        changed = next((e for e in entities if e.node_id == node_id), None)
+        if changed is None or changed.eq_group is None:
+            return
+        group = [e for e in entities if e.eq_group == changed.eq_group]
+
+        enabled = False
+        preset: str | None = None
+        bands: dict[int, float] = {}
+        for e in group:
+            if e.eq_role == "enabled":
+                enabled = e.state == STATE_ON
+            elif e.eq_role == "preset":
+                preset = e.state
+            elif e.eq_role == "band" and e.eq_band_index is not None:
+                bands[e.eq_band_index] = _as_float(e.state)
+
+        if changed.eq_role == "enabled":
+            enabled = bool(value)
+        elif changed.eq_role == "preset":
+            preset = str(value)
+            # Выбор именованного пресета выставляет его полосы (если известны).
+            # «Вручную»/неизвестный — оставляем текущие полосы как есть.
+            preset_bands = equalizer_preset_bands(preset)
+            if preset_bands is not None:
+                for i in list(bands):
+                    if i < len(preset_bands):
+                        bands[i] = preset_bands[i]
+        elif changed.eq_role == "band" and changed.eq_band_index is not None:
+            bands[changed.eq_band_index] = _as_float(value)
+            # Ручная правка полосы сбрасывает пресет в пользовательский режим.
+            preset = EQ_PRESET_MANUAL
+
+        # На сервер пресет уходит как строковый ключ; «Вручную» → "user".
+        server_preset = "user" if preset in (None, EQ_PRESET_MANUAL) else preset
+        body: dict[str, Any] = {
+            "enabled": enabled,
+            "activePreset": server_preset,
+            "user": [bands[i] for i in sorted(bands)],
+        }
+        await self._staros_api.set_setting(product, serial, changed.eq_group, "EQUALIZER", body)
+        self._staros_write_cooldown_until = time.time() + STAROS_WRITE_COOLDOWN_SEC
+
+        # Optimistic-патч всего набора: сервер применяет эквалайзер целиком,
+        # поэтому и локально обновляем все сущности группы (enabled/пресет/полосы),
+        # а не только изменённую. Иначе, например, выбор пресета менял бы селект,
+        # но полосы оставались бы старыми до следующего опроса (час).
+        display_preset = preset if preset is not None else EQ_PRESET_MANUAL
+        eq_enabled_state = STATE_ON if enabled else STATE_OFF
+
+        def _patched(e: StarosSettingEntity) -> StarosSettingEntity:
+            if e.eq_group != changed.eq_group:
+                return e
+            if e.eq_role == "enabled":
+                return dataclasses.replace(e, state=eq_enabled_state)
+            if e.eq_role == "preset":
+                return dataclasses.replace(e, state=display_preset)
+            if e.eq_role == "band" and e.eq_band_index in bands:
+                return dataclasses.replace(e, state=bands[e.eq_band_index])
+            return e
+
+        self.staros_settings_entities[serial] = [_patched(e) for e in entities]
+        self.async_set_updated_data(self.data)
+
+    def has_staros_settings(self) -> bool:
+        """Доступен ли домен настроек колонок (есть рабочий api)."""
+        return self._staros_api is not None
+
+    def staros_speaker_present(self) -> bool:
+        """Есть ли среди устройств колонка Сбера.
+
+        Определяется по существующей классификации категорий
+        (``sber_speaker``), плюс по продукту устройств канала настроек.
+        """
+        from .sbermap import resolve_device_category
+
+        for dto in self.state_cache.get_all_devices().values():
+            if resolve_device_category(dto) == "sber_speaker":
+                return True
+        prefixes = ("sberboom", "sberbox", "starbox")
+        for dev in self.staros_devices:
+            product = (dev.product or "").lower()
+            if product.startswith(prefixes):
+                return True
+        return False
 
     async def async_set_at_home(self, value: bool) -> None:
         """Записать переменную at_home + optimistic update."""
@@ -1134,6 +1444,30 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if new_dto is not None:
                 patched_data[device_id] = new_dto.to_dict()
             self.async_set_updated_data(patched_data)
+
+        # Колонка прислала push — вероятно, пользователь поменял что-то в
+        # приложении Сбера. Режимы (детский/возрастной и т.п.) зеркалятся в
+        # gateway, а вот их представление в канале /v18 (и связанные настройки)
+        # нужно перечитать. Форсируем staros-опрос, но не чаще троттла.
+        if new_dto is not None:
+            self._maybe_trigger_staros_from_push(new_dto)
+
+    def _maybe_trigger_staros_from_push(self, dto: DeviceDto) -> None:
+        """Если push пришёл от колонки — форсировать перечитку /v18 (throttled)."""
+        if self._staros_api is None:
+            return
+        from .sbermap import resolve_device_category
+
+        if resolve_device_category(dto) != "sber_speaker":
+            return
+        now = time.time()
+        if (
+            self._staros_ws_trigger_at is not None
+            and now - self._staros_ws_trigger_at < STAROS_WS_TRIGGER_MIN_INTERVAL_SEC
+        ):
+            return
+        self._staros_ws_trigger_at = now
+        self.hass.async_create_task(self.async_refresh_staros(respect_cooldown=True))
 
     async def _on_ws_group_state(self, msg: SocketMessageDto) -> None:
         """GROUP_STATE → полный refresh для обновления tree/room mapping.

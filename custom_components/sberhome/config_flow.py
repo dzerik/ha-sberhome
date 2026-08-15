@@ -13,6 +13,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 # ``OptionsFlowWithReload`` landed in HA 2025.12.  Older HA versions (still
 # shipped with some ``pytest-homeassistant-custom-component`` resolutions)
@@ -98,9 +99,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._register_views()
         auth_url = self._client.create_authorization_url()
         pending_auth_flows[self.flow_id] = PendingFlow(client=self._client)
+        # HA-фронт (2024.x+) прогоняет external_step.url через `new URL(url)`
+        # без base — относительный `/auth/sberhome?...` бросает TypeError, и
+        # ни попап, ни кнопка «Открыть сайт» не появляются. Отдаём абсолютный.
+        try:
+            base = get_url(
+                self.hass, prefer_external=True, allow_internal=True, allow_ip=True
+            )
+        except NoURLAvailableError:
+            return self.async_abort(reason="no_url_available")
         return self.async_external_step(
             step_id=step_id,
-            url=f"/auth/sberhome?flow_id={self.flow_id}&auth_url={quote(auth_url, safe='')}",
+            url=f"{base}/auth/sberhome?flow_id={self.flow_id}&auth_url={quote(auth_url, safe='')}",
         )
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:

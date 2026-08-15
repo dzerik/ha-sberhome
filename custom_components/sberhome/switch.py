@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import EntityCategory, Platform
+from homeassistant.const import STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -15,6 +15,7 @@ from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData, build_switch_command
+from .staros_settings_entity import SberStarosSettingBase
 from .switch_groups import SberGroupSwitch
 
 
@@ -38,6 +39,11 @@ async def async_setup_entry(
         if not coordinator.state_cache.get_group_devices(group_id):
             continue
         entities.append(SberGroupSwitch(coordinator, group_id))
+    # Настройки-тумблеры умных колонок Сбера (детский режим, звуки и т.п.).
+    for specs in coordinator.staros_settings_entities.values():
+        for spec in specs:
+            if spec.platform is Platform.SWITCH:
+                entities.append(SberStarosSettingSwitch(coordinator, spec))
     async_add_entities(entities)
 
 
@@ -124,3 +130,20 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_at_home(False)
+
+
+class SberStarosSettingSwitch(SberStarosSettingBase, SwitchEntity):
+    """Настройка-тумблер умной колонки Сбера."""
+
+    @property
+    def is_on(self) -> bool | None:
+        spec = self._current()
+        if spec is None:
+            return None
+        return spec.state == STATE_ON
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_write(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_write(False)

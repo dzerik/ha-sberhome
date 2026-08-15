@@ -36,7 +36,8 @@
       "already_configured": "Device is already configured",
       "reauth_successful": "Reauthentication successful",
       "wrong_account": "Signed in with a different Sber account than the original config entry. Sign in again with the correct account.",
-      "cannot_connect": "Could not reach Sber servers. Check the connection and try again."
+      "cannot_connect": "Could not reach Sber servers. Check the connection and try again.",
+      "no_url_available": "No accessible Home Assistant URL is configured. Set an external or internal URL in Settings → System → Network and try again."
     },
     "error": {
       "cannot_connect": "Failed to connect",

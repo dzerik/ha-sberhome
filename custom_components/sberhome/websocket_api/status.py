@@ -112,5 +112,10 @@ def ws_get_status(
             # Домены параллельно установленных Sber-интеграций (issue #10).
             # Панель рисует предупреждающий баннер если список непустой.
             "conflict_integrations": detect_conflicts(hass),
+            # Настройки умных колонок: есть ли колонка и доступен ли канал
+            # управления её настройками. Панель предупреждает, когда колонка
+            # есть, а канал недоступен (вход по SMS).
+            "speaker_present": coord.staros_speaker_present(),
+            "staros_settings_available": coord.has_staros_settings(),
         },
     )

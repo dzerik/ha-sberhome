@@ -76,7 +76,7 @@ CATEGORY_TO_HA_PLATFORMS: Final[dict[str, tuple[Platform, ...]]] = {
         Platform.BINARY_SENSOR,
         Platform.LIGHT,
         Platform.SELECT,
-        Platform.SWITCH,
+        Platform.SENSOR,
     ),
 }
 

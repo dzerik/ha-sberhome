@@ -14,6 +14,7 @@ from .inventory import InventoryAPI
 from .pairing import PairingAPI
 from .scenario_templates import ScenarioTemplatesAPI
 from .scenarios import ScenarioAPI
+from .settings import StarosSettingsAPI
 
 __all__ = [
     "DeviceAPI",
@@ -23,4 +24,5 @@ __all__ = [
     "PairingAPI",
     "ScenarioAPI",
     "ScenarioTemplatesAPI",
+    "StarosSettingsAPI",
 ]
