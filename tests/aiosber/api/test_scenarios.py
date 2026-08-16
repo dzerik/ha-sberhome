@@ -223,8 +223,8 @@ async def test_at_home_set():
 
     api, _ = _build(h)
     await api.set_at_home(False)
-    # Исторически рабочее одноключевое тело (без лишних полей).
-    assert captured["body"] == {"at_home": False}
+    # Проверено живым запросом: сервер принимает только {"bool_value": …}.
+    assert captured["body"] == {"bool_value": False}
 
 
 async def test_at_home_set_passes_home_id():

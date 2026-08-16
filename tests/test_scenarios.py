@@ -167,15 +167,71 @@ async def test_coordinator_sets_at_home_optimistically():
     coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     coord.data = {}
     coord.async_set_updated_data = MagicMock()
+    coord._ensure_home_id = AsyncMock()
+    coord.home_id = "home-1"
     api = MagicMock()
     api.set_at_home = AsyncMock()
     coord._scenario_api = MagicMock(return_value=api)
 
     await SberHomeCoordinator.async_set_at_home(coord, True)
-    api.set_at_home.assert_awaited_once_with(True)
+    # home_id прокидывается в запись (endpoint требует ?home_id=).
+    api.set_at_home.assert_awaited_once_with(True, "home-1")
     # Optimistic patch перед следующим poll'ом.
     assert coord.at_home is True
     coord.async_set_updated_data.assert_called_once()
+
+
+async def test_ensure_home_id_discovers_first_home():
+    """home_id берётся из первого дома `groups.list(group_type='HOME')`."""
+    from custom_components.sberhome.coordinator import SberHomeCoordinator
+
+    coord = MagicMock(spec=SberHomeCoordinator)
+    coord.home_id = None
+    home = MagicMock()
+    home.id = "home-xyz"
+    groups = MagicMock()
+    groups.list = AsyncMock(return_value=[home])
+    client = MagicMock()
+    client.groups = groups
+    coord.client = client
+
+    await SberHomeCoordinator._ensure_home_id(coord)
+    assert coord.home_id == "home-xyz"
+    groups.list.assert_awaited_once_with(group_type="HOME")
+
+
+async def test_refresh_scenarios_uses_home_id_for_at_home():
+    """at_home опрашивается с обнаруженным home_id."""
+    from custom_components.sberhome.coordinator import SberHomeCoordinator
+
+    coord = MagicMock(spec=SberHomeCoordinator)
+    coord.home_id = "home-1"
+    coord._ensure_home_id = AsyncMock()
+    api = MagicMock()
+    api.list = AsyncMock(return_value=[])
+    api.get_at_home = AsyncMock(return_value=True)
+    coord._scenario_api = MagicMock(return_value=api)
+
+    await SberHomeCoordinator._refresh_scenarios(coord)
+    api.get_at_home.assert_awaited_once_with("home-1")
+    assert coord.at_home is True
+
+
+async def test_refresh_scenarios_skips_at_home_without_home_id():
+    """Без home_id at_home не опрашивается (иначе 400 'bad home id')."""
+    from custom_components.sberhome.coordinator import SberHomeCoordinator
+
+    coord = MagicMock(spec=SberHomeCoordinator)
+    coord.home_id = None
+    coord._ensure_home_id = AsyncMock()
+    api = MagicMock()
+    api.list = AsyncMock(return_value=[])
+    api.get_at_home = AsyncMock()
+    coord._scenario_api = MagicMock(return_value=api)
+
+    await SberHomeCoordinator._refresh_scenarios(coord)
+    api.get_at_home.assert_not_awaited()
+    assert coord.at_home is None
 
 
 # ---------------------------------------------------------------------------

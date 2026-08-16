@@ -178,16 +178,16 @@ class ScenarioAPI:
     async def set_at_home(self, at_home: bool, home_id: str | None = None) -> None:
         """Записать переменную "я дома".
 
-        Тело — исторически рабочее одноключевое `{"at_home": bool}`
-        (проверено в проде). Не добавляем лишних ключей: строгий шлюз
-        может отвергнуть запрос с неизвестным полем целиком. Опциональный
-        `home_id` уходит в query.
+        Тело — `{"bool_value": bool}` (проверено живым запросом: сервер
+        отвечает 400 «requires a bool value» на любую другую форму, включая
+        `{"at_home": ...}`). `home_id` в query обязателен, иначе 400 «bad
+        home id».
         """
         params = {"home_id": home_id} if home_id else None
         await self._transport.put(
             "/scenario/v2/home/variable/at_home",
             params=params,
-            json={"at_home": at_home},
+            json={"bool_value": at_home},
         )
 
     async def get_form(self) -> dict[str, Any]:

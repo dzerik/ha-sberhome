@@ -265,6 +265,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # пользователя), и быстрая реактивность здесь не нужна.
         self.scenarios: list[ScenarioDto] = []
         self.at_home: bool | None = None
+        # home_id первого дома аккаунта — нужен для переменной at_home
+        # (endpoint /home/variable/at_home требует ?home_id=, иначе 400).
+        # Обнаруживается лениво один раз (см. _ensure_home_id).
+        self.home_id: str | None = None
         # Throttle-состояния best-effort polling-доменов. Один общий
         # паттерн (см. ThrottledPoll + _throttled_poll): не чаще interval,
         # disable-on-error до manual refresh.
@@ -639,13 +643,35 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Throttled poll сценариев + at_home переменной."""
         await self._throttled_poll(self._scenarios_poll, self._refresh_scenarios)
 
+    async def _ensure_home_id(self) -> None:
+        """Лениво найти home_id (первый дом аккаунта) — нужен для at_home.
+
+        `GET /device_groups?group_type=HOME` возвращает дома аккаунта;
+        берём первый. Best-effort: при ошибке home_id остаётся None и
+        at_home просто не опрашивается (сущность → unavailable).
+        """
+        if self.home_id is not None:
+            return
+        try:
+            homes = await self.client.groups.list(group_type="HOME")
+        except Exception:
+            return
+        for home in homes:
+            hid = getattr(home, "id", None)
+            if hid:
+                self.home_id = hid
+                return
+
     async def _refresh_scenarios(self) -> None:
         api = self._scenario_api()
         scenarios = await api.list()
-        try:
-            at_home = await api.get_at_home()
-        except Exception:
-            at_home = None
+        await self._ensure_home_id()
+        at_home: bool | None = None
+        if self.home_id:
+            try:
+                at_home = await api.get_at_home(self.home_id)
+            except Exception:
+                at_home = None
         self.scenarios = scenarios
         self.at_home = at_home
 
@@ -1011,7 +1037,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_at_home(self, value: bool) -> None:
         """Записать переменную at_home + optimistic update."""
         api = self._scenario_api()
-        await api.set_at_home(value)
+        await self._ensure_home_id()
+        await api.set_at_home(value, self.home_id)
         # Optimistic — следующий poll подтвердит.
         self.at_home = value
         self.async_set_updated_data(self.data or {})
