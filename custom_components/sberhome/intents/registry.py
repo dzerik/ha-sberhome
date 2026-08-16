@@ -172,12 +172,23 @@ def _encode_device_command(data: dict[str, Any]) -> list[dict[str, Any]]:
     attrs = data.get("attributes") or []
     if not device_id or not isinstance(attrs, list) or not attrs:
         return []
+    # Sber ждёт desired_state как [{state: <AttributeValue>, relative, mode}],
+    # а не голый список AttributeValue (проверено live). Оборачиваем каждый
+    # атрибут в RANGE_SET (задать значение). Уже обёрнутые не трогаем.
+    desired: list[dict[str, Any]] = []
+    for attr in attrs:
+        if not isinstance(attr, dict):
+            continue
+        if "state" in attr and ("mode" in attr or "relative" in attr):
+            desired.append(attr)
+        else:
+            desired.append({"state": attr, "relative": False, "mode": "RANGE_SET"})
     return [
         {
             "type": "DEVICE_COMMAND",
             "device_command_data": {
                 "device_id": device_id,
-                "desired_state": attrs,
+                "desired_state": desired,
             },
         }
     ]
@@ -196,12 +207,18 @@ def _decode_device_command(
     if matched is None:
         return None, tasks
     dc = matched.get("device_command_data") or {}
+    # Разворачиваем {state, relative, mode} обратно в голый AttributeValue,
+    # чтобы редактор/форма работали с плоским attr (encode обернёт снова).
+    attributes = [
+        item.get("state", item) if isinstance(item, dict) else item
+        for item in (dc.get("desired_state") or [])
+    ]
     return (
         IntentAction(
             type="device_command",
             data={
                 "device_id": str(dc.get("device_id", "")),
-                "attributes": list(dc.get("desired_state") or []),
+                "attributes": attributes,
             },
         ),
         leftover,

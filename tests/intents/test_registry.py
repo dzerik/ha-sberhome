@@ -77,9 +77,41 @@ class TestEncodeDecodeDeviceCommand:
         reg = get_action("device_command")
         tasks = reg.encode(action.data)
         assert tasks[0]["device_command_data"]["device_id"] == "lamp-1"
+        # Атрибут обёрнут в канонический {state, relative, mode} (проверено live).
+        assert tasks[0]["device_command_data"]["desired_state"] == [
+            {
+                "state": {"key": "on_off", "type": "BOOL", "bool_value": True},
+                "relative": False,
+                "mode": "RANGE_SET",
+            }
+        ]
         decoded, leftover = reg.decode(tasks)
         assert leftover == []
+        # decode разворачивает обратно в голый attr → round-trip.
         assert decoded == action
+
+    def test_decode_wrapped_desired_state(self):
+        """Sber отдаёт desired_state обёрнутым — decode даёт голый attr."""
+        reg = get_action("device_command")
+        tasks = [
+            {
+                "type": "DEVICE_COMMAND",
+                "device_command_data": {
+                    "device_id": "lamp-1",
+                    "desired_state": [
+                        {
+                            "state": {"key": "light_brightness", "type": "INTEGER", "integer_value": "500"},
+                            "relative": False,
+                            "mode": "RANGE_SET",
+                        }
+                    ],
+                },
+            }
+        ]
+        decoded, _ = reg.decode(tasks)
+        assert decoded.data["attributes"] == [
+            {"key": "light_brightness", "type": "INTEGER", "integer_value": "500"}
+        ]
 
 
 class TestEncodeDecodeTriggerNotify:
