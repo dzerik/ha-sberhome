@@ -306,6 +306,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         if _legacy_id is not None:
             _ent_reg.async_remove(_legacy_id)
 
+    # Group-свитчи с 5.26.2 живут в общем HA-device «Sber Groups» (было —
+    # отдельный device на группу с задвоенным именем). Удаляем сущности,
+    # висящие на старом per-group device, чтобы пересоздались с чистым
+    # entity_id `switch.sber_groups_<имя>`. Одноразово: после пересоздания
+    # они уже на новом device и под фильтр не попадают.
+    from homeassistant.helpers import device_registry as dr
+
+    _dev_reg = dr.async_get(hass)
+    for _ent in list(_ent_reg.entities.values()):
+        if _ent.config_entry_id != entry.entry_id:
+            continue
+        if not _ent.unique_id.startswith("sber_group_"):
+            continue
+        _dev = _dev_reg.async_get(_ent.device_id) if _ent.device_id else None
+        if _dev is not None and any(
+            idf[0] == DOMAIN and idf[1].startswith("group:") for idf in _dev.identifiers
+        ):
+            _ent_reg.async_remove(_ent.entity_id)
+
     # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
     # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
     # entities в HA до выбора. Legacy установки (без ключа options) считаются

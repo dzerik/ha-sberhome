@@ -41,11 +41,15 @@ class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
 
     @property
     def device_info(self) -> dict[str, Any]:
+        # Общий HA-device «Sber Groups» (как «Sber Scenarios») — чтобы имя
+        # сущности читалось «Sber Groups Вытяжки», а не задвоенное «Вытяжки
+        # Вытяжки», и было ясно, что это группа из Сбера.
         return {
-            "identifiers": {(DOMAIN, f"group:{self._group_id}")},
-            "manufacturer": "Sber",
-            "model": "Group",
-            "name": self._attr_name,
+            "identifiers": {(DOMAIN, "groups")},
+            "name": "Sber Groups",
+            "manufacturer": "Sberdevices",
+            "model": "Cloud Groups",
+            "entry_type": "service",
         }
 
     def _device_ids(self) -> list[str]:
