@@ -38,17 +38,20 @@ class ScenarioWidgetDto:
 class ScenarioDto:
     """Сценарий Sber v2 — REST API ``/scenario/v2/scenario``.
 
-    ``triggers`` и ``actions`` — сложные вложенные структуры, оставлены
-    как list[dict] для гибкости (shape зависит от типа trigger/action).
+    Поля соответствуют реальному ответу gateway: ``is_active`` — включён ли
+    сценарий (автосрабатывание), ``is_faulty`` — есть ли проблема,
+    ``image`` — иконка. ``steps`` — вложенная структура действий, оставлена
+    как list[dict] (shape зависит от типа шага).
     """
 
     id: str | None = None
     name: str | None = None
-    type: str | None = None
-    enabled: bool | None = None
+    is_active: bool | None = None
+    is_faulty: bool | None = None
+    image: str | None = None
+    home_id: str | None = None
     description: str | None = None
-    triggers: list[dict[str, Any]] = field(default_factory=list)
-    actions: list[dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> Self | None:

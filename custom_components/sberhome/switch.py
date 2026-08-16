@@ -32,6 +32,10 @@ async def async_setup_entry(
                 entities.append(SberSbermapSwitch(coordinator, device_id, ent))
     for home in coordinator.homes:
         entities.append(SberAtHomeSwitch(coordinator, home["id"], home["name"]))
+    # Тумблер автосрабатывания на каждый облачный сценарий Sber.
+    for scenario in coordinator.scenarios:
+        if scenario.id and scenario.name:
+            entities.append(SberScenarioActiveSwitch(coordinator, scenario.id, scenario.name))
     # Sber custom-groups (group_type=GROUP) как bulk-switch entities.
     # Группы без devices пропускаются — не создаём пустых toggle'ов.
     for group_id, group in coordinator.state_cache.get_all_groups().items():
@@ -132,6 +136,55 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_at_home(False, self._home_id)
+
+
+class SberScenarioActiveSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
+    """Тумблер автосрабатывания облачного сценария Sber (`is_active`).
+
+    On/off меняет, срабатывает ли сценарий по своему триггеру (фраза,
+    датчик, расписание). Запуск сценария «прямо сейчас» — отдельная
+    кнопка `button` (см. button.py). Все сценарии — в device 'Sber Scenarios'.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:calendar-check"
+
+    def __init__(
+        self,
+        coordinator: SberHomeCoordinator,
+        scenario_id: str,
+        scenario_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._scenario_id = scenario_id
+        self._attr_name = scenario_name
+        self._attr_unique_id = f"sberhome_scenario_active_{scenario_id}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "scenarios")},
+            "name": "Sber Scenarios",
+            "manufacturer": "Sberdevices",
+            "model": "Cloud Scenarios",
+            "entry_type": "service",
+        }
+
+    def _scenario(self):
+        return next((s for s in self.coordinator.scenarios if s.id == self._scenario_id), None)
+
+    @property
+    def available(self) -> bool:
+        return self._scenario() is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        scenario = self._scenario()
+        return scenario.is_active if scenario else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_scenario_active(self._scenario_id, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_scenario_active(self._scenario_id, False)
 
 
 class SberStarosSettingSwitch(SberStarosSettingBase, SwitchEntity):

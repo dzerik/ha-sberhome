@@ -689,6 +689,15 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # используем минимальный вариант, который наблюдается в обмене.
         await api.execute_command({"scenario_id": scenario_id})
 
+    async def async_set_scenario_active(self, scenario_id: str, active: bool) -> None:
+        """Вкл/выкл автосрабатывание сценария + optimistic update."""
+        await self._scenario_api().set_active(scenario_id, active)
+        self.scenarios = [
+            dataclasses.replace(s, is_active=active) if s.id == scenario_id else s
+            for s in self.scenarios
+        ]
+        self.async_set_updated_data(self.data or {})
+
     # ------------------------------------------------------------------
     # OTA polling
     # ------------------------------------------------------------------

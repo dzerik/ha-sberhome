@@ -18,7 +18,7 @@ from custom_components.sberhome.aiosber.dto.scenario import ScenarioDto
 from custom_components.sberhome.binary_sensor import SberAtHomeBinarySensor
 from custom_components.sberhome.button import SberScenarioButton
 from custom_components.sberhome.coordinator import SCENARIO_POLL_INTERVAL_SEC
-from custom_components.sberhome.switch import SberAtHomeSwitch
+from custom_components.sberhome.switch import SberAtHomeSwitch, SberScenarioActiveSwitch
 
 # ---------------------------------------------------------------------------
 # Coordinator scenario polling
@@ -63,6 +63,58 @@ class TestScenarioButton:
         btn = SberScenarioButton(coord, "sc-1", "X")
         await btn.async_press()
         coord.async_execute_scenario.assert_awaited_once_with("sc-1")
+
+
+# ---------------------------------------------------------------------------
+# SberScenarioActiveSwitch — тумблер автосрабатывания
+# ---------------------------------------------------------------------------
+
+
+class TestScenarioActiveSwitch:
+    def test_is_on_mirrors_scenario_is_active(self):
+        coord = _coord(scenarios=[ScenarioDto(id="sc-1", name="X", is_active=True)])
+        sw = SberScenarioActiveSwitch(coord, "sc-1", "X")
+        assert sw.available is True
+        assert sw.is_on is True
+
+    def test_unavailable_when_scenario_gone(self):
+        coord = _coord(scenarios=[])
+        sw = SberScenarioActiveSwitch(coord, "sc-1", "X")
+        assert sw.available is False
+        assert sw.is_on is None
+
+    @pytest.mark.asyncio
+    async def test_turn_on_off_call_coordinator(self):
+        coord = _coord(scenarios=[ScenarioDto(id="sc-1", name="X", is_active=False)])
+        coord.async_set_scenario_active = AsyncMock()
+        sw = SberScenarioActiveSwitch(coord, "sc-1", "X")
+        await sw.async_turn_on()
+        coord.async_set_scenario_active.assert_awaited_once_with("sc-1", True)
+        await sw.async_turn_off()
+        coord.async_set_scenario_active.assert_awaited_with("sc-1", False)
+
+
+async def test_coordinator_sets_scenario_active_optimistically():
+    """set_active шлётся в API + оптимистично патчит is_active в списке."""
+    from custom_components.sberhome.coordinator import SberHomeCoordinator
+
+    coord = MagicMock(spec=SberHomeCoordinator)
+    coord.data = {}
+    coord.async_set_updated_data = MagicMock()
+    coord.scenarios = [
+        ScenarioDto(id="sc-1", name="A", is_active=True),
+        ScenarioDto(id="sc-2", name="B", is_active=True),
+    ]
+    api = MagicMock()
+    api.set_active = AsyncMock()
+    coord._scenario_api = MagicMock(return_value=api)
+
+    await SberHomeCoordinator.async_set_scenario_active(coord, "sc-2", False)
+    api.set_active.assert_awaited_once_with("sc-2", False)
+    # Оптимистично: только sc-2 стал is_active=False.
+    by_id = {s.id: s.is_active for s in coord.scenarios}
+    assert by_id == {"sc-1": True, "sc-2": False}
+    coord.async_set_updated_data.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
