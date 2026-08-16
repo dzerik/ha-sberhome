@@ -162,12 +162,17 @@ async def test_set_requires():
     captured: dict = {}
 
     def h(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["path"] = req.url.path
         captured["body"] = json.loads(req.content)
         return httpx.Response(200, json={})
 
     api, _ = _build(h)
-    await api.set_requires({"requires": ["geo"]})
-    assert captured["body"] == {"requires": ["geo"]}
+    await api.set_requires({"scenario_id": "s1", "requires": {}})
+    # Bugfix: POST на /scenario/v2/scenario/set-requires (не PUT /scenario/v2/set-requires).
+    assert captured["method"] == "POST"
+    assert captured["path"].endswith("/scenario/v2/scenario/set-requires")
+    assert captured["body"] == {"scenario_id": "s1", "requires": {}}
 
 
 async def test_at_home_get():
@@ -187,6 +192,28 @@ async def test_at_home_get_default_false():
     assert await api.get_at_home() is False
 
 
+async def test_at_home_get_nested_variable_form():
+    """Реальный wire: {variable:{name:at_home, value:{bool_value:true}}}."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"variable": {"name": "at_home", "value": {"bool_value": True}}},
+        )
+
+    api, _ = _build(h)
+    assert await api.get_at_home() is True
+
+
+async def test_at_home_get_passes_home_id():
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.params.get("home_id") == "home-1"
+        return httpx.Response(200, json={"variable": {"value": {"bool_value": False}}})
+
+    api, _ = _build(h)
+    assert await api.get_at_home("home-1") is False
+
+
 async def test_at_home_set():
     captured: dict = {}
 
@@ -196,7 +223,63 @@ async def test_at_home_set():
 
     api, _ = _build(h)
     await api.set_at_home(False)
+    # Исторически рабочее одноключевое тело (без лишних полей).
     assert captured["body"] == {"at_home": False}
+
+
+async def test_at_home_set_passes_home_id():
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.params.get("home_id") == "h9"
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    await api.set_at_home(True, "h9")
+
+
+async def test_scenario_stop():
+    captured: dict = {}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["path"] = req.url.path
+        captured["body"] = json.loads(req.content)
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    await api.stop("sc-1")
+    assert captured["method"] == "POST"
+    assert captured["path"].endswith("/scenario/v2/scenario/sc-1/stop")
+    assert captured["body"] == {}
+
+
+async def test_scenario_cancel():
+    captured: dict = {}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["path"] = req.url.path
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    await api.cancel("sc-2")
+    assert captured["method"] == "POST"
+    assert captured["path"].endswith("/scenario/v2/scenario/sc-2/cancel")
+
+
+async def test_scenario_set_active_uses_patch():
+    captured: dict = {}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["path"] = req.url.path
+        captured["body"] = json.loads(req.content)
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    await api.set_active("sc-3", False)
+    assert captured["method"] == "PATCH"
+    assert captured["path"].endswith("/scenario/v2/scenario/sc-3/active")
+    assert captured["body"] == {"is_active": False}
 
 
 async def test_get_form():
@@ -230,8 +313,8 @@ async def test_sber_client_scenarios_property():
 async def test_run_scenario_posts_to_run_endpoint():
     """POST /scenario/v2/scenario/{id}/run с body {is_active: true}.
 
-    Programmatic-run endpoint (decompiled `runScenario`) — то же что
-    кнопка «Запустить действие» в мобильном приложении.
+    Programmatic-run endpoint — то же что кнопка «Запустить действие»
+    в мобильном приложении.
     """
     captured: dict = {}
 

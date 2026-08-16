@@ -9,11 +9,15 @@ Endpoints (gateway/v1):
 - `POST /scenario/v2/scenario` — создать.
 - `PUT /scenario/v2/scenario/{id}` — обновить.
 - `DELETE /scenario/v2/scenario/{id}` — удалить.
+- `POST /scenario/v2/scenario/{id}/run` — запустить сейчас.
+- `POST /scenario/v2/scenario/{id}/stop` — остановить исполняющийся.
+- `POST /scenario/v2/scenario/{id}/cancel` — отменить.
+- `PATCH /scenario/v2/scenario/{id}/active` — тумблер автосрабатывания.
 - `POST /scenario/v2/command` — отправить разовую команду (без сценария).
 - `POST /scenario/v2/event` — триггер event.
 - `GET /scenario/v2/widget` — виджеты.
 - `GET /scenario/v2/system-scenario` — системные.
-- `PUT /scenario/v2/set-requires` — требования (зависимости).
+- `POST /scenario/v2/scenario/set-requires` — условие «дома/не дома».
 - `GET/PUT /scenario/v2/home/variable/at_home` — переменная "я дома".
 - `GET /scenario/v2/scenario/form` — форма редактора.
 
@@ -94,7 +98,7 @@ class ScenarioAPI:
         """`POST /scenario/v2/scenario/{id}/run` — запустить сценарий программно.
 
         То же что кнопка «Запустить действие» в мобильном приложении Sber.
-        Body — `ScenarioBody{is_active: true}` (single optional field).
+        Тело — `{is_active: true}` (одно опциональное поле).
 
         Используется HA-side для test_intent — реально выполнить Sber
         actions (TTS / device_command / etc.) без необходимости
@@ -110,24 +114,79 @@ class ScenarioAPI:
         except (ValueError, AttributeError):
             return {"ok": True}
 
+    async def stop(self, scenario_id: str) -> None:
+        """`POST /scenario/v2/scenario/{id}/stop` — остановить исполняющийся сценарий.
+
+        Тело запроса — пустой объект `{}`. Симметрично `run` — прерывает
+        уже запущенный (в т.ч. режимный/длящийся) сценарий.
+        """
+        await self._transport.post(
+            f"/scenario/v2/scenario/{scenario_id}/stop",
+            json={},
+        )
+
+    async def cancel(self, scenario_id: str) -> None:
+        """`POST /scenario/v2/scenario/{id}/cancel` — отменить запланированный/идущий сценарий.
+
+        Тело — `{is_active: true}` (как у `run`, id в path).
+        """
+        await self._transport.post(
+            f"/scenario/v2/scenario/{scenario_id}/cancel",
+            json={"is_active": True},
+        )
+
+    async def set_active(self, scenario_id: str, active: bool) -> None:
+        """`PATCH /scenario/v2/scenario/{id}/active` — тумблер активности сценария.
+
+        Включает/выключает автосрабатывание сценария (НЕ запуск сейчас).
+        Тело — `{is_active: <bool>}`; метод именно PATCH, не POST.
+        """
+        await self._transport.patch(
+            f"/scenario/v2/scenario/{scenario_id}/active",
+            json={"is_active": active},
+        )
+
     async def fire_event(self, event: dict[str, Any]) -> dict[str, Any]:
         """Триггер события (для запуска сценариев извне)."""
         resp = await self._transport.post("/scenario/v2/event", json=event)
         return _unwrap_dict(resp.json())
 
     async def set_requires(self, requires: dict[str, Any]) -> None:
-        await self._transport.put("/scenario/v2/set-requires", json=requires)
+        """`POST /scenario/v2/scenario/set-requires` — условие «дома/не дома» сценария.
+
+        Тело — `ScenarioRequiresDto{scenario_id, requires}`. Это НЕ
+        `PUT /scenario/v2/set-requires` (устаревший путь давал 404).
+        """
+        await self._transport.post("/scenario/v2/scenario/set-requires", json=requires)
 
     # ----- "at_home" variable -----
-    async def get_at_home(self) -> bool:
-        """Текущее значение переменной "я дома"."""
-        resp = await self._transport.get("/scenario/v2/home/variable/at_home")
-        payload = _unwrap_dict(resp.json())
-        return bool(payload.get("at_home", False))
+    async def get_at_home(self, home_id: str | None = None) -> bool:
+        """Текущее значение переменной "я дома".
 
-    async def set_at_home(self, at_home: bool) -> None:
+        Ответ — вложенный `{"variable": {"name": "at_home", "value":
+        {"bool_value": true}}}`. Парсим устойчиво: поддерживаем и вложенную
+        форму, и плоскую (`{"at_home": bool}` / `{"bool_value": bool}`) на
+        случай server-side drift'а.
+        """
+        params = {"home_id": home_id} if home_id else None
+        resp = await self._transport.get(
+            "/scenario/v2/home/variable/at_home",
+            params=params,
+        )
+        return _extract_at_home(_unwrap_dict(resp.json()))
+
+    async def set_at_home(self, at_home: bool, home_id: str | None = None) -> None:
+        """Записать переменную "я дома".
+
+        Тело — исторически рабочее одноключевое `{"at_home": bool}`
+        (проверено в проде). Не добавляем лишних ключей: строгий шлюз
+        может отвергнуть запрос с неизвестным полем целиком. Опциональный
+        `home_id` уходит в query.
+        """
+        params = {"home_id": home_id} if home_id else None
         await self._transport.put(
             "/scenario/v2/home/variable/at_home",
+            params=params,
             json={"at_home": at_home},
         )
 
@@ -174,6 +233,28 @@ class ScenarioAPI:
 
 
 # ----- helpers -----
+def _extract_at_home(payload: dict[str, Any]) -> bool:
+    """Достать значение at_home из ответа /home/variable/at_home.
+
+    Поддерживает три формы:
+    - вложенную ``{"variable": {"value": {"bool_value": true}}}`` (реальный wire);
+    - полу-вложенную ``{"value": {"bool_value": true}}``;
+    - плоскую ``{"at_home": true}`` / ``{"bool_value": true}``.
+    """
+    node: Any = payload.get("variable", payload)
+    if isinstance(node, dict):
+        value = node.get("value", node)
+        if isinstance(value, dict):
+            if "bool_value" in value:
+                return bool(value["bool_value"])
+            if "at_home" in value:
+                return bool(value["at_home"])
+    for key in ("bool_value", "at_home"):
+        if key in payload:
+            return bool(payload[key])
+    return False
+
+
 def _unwrap_dict(payload: Any) -> dict[str, Any]:
     if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
         return payload["result"]

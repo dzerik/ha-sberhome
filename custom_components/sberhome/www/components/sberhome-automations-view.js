@@ -43,24 +43,42 @@ export class SberhomeAutomationsView extends LitElement {
   static get styles() {
     return [css`
       :host { display: block; }
-      .segmented {
-        display: inline-flex; gap: 0;
-        border: 1px solid var(--divider-color, #ddd);
-        border-radius: 8px; overflow: hidden;
+      /* Подтабы — chip-стиль, единый с табом «Колонки» (speakers-view). */
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
         margin: 12px 16px;
       }
-      .segmented button {
-        padding: 6px 14px; font-size: 13px;
-        background: transparent; border: 0; cursor: pointer;
+      .chip {
+        border: 1px solid var(--divider-color, #ccc);
+        background: transparent;
+        color: var(--secondary-text-color, #666);
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .chip.active {
+        background: var(--primary-color, #03a9f4);
+        border-color: var(--primary-color, #03a9f4);
+        color: #fff;
+      }
+      .count {
+        font-size: 11px;
+        line-height: 1;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--divider-color, #ddd);
         color: var(--primary-text-color);
-        border-right: 1px solid var(--divider-color, #ddd);
       }
-      .segmented button:last-child { border-right: 0; }
-      .segmented button.active {
-        background: var(--primary-color, #0066cc);
-        color: var(--text-primary-color, white);
+      .chip.active .count {
+        background: rgba(255, 255, 255, 0.3);
+        color: #fff;
       }
-      .count { margin-left: 6px; opacity: 0.75; font-size: 11px; }
     `, mobileBase];
   }
 
@@ -78,19 +96,21 @@ export class SberhomeAutomationsView extends LitElement {
 
   render() {
     return html`
-      <div class="segmented">
+      <div class="chips">
         <button
-          class=${this._section === "intents" ? "active" : ""}
+          class="chip ${this._section === "intents" ? "active" : ""}"
           @click=${() => (this._section = "intents")}
-        >🎤 Intents</button>
+        >🎤 Сценарии</button>
         <button
-          class=${this._section === "listeners" ? "active" : ""}
+          class="chip ${this._section === "listeners" ? "active" : ""}"
           @click=${() => (this._section = "listeners")}
-        >⚡ Listeners<span class="count">${this._listenersCount}</span></button>
+        >⚡ Слушатели${this._listenersCount
+          ? html`<span class="count">${this._listenersCount}</span>`
+          : ""}</button>
         <button
-          class=${this._section === "tts" ? "active" : ""}
+          class="chip ${this._section === "tts" ? "active" : ""}"
           @click=${() => (this._section = "tts")}
-        >🔊 TTS</button>
+        >🔊 Озвучка</button>
       </div>
 
       ${this._section === "intents"
