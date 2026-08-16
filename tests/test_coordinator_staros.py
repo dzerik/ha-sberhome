@@ -74,9 +74,7 @@ async def test_staros_synthesizes_equalizer_when_absent():
     """Нет узла эквалайзера в дереве + поддерживаемый продукт → синтез."""
     api = AsyncMock()
     api.list_devices = AsyncMock(
-        return_value=[
-            StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom-r2")
-        ]
+        return_value=[StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom-r2")]
     )
     api.get_settings_deep = AsyncMock(return_value=_screen())
     coord = _coord(api)
@@ -92,9 +90,7 @@ async def test_staros_no_synthesis_for_unsupported_product():
     """Неподдерживаемый продукт (sberbox) → эквалайзер не синтезируется."""
     api = AsyncMock()
     api.list_devices = AsyncMock(
-        return_value=[
-            StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberbox")
-        ]
+        return_value=[StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberbox")]
     )
     api.get_settings_deep = AsyncMock(return_value=_screen())
     coord = _coord(api)
@@ -108,9 +104,7 @@ async def test_staros_synthesis_carries_bands_across_poll():
     """Полосы, выставленные ранее, переносятся при повторном синтезе."""
     api = AsyncMock()
     api.list_devices = AsyncMock(
-        return_value=[
-            StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom-r2")
-        ]
+        return_value=[StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom-r2")]
     )
     api.get_settings_deep = AsyncMock(return_value=_screen())
     coord = _coord(api)
@@ -120,8 +114,7 @@ async def test_staros_synthesis_carries_bands_across_poll():
     import dataclasses
 
     coord.staros_settings_entities["SN1"] = [
-        dataclasses.replace(e, state=3.5) if e.node_id == "equalizer__band_2" else e
-        for e in ents
+        dataclasses.replace(e, state=3.5) if e.node_id == "equalizer__band_2" else e for e in ents
     ]
 
     await coord._refresh_staros()
@@ -138,9 +131,7 @@ async def test_async_refresh_staros_bypasses_throttle():
 
     api = AsyncMock()
     api.list_devices = AsyncMock(
-        return_value=[
-            StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom")
-        ]
+        return_value=[StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom")]
     )
     api.get_settings_deep = AsyncMock(return_value=_screen())
     coord = _coord(api)
@@ -167,9 +158,7 @@ async def test_async_refresh_staros_cooldown_blocks_auto_but_not_manual():
 
     api = AsyncMock()
     api.list_devices = AsyncMock(
-        return_value=[
-            StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom")
-        ]
+        return_value=[StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom")]
     )
     api.get_settings_deep = AsyncMock(return_value=_screen())
     coord = _coord(api)
@@ -442,7 +431,9 @@ async def test_set_staros_equalizer_preset_applies_bands():
     coord = _coord(api)
     coord.staros_settings_entities = {"SN1": _eq_group()}
 
-    await coord.async_set_staros_setting("SN1", "sberboom", "equalizer__preset", "EQUALIZER", "Басы")
+    await coord.async_set_staros_setting(
+        "SN1", "sberboom", "equalizer__preset", "EQUALIZER", "Басы"
+    )
 
     body = api.set_setting.await_args.args[4]
     rock = equalizer_preset_bands("Басы")

@@ -103,9 +103,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # без base — относительный `/auth/sberhome?...` бросает TypeError, и
         # ни попап, ни кнопка «Открыть сайт» не появляются. Отдаём абсолютный.
         try:
-            base = get_url(
-                self.hass, prefer_external=True, allow_internal=True, allow_ip=True
-            )
+            base = get_url(self.hass, prefer_external=True, allow_internal=True, allow_ip=True)
         except NoURLAvailableError:
             return self.async_abort(reason="no_url_available")
         return self.async_external_step(

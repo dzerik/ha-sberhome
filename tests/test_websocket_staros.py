@@ -85,9 +85,7 @@ def test_staros_list_returns_devices_and_settings(connection):
     payload = connection.send_result.call_args[0][1]
     assert payload["available"] is True
     assert payload["speaker_present"] is True
-    assert payload["devices"] == [
-        {"serial": "SN1", "product": "sberboom-r2", "name": "Кухня"}
-    ]
+    assert payload["devices"] == [{"serial": "SN1", "product": "sberboom-r2", "name": "Кухня"}]
     specs = payload["settings"]["SN1"]
     band = next(s for s in specs if s["eq_role"] == "band")
     assert band["eq_frequency"] == 60

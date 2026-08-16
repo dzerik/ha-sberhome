@@ -70,9 +70,7 @@ class StarosSettingsAPI:
         if root is None:
             return None
         seen: set[str] = set()
-        expanded = [
-            await self._expand(product, serial, n, seen, depth=0) for n in root.settings
-        ]
+        expanded = [await self._expand(product, serial, n, seen, depth=0) for n in root.settings]
         return SettingScreenDto(header=root.header, settings=expanded)
 
     async def set_setting(
@@ -101,12 +99,7 @@ class StarosSettingsAPI:
             await self._expand(product, serial, c, seen, depth=depth) for c in node.children
         ]
         node_id = node.id
-        if (
-            node.opens_screen
-            and node_id
-            and node_id not in seen
-            and depth < _MAX_SCREEN_DEPTH
-        ):
+        if node.opens_screen and node_id and node_id not in seen and depth < _MAX_SCREEN_DEPTH:
             seen.add(node_id)
             sub = await self.get_settings(product, serial, screen=node_id)
             if sub is not None:

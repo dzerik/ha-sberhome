@@ -287,9 +287,7 @@ def test_synthetic_equalizer_structure():
     ents = build_synthetic_equalizer("sberboom-r2", "SN9")
     roles = {e.eq_role for e in ents}
     assert roles == {"enabled", "preset", "band"}
-    bands = sorted(
-        (e for e in ents if e.eq_role == "band"), key=lambda e: e.eq_band_index
-    )
+    bands = sorted((e for e in ents if e.eq_role == "band"), key=lambda e: e.eq_band_index)
     assert [b.eq_frequency for b in bands] == [300, 500, 1400, 3900, 6500]
     assert all(b.min_value == -4 and b.max_value == 4 and b.step == 0.5 for b in bands)
     # встроенные пресеты доступны даже без серверных
@@ -304,9 +302,7 @@ def test_synthetic_equalizer_carries_bands():
     ents = build_synthetic_equalizer(
         "sberboom", "SN9", enabled=False, bands=[1.0, -2.0, 0.5, 0.0, 2.0]
     )
-    bands = sorted(
-        (e for e in ents if e.eq_role == "band"), key=lambda e: e.eq_band_index
-    )
+    bands = sorted((e for e in ents if e.eq_role == "band"), key=lambda e: e.eq_band_index)
     assert [b.state for b in bands] == [1.0, -2.0, 0.5, 0.0, 2.0]
     enabled = next(e for e in ents if e.eq_role == "enabled")
     assert enabled.state == "off"

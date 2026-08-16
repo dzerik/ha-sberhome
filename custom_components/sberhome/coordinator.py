@@ -849,17 +849,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # опроса (реального read у канала нет, состояние optimistic).
             has_eq = any(e.eq_group for e in entities)
             if not has_eq and product_supports_equalizer(product):
-                entities.extend(
-                    self._synthetic_equalizer_entities(product, serial)
-                )
+                entities.extend(self._synthetic_equalizer_entities(product, serial))
             if screen is None and not entities:
                 continue
             new_entities[serial] = entities
         self.staros_settings_entities = new_entities
 
-    def _synthetic_equalizer_entities(
-        self, product: str, serial: str
-    ) -> list[StarosSettingEntity]:
+    def _synthetic_equalizer_entities(self, product: str, serial: str) -> list[StarosSettingEntity]:
         """Синтетический эквалайзер, сохраняя полосы/enabled с прошлого опроса."""
         prev = self.staros_settings_entities.get(serial, [])
         bands: list[float] = []

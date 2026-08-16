@@ -71,8 +71,7 @@ def ws_staros_list(
     settings: dict[str, list[dict[str, Any]]] = {}
     for serial, specs in coord.staros_settings_entities.items():
         settings[serial] = [
-            _spec_to_dict(s, _entity_id(registry, s.platform.value, s.unique_id))
-            for s in specs
+            _spec_to_dict(s, _entity_id(registry, s.platform.value, s.unique_id)) for s in specs
         ]
 
     connection.send_result(
