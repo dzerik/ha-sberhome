@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -71,9 +72,15 @@ async def test_step_sberid_starts_external_flow():
         result = await flow.async_step_sberid(user_input=None)
 
     assert result["type"] == "external"
-    assert result["url"].startswith("http://ha.local:8123/")
-    assert "auth/sberhome" in result["url"]
-    assert "test-flow-id" in result["url"]
+    # Разбираем URL по компонентам (а не substring-проверкой) — так точнее и не
+    # триггерит CodeQL py/incomplete-url-substring-sanitization.
+    parsed = urlparse(result["url"])
+    assert (parsed.scheme, parsed.netloc, parsed.path) == (
+        "http",
+        "ha.local:8123",
+        "/auth/sberhome",
+    )
+    assert "test-flow-id" in parse_qs(parsed.query).get("flow_id", [])
     assert flow.hass.http.register_view.call_count == 2
     assert "test-flow-id" in pending_auth_flows
 
