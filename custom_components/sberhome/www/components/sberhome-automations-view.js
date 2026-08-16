@@ -79,6 +79,34 @@ export class SberhomeAutomationsView extends LitElement {
         background: rgba(255, 255, 255, 0.3);
         color: #fff;
       }
+      /* Глобальная переменная «я дома» — управляет сберовскими сценариями. */
+      .athome {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 12px 16px 0;
+        font-size: 14px;
+        color: var(--primary-text-color);
+      }
+      .athome .toggle {
+        margin-left: auto;
+        border: 1px solid var(--divider-color, #ccc);
+        background: transparent;
+        color: var(--secondary-text-color, #666);
+        border-radius: 999px;
+        padding: 6px 16px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .athome .toggle.on {
+        background: var(--primary-color, #03a9f4);
+        border-color: var(--primary-color, #03a9f4);
+        color: #fff;
+      }
+      .athome .toggle[disabled] {
+        opacity: 0.5;
+        cursor: default;
+      }
     `, mobileBase];
   }
 
@@ -94,8 +122,50 @@ export class SberhomeAutomationsView extends LitElement {
     this._listenersCount = ev.detail?.count ?? 0;
   }
 
+  // Все HA-сущности переменной «я дома» (switch.…at_home) по домам аккаунта.
+  _atHomes() {
+    const states = this.hass?.states || {};
+    const out = [];
+    for (const [id, st] of Object.entries(states)) {
+      if (id.startsWith("switch.") && id.includes("at_home")) {
+        const fn = st.attributes?.friendly_name || id;
+        // Имя дома — в скобках («At home (Мой дом)»). Сущности без скобок —
+        // легаси-глобальный свитч (до 5.24.2) — пропускаем.
+        const m = fn.match(/\(([^)]+)\)/);
+        if (!m) continue;
+        out.push({
+          id,
+          label: m[1],
+          on: st.state === "on",
+          available: st.state !== "unavailable" && st.state !== "unknown",
+        });
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }
+
+  _toggleAtHome(entity) {
+    if (!entity?.available) return;
+    this.hass.callService("switch", entity.on ? "turn_off" : "turn_on", {
+      entity_id: entity.id,
+    });
+  }
+
   render() {
+    const atHomes = this._atHomes();
     return html`
+      ${atHomes.map(
+        (a) => html`<div class="athome">
+          <span>🏠 ${a.label}</span>
+          <button
+            class="toggle ${a.on ? "on" : ""}"
+            ?disabled=${!a.available}
+            @click=${() => this._toggleAtHome(a)}
+          >${a.on ? "Дома" : "Не дома"}</button>
+        </div>`,
+      )}
+
       <div class="chips">
         <button
           class="chip ${this._section === "intents" ? "active" : ""}"

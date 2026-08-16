@@ -34,7 +34,8 @@ async def async_setup_entry(
     # Sber-wide "at_home" — глобальная переменная, читаемая через
     # /scenario/v2/home/variable/at_home. Прикрепляется к virtual
     # device-group "Sber Scenarios" (тот же что для scenario buttons).
-    entities.append(SberAtHomeBinarySensor(coordinator))
+    for home in coordinator.homes:
+        entities.append(SberAtHomeBinarySensor(coordinator, home["id"], home["name"]))
     async_add_entities(entities)
 
 
@@ -89,11 +90,12 @@ class SberAtHomeBinarySensor(CoordinatorEntity[SberHomeCoordinator], BinarySenso
     _attr_device_class = BinarySensorDeviceClass.PRESENCE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:home-account"
-    _attr_name = "At home"
-    _attr_unique_id = "sberhome_at_home_sensor"
 
-    def __init__(self, coordinator: SberHomeCoordinator) -> None:
+    def __init__(self, coordinator: SberHomeCoordinator, home_id: str, home_name: str) -> None:
         super().__init__(coordinator)
+        self._home_id = home_id
+        self._attr_name = f"At home ({home_name})"
+        self._attr_unique_id = f"sberhome_at_home_sensor_{home_id}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scenarios")},
             "name": "Sber Scenarios",
@@ -104,10 +106,8 @@ class SberAtHomeBinarySensor(CoordinatorEntity[SberHomeCoordinator], BinarySenso
 
     @property
     def available(self) -> bool:
-        # None — переменная не настроена (никто не сетил at_home в Sber);
-        # show entity but unavailable, не валим сами.
-        return self.coordinator.at_home is not None
+        return self._home_id in self.coordinator.at_home
 
     @property
     def is_on(self) -> bool | None:
-        return self.coordinator.at_home
+        return self.coordinator.at_home.get(self._home_id)

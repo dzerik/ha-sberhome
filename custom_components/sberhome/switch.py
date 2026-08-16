@@ -30,7 +30,8 @@ async def async_setup_entry(
         for ent in ha_entities:
             if ent.platform is Platform.SWITCH:
                 entities.append(SberSbermapSwitch(coordinator, device_id, ent))
-    entities.append(SberAtHomeSwitch(coordinator))
+    for home in coordinator.homes:
+        entities.append(SberAtHomeSwitch(coordinator, home["id"], home["name"]))
     # Sber custom-groups (group_type=GROUP) как bulk-switch entities.
     # Группы без devices пропускаются — не создаём пустых toggle'ов.
     for group_id, group in coordinator.state_cache.get_all_groups().items():
@@ -93,22 +94,23 @@ class SberSbermapSwitch(SberBaseEntity, SwitchEntity):
 
 
 class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
-    """Writable switch для глобальной at_home переменной Sber.
+    """Writable switch переменной at_home КОНКРЕТНОГО дома Sber.
 
-    Парный к `binary_sensor.sber_at_home` (read-only). Этот entity
-    позволяет HA-автоматизациям менять значение at_home (например
-    «when someone arrives → turn on at_home, which triggers Sber-сценарий
-    welcome»).
+    Один entity на дом (у аккаунта может быть несколько домов, и значение
+    «я дома» у каждого своё). Позволяет HA-автоматизациям менять at_home
+    нужного дома (например «когда кто-то пришёл на дачу → включить at_home
+    дачи, что триггерит сберовский сценарий»).
     """
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:home-account"
-    _attr_name = "At home"
-    _attr_unique_id = "sberhome_at_home_switch"
 
-    def __init__(self, coordinator: SberHomeCoordinator) -> None:
+    def __init__(self, coordinator: SberHomeCoordinator, home_id: str, home_name: str) -> None:
         super().__init__(coordinator)
+        self._home_id = home_id
+        self._attr_name = f"At home ({home_name})"
+        self._attr_unique_id = f"sberhome_at_home_{home_id}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scenarios")},
             "name": "Sber Scenarios",
@@ -119,17 +121,17 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.at_home is not None
+        return self._home_id in self.coordinator.at_home
 
     @property
     def is_on(self) -> bool | None:
-        return self.coordinator.at_home
+        return self.coordinator.at_home.get(self._home_id)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_at_home(True)
+        await self.coordinator.async_set_at_home(True, self._home_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_at_home(False)
+        await self.coordinator.async_set_at_home(False, self._home_id)
 
 
 class SberStarosSettingSwitch(SberStarosSettingBase, SwitchEntity):

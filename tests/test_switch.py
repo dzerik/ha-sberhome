@@ -98,23 +98,23 @@ class TestAtHomeSwitch:
     @pytest.fixture
     def coord(self) -> MagicMock:
         coord = MagicMock()
-        coord.at_home = True
+        coord.at_home = {"h1": True}
         coord.async_set_at_home = AsyncMock()
         return coord
 
     @pytest.fixture
     def entity(self, coord) -> SberAtHomeSwitch:
-        return SberAtHomeSwitch(coord)
+        return SberAtHomeSwitch(coord, "h1", "Мой дом")
 
     def test_is_on_mirrors_coordinator_at_home(self, coord, entity):
-        """is_on транслирует coordinator.at_home напрямую."""
+        """is_on транслирует coordinator.at_home[home_id] напрямую."""
         assert entity.is_on is True
-        coord.at_home = False
+        coord.at_home = {"h1": False}
         assert entity.is_on is False
 
     def test_unavailable_when_at_home_unknown(self, coord, entity):
-        """at_home=None (poll ещё не прошёл) → available False."""
-        coord.at_home = None
+        """Дома нет в at_home (poll ещё не прошёл) → available False."""
+        coord.at_home = {}
         assert entity.available is False
 
     def test_grouped_into_scenarios_service_device(self, entity):
@@ -124,15 +124,15 @@ class TestAtHomeSwitch:
 
     @pytest.mark.asyncio
     async def test_turn_on_calls_set_at_home(self, coord, entity):
-        """turn_on → coordinator.async_set_at_home(True)."""
+        """turn_on → coordinator.async_set_at_home(True, home_id)."""
         await entity.async_turn_on()
-        coord.async_set_at_home.assert_awaited_once_with(True)
+        coord.async_set_at_home.assert_awaited_once_with(True, "h1")
 
     @pytest.mark.asyncio
     async def test_turn_off_calls_set_at_home(self, coord, entity):
-        """turn_off → coordinator.async_set_at_home(False)."""
+        """turn_off → coordinator.async_set_at_home(False, home_id)."""
         await entity.async_turn_off()
-        coord.async_set_at_home.assert_awaited_once_with(False)
+        coord.async_set_at_home.assert_awaited_once_with(False, "h1")
 
 
 class TestAsyncSetupEntry:
@@ -140,6 +140,7 @@ class TestAsyncSetupEntry:
     async def test_creates_switch_and_at_home(self):
         """Setup: SberSbermapSwitch для розетки + SberAtHomeSwitch (групп нет)."""
         coord = _coord_with_raw({"device_switch_1": MOCK_DEVICE_SWITCH})
+        coord.homes = [{"id": "h1", "name": "Мой дом"}, {"id": "h2", "name": "дача"}]
         entry = MagicMock()
         entry.runtime_data = coord
         captured: list = []
@@ -149,4 +150,9 @@ class TestAsyncSetupEntry:
         at_home = [e for e in captured if isinstance(e, SberAtHomeSwitch)]
         assert len(sbermap_switches) == 1
         assert sbermap_switches[0].unique_id == "device_switch_1"
-        assert len(at_home) == 1
+        # По свитчу на каждый дом аккаунта.
+        assert len(at_home) == 2
+        assert {e.unique_id for e in at_home} == {
+            "sberhome_at_home_h1",
+            "sberhome_at_home_h2",
+        }

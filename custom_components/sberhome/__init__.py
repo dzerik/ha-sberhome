@@ -291,6 +291,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     )
     await async_repair_rotated_unique_ids(hass, entry, coordinator)
 
+    # Уборка легаси-сущностей at_home: раньше был один глобальный
+    # switch/binary_sensor (`sberhome_at_home_switch`/`_sensor`); с 5.24.2
+    # они per-home. Старые unique_id больше не создаются — убираем
+    # осиротевшие записи реестра, чтобы не висели «unavailable».
+    from homeassistant.helpers import entity_registry as er
+
+    _ent_reg = er.async_get(hass)
+    for _platform, _uid in (
+        ("switch", "sberhome_at_home_switch"),
+        ("binary_sensor", "sberhome_at_home_sensor"),
+    ):
+        _legacy_id = _ent_reg.async_get_entity_id(_platform, DOMAIN, _uid)
+        if _legacy_id is not None:
+            _ent_reg.async_remove(_legacy_id)
+
     # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
     # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
     # entities в HA до выбора. Legacy установки (без ключа options) считаются

@@ -264,11 +264,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # чтобы не нагружать API: список меняется редко (CRUD руками
         # пользователя), и быстрая реактивность здесь не нужна.
         self.scenarios: list[ScenarioDto] = []
-        self.at_home: bool | None = None
-        # home_id первого дома аккаунта — нужен для переменной at_home
-        # (endpoint /home/variable/at_home требует ?home_id=, иначе 400).
-        # Обнаруживается лениво один раз (см. _ensure_home_id).
-        self.home_id: str | None = None
+        # Дома аккаунта [{"id","name"}] и переменная at_home ПО КАЖДОМУ дому.
+        # Endpoint /home/variable/at_home требует ?home_id= (иначе gateway 400),
+        # и значение своё у каждого дома — поэтому per-home, а не глобально.
+        self.homes: list[dict[str, str]] = []
+        self.at_home: dict[str, bool] = {}
         # Throttle-состояния best-effort polling-доменов. Один общий
         # паттерн (см. ThrottledPoll + _throttled_poll): не чаще interval,
         # disable-on-error до manual refresh.
@@ -643,35 +643,34 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Throttled poll сценариев + at_home переменной."""
         await self._throttled_poll(self._scenarios_poll, self._refresh_scenarios)
 
-    async def _ensure_home_id(self) -> None:
-        """Лениво найти home_id (первый дом аккаунта) — нужен для at_home.
+    async def _ensure_homes(self) -> None:
+        """Лениво найти дома аккаунта (id+name) — нужны для at_home.
 
-        `GET /device_groups?group_type=HOME` возвращает дома аккаунта;
-        берём первый. Best-effort: при ошибке home_id остаётся None и
-        at_home просто не опрашивается (сущность → unavailable).
+        `GET /device_groups?group_type=HOME` возвращает все дома аккаунта.
+        Best-effort: при ошибке список остаётся пустым и at_home просто не
+        опрашивается (сущности → unavailable).
         """
-        if self.home_id is not None:
+        if self.homes:
             return
         try:
             homes = await self.client.groups.list(group_type="HOME")
         except Exception:
             return
-        for home in homes:
-            hid = getattr(home, "id", None)
-            if hid:
-                self.home_id = hid
-                return
+        self.homes = [
+            {"id": h.id, "name": (getattr(h, "name", None) or h.id)}
+            for h in homes
+            if getattr(h, "id", None)
+        ]
 
     async def _refresh_scenarios(self) -> None:
+        await self._ensure_homes()
         api = self._scenario_api()
         scenarios = await api.list()
-        await self._ensure_home_id()
-        at_home: bool | None = None
-        if self.home_id:
-            try:
-                at_home = await api.get_at_home(self.home_id)
-            except Exception:
-                at_home = None
+        at_home: dict[str, bool] = {}
+        for home in self.homes:
+            hid = home["id"]
+            with contextlib.suppress(Exception):
+                at_home[hid] = await api.get_at_home(hid)
         self.scenarios = scenarios
         self.at_home = at_home
 
@@ -1034,13 +1033,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return True
         return False
 
-    async def async_set_at_home(self, value: bool) -> None:
-        """Записать переменную at_home + optimistic update."""
+    async def async_set_at_home(self, value: bool, home_id: str) -> None:
+        """Записать переменную at_home конкретного дома + optimistic update."""
         api = self._scenario_api()
-        await self._ensure_home_id()
-        await api.set_at_home(value, self.home_id)
+        await api.set_at_home(value, home_id)
         # Optimistic — следующий poll подтвердит.
-        self.at_home = value
+        self.at_home = {**self.at_home, home_id: value}
         self.async_set_updated_data(self.data or {})
 
     def rebuild_caches_and_notify(self) -> None:
