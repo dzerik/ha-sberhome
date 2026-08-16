@@ -25,7 +25,12 @@ from homeassistant.core import HomeAssistant, callback
 
 from ..const import DOMAIN
 from .commands import ws_clear_commands, ws_commands, ws_subscribe_commands
-from .devices import ws_device_detail, ws_get_devices, ws_refetch_device
+from .devices import (
+    ws_device_detail,
+    ws_device_write_schema,
+    ws_get_devices,
+    ws_refetch_device,
+)
 from .diagnose import ws_diagnose_device
 from .enabled import ws_set_device_area, ws_set_enabled, ws_toggle_device
 from .intents import (
@@ -85,6 +90,7 @@ _COMMANDS = (
     ws_get_devices,
     ws_device_detail,
     ws_refetch_device,
+    ws_device_write_schema,
     ws_set_device_area,
     ws_set_enabled,
     ws_toggle_device,

@@ -16,6 +16,73 @@ from ..sbermap import resolve_device_category
 from ._common import find_ha_device, get_coordinator
 
 
+def _reported_value(av: dict[str, Any]) -> Any:
+    """Текущее значение атрибута из reported_state по его типу."""
+    t = av.get("type")
+    if t == "BOOL":
+        return av.get("bool_value")
+    if t == "INTEGER":
+        try:
+            return int(av.get("integer_value") or 0)
+        except (TypeError, ValueError):
+            return None
+    if t == "FLOAT":
+        return av.get("float_value")
+    if t == "ENUM":
+        return av.get("enum_value")
+    if t == "COLOR":
+        return av.get("color_value")
+    return av.get("string_value")
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "sberhome/device_write_schema",
+        vol.Required("device_id"): str,
+    }
+)
+@callback
+def ws_device_write_schema(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Схема писабельных атрибутов устройства — для генерации формы действия.
+
+    Редактор сценариев вместо ручного JSON рисует форму по возможностям:
+    BOOL→toggle, INTEGER/FLOAT+range→slider, ENUM→dropdown, COLOR→picker.
+    Источник — сырой payload (`attributes[]` с range/enum + `commands`).
+    """
+    coord = get_coordinator(hass)
+    if coord is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+
+    raw = coord.state_cache.get_raw_payload(msg["device_id"]) or {}
+    writable = {c.get("key") for c in (raw.get("commands") or []) if c.get("key")}
+    current = {av.get("key"): _reported_value(av) for av in (raw.get("reported_state") or [])}
+
+    fields: list[dict[str, Any]] = []
+    for attr in raw.get("attributes") or []:
+        key = attr.get("key")
+        if key not in writable:
+            continue
+        field: dict[str, Any] = {"key": key, "type": attr.get("type"), "current": current.get(key)}
+        int_range = (attr.get("int_values") or {}).get("range")
+        if int_range:
+            field["range"] = int_range
+            field["unit"] = (attr.get("int_values") or {}).get("unit") or None
+        float_range = (attr.get("float_values") or {}).get("range")
+        if float_range:
+            field["frange"] = float_range
+        enum_values = (attr.get("enum_values") or {}).get("values")
+        if enum_values:
+            field["enum"] = enum_values
+        fields.append(field)
+
+    connection.send_result(msg["id"], {"device_id": msg["device_id"], "fields": fields})
+
+
 def _device_groups(coord: Any, dto: DeviceDto) -> list[dict[str, str]]:
     """Кастомные группы (group_type=GROUP) устройства — [{id, name}].
 

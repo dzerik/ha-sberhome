@@ -219,3 +219,60 @@ def test_device_groups_helper_keeps_only_custom_groups():
 
     coord.state_cache.get_group.side_effect = get_group
     assert _device_groups(coord, dto) == [{"id": "g1", "name": "Вытяжки"}]
+
+
+# ---------------------------------------------------------------------------
+# device_write_schema — генерация формы действия по возможностям устройства
+# ---------------------------------------------------------------------------
+
+from custom_components.sberhome.websocket_api.devices import (  # noqa: E402
+    ws_device_write_schema,
+)
+
+
+class TestDeviceWriteSchema:
+    def test_schema_from_raw_payload(self, hass, connection):
+        coord = MagicMock()
+        coord.state_cache.get_raw_payload.return_value = {
+            "commands": [
+                {"key": "on_off"},
+                {"key": "light_brightness"},
+                {"key": "light_scene"},
+            ],
+            "attributes": [
+                {"key": "on_off", "type": "BOOL"},
+                {
+                    "key": "light_brightness",
+                    "type": "INTEGER",
+                    "int_values": {"range": {"min": 50, "max": 1000, "step": 1}, "unit": "32"},
+                },
+                {"key": "light_scene", "type": "ENUM", "enum_values": {"values": ["candle", "arctic"]}},
+                {"key": "online", "type": "BOOL"},  # не в commands → пропустить
+            ],
+            "reported_state": [
+                {"key": "on_off", "type": "BOOL", "bool_value": True},
+                {"key": "light_brightness", "type": "INTEGER", "integer_value": "500"},
+            ],
+        }
+        with patch(
+            "custom_components.sberhome.websocket_api.devices.get_coordinator",
+            return_value=coord,
+        ):
+            ws_device_write_schema(hass, connection, {"id": 1, "device_id": "d1"})
+        payload = connection.send_result.call_args[0][1]
+        fields = {f["key"]: f for f in payload["fields"]}
+        # online отфильтрован (нет в commands)
+        assert set(fields) == {"on_off", "light_brightness", "light_scene"}
+        assert fields["on_off"]["type"] == "BOOL"
+        assert fields["on_off"]["current"] is True
+        assert fields["light_brightness"]["range"] == {"min": 50, "max": 1000, "step": 1}
+        assert fields["light_brightness"]["current"] == 500
+        assert fields["light_scene"]["enum"] == ["candle", "arctic"]
+
+    def test_not_loaded(self, hass, connection):
+        with patch(
+            "custom_components.sberhome.websocket_api.devices.get_coordinator",
+            return_value=None,
+        ):
+            ws_device_write_schema(hass, connection, {"id": 2, "device_id": "d1"})
+        connection.send_error.assert_called_once()

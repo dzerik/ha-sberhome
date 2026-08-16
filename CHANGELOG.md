@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.27.0] — 2026-08-17
+
+### Added — схема писабельных атрибутов устройства (фундамент форм-редактора)
+
+- WS-команда **`sberhome/device_write_schema`**: по `device_id` отдаёт
+  писабельные атрибуты с типом и ограничениями (BOOL / INTEGER+range /
+  FLOAT+range / ENUM+values / COLOR) — из `commands` + `attributes[]`
+  сырого payload. Основа для генерации формы действия в редакторе сценариев
+  (вместо ручного JSON): toggle / slider / dropdown / color по возможностям
+  устройства.
+
 ## [5.26.2] — 2026-08-17
 
 ### Changed — понятные имена сущностей групп
