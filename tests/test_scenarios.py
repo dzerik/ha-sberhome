@@ -191,11 +191,12 @@ async def test_coordinator_executes_scenario_via_scenario_api():
     coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
     coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     api = MagicMock()
-    api.execute_command = AsyncMock()
+    api.run = AsyncMock()
     coord._scenario_api = MagicMock(return_value=api)
 
     await SberHomeCoordinator.async_execute_scenario(coord, "sc-42")
-    api.execute_command.assert_awaited_once_with({"scenario_id": "sc-42"})
+    # Запуск через /scenario/{id}/run (проверено 200); /command давал 400.
+    api.run.assert_awaited_once_with("sc-42")
 
 
 @pytest.mark.asyncio

@@ -682,12 +682,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self.data or {})
 
     async def async_execute_scenario(self, scenario_id: str) -> None:
-        """Запустить Sber-сценарий по id (HA button.press)."""
-        api = self._scenario_api()
-        # Sber API: команда выполнения сценария — через `/command` с
-        # body {"scenario_id": ...}. Точный shape варьируется; здесь
-        # используем минимальный вариант, который наблюдается в обмене.
-        await api.execute_command({"scenario_id": scenario_id})
+        """Запустить Sber-сценарий по id (HA button.press).
+
+        Через `/scenario/v2/scenario/{id}/run` (проверено 200). Прежний
+        `/scenario/v2/command` — это создание именованной команды и
+        возвращал 400 «CreateCommandRequest.Name required».
+        """
+        await self._scenario_api().run(scenario_id)
 
     async def async_set_scenario_active(self, scenario_id: str, active: bool) -> None:
         """Вкл/выкл автосрабатывание сценария + optimistic update."""
