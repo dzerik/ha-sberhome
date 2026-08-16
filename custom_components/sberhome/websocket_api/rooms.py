@@ -204,3 +204,49 @@ async def ws_refresh_ota(
             "device_count": len(coord.ota_upgrades),
         },
     )
+
+
+@websocket_api.websocket_command({vol.Required("type"): "sberhome/get_groups"})
+@callback
+def ws_get_groups(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Кастомные группы (group_type=GROUP) с счётчиком устройств + entity_id свитча.
+
+    Панель рисует секцию «Группы»: bulk-переключатель на каждую группу
+    (управляет через штатный `switch.…` по `entity_id`).
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    from ..aiosber.dto.union import UnionType
+    from ..const import DOMAIN
+
+    coord = get_coordinator(hass)
+    if coord is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+
+    cache = coord.state_cache
+    ent_reg = er.async_get(hass)
+    groups_out: list[dict[str, Any]] = []
+    for group_id, group in cache.get_all_groups().items():
+        if group.group_type is not UnionType.GROUP:
+            continue
+        devices = cache.get_group_devices(group_id)
+        if not devices:
+            continue
+        groups_out.append(
+            {
+                "id": group_id,
+                "name": group.name,
+                "device_count": len(devices),
+                "entity_id": ent_reg.async_get_entity_id(
+                    "switch", DOMAIN, f"sber_group_{group_id}"
+                ),
+                "image_set_type": group.image_set_type,
+            }
+        )
+
+    connection.send_result(msg["id"], {"groups": groups_out})

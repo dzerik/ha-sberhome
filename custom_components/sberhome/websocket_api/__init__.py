@@ -52,6 +52,7 @@ from .pairing import (
 )
 from .replay import ws_inject_ws_message, ws_replay_ws_message
 from .rooms import (
+    ws_get_groups,
     ws_get_homes,
     ws_get_rooms,
     ws_refresh_ota,
@@ -91,6 +92,7 @@ _COMMANDS = (
     ws_clear_message_log,
     ws_subscribe_messages,
     ws_get_rooms,
+    ws_get_groups,
     ws_get_homes,
     ws_rename_room,
     ws_refresh_scenarios,

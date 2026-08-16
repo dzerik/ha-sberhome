@@ -37,6 +37,7 @@ export class SberhomeAutomationsView extends LitElement {
       selectedHomeId: { attribute: false },
       _section: { state: true },
       _listenersCount: { state: true },
+      _groups: { state: true },
     };
   }
 
@@ -107,6 +108,17 @@ export class SberhomeAutomationsView extends LitElement {
         opacity: 0.5;
         cursor: default;
       }
+      .section-title {
+        margin: 16px 16px 4px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--secondary-text-color, #888);
+      }
+      .athome small {
+        color: var(--secondary-text-color, #888);
+        font-size: 12px;
+      }
     `, mobileBase];
   }
 
@@ -116,6 +128,38 @@ export class SberhomeAutomationsView extends LitElement {
     this._listenersCount = 0;
     this.homes = [];
     this.selectedHomeId = null;
+    this._groups = [];
+    this._groupsFetched = false;
+  }
+
+  updated(changed) {
+    if (changed.has("hass") && this.hass && !this._groupsFetched) {
+      this._groupsFetched = true;
+      this._fetchGroups();
+    }
+  }
+
+  async _fetchGroups() {
+    try {
+      const r = await this.hass.callWS({ type: "sberhome/get_groups" });
+      this._groups = r?.groups || [];
+    } catch (_e) {
+      this._groups = [];
+    }
+  }
+
+  _groupState(entityId) {
+    const st = entityId ? this.hass?.states?.[entityId] : null;
+    if (!st) return null;
+    return { on: st.state === "on", available: st.state !== "unavailable" && st.state !== "unknown" };
+  }
+
+  _toggleGroup(group) {
+    const s = this._groupState(group.entity_id);
+    if (!s?.available) return;
+    this.hass.callService("switch", s.on ? "turn_off" : "turn_on", {
+      entity_id: group.entity_id,
+    });
   }
 
   _onListenersCount(ev) {
@@ -165,6 +209,21 @@ export class SberhomeAutomationsView extends LitElement {
           >${a.on ? "Дома" : "Не дома"}</button>
         </div>`,
       )}
+
+      ${this._groups.length
+        ? html`<div class="section-title">🔀 Группы</div>
+            ${this._groups.map((g) => {
+              const s = this._groupState(g.entity_id);
+              return html`<div class="athome">
+                <span>${g.name} <small>(${g.device_count})</small></span>
+                <button
+                  class="toggle ${s?.on ? "on" : ""}"
+                  ?disabled=${!s || !s.available}
+                  @click=${() => this._toggleGroup(g)}
+                >${s?.on ? "Вкл" : "Выкл"}</button>
+              </div>`;
+            })}`
+        : ""}
 
       <div class="chips">
         <button

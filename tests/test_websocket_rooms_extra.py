@@ -141,3 +141,58 @@ class TestRefreshOta:
         coord.async_refresh_ota.assert_awaited_once()
         result = connection.send_result.call_args[0][1]
         assert result == {"success": True, "device_count": 1}
+
+
+# ---------------------------------------------------------------------------
+# get_groups — кастомные группы для панели
+# ---------------------------------------------------------------------------
+
+from custom_components.sberhome.aiosber.dto.union import UnionType  # noqa: E402
+from custom_components.sberhome.websocket_api.rooms import ws_get_groups  # noqa: E402
+
+
+class TestGetGroups:
+    def test_returns_custom_groups_only_with_entity_id(self, hass, connection):
+        coord = _coord()
+        grp = MagicMock()
+        grp.group_type = UnionType.GROUP
+        grp.name = "Вытяжки"
+        grp.image_set_type = ""
+        room = MagicMock()
+        room.group_type = UnionType.ROOM  # ROOM — должна отфильтроваться
+        empty = MagicMock()
+        empty.group_type = UnionType.GROUP  # GROUP без устройств — тоже skip
+        empty.name = "Пустая"
+        coord.state_cache = MagicMock()
+        coord.state_cache.get_all_groups.return_value = {"g1": grp, "r1": room, "g2": empty}
+        coord.state_cache.get_group_devices.side_effect = lambda gid: (
+            ["d1", "d2", "d3"] if gid == "g1" else []
+        )
+        reg = MagicMock()
+        reg.async_get_entity_id.return_value = "switch.vytyazhki"
+        with (
+            patch(
+                "custom_components.sberhome.websocket_api.rooms.get_coordinator",
+                return_value=coord,
+            ),
+            patch("homeassistant.helpers.entity_registry.async_get", return_value=reg),
+        ):
+            ws_get_groups(hass, connection, {"id": 1})
+        payload = connection.send_result.call_args[0][1]
+        assert len(payload["groups"]) == 1
+        g = payload["groups"][0]
+        assert g == {
+            "id": "g1",
+            "name": "Вытяжки",
+            "device_count": 3,
+            "entity_id": "switch.vytyazhki",
+            "image_set_type": "",
+        }
+
+    def test_not_loaded(self, hass, connection):
+        with patch(
+            "custom_components.sberhome.websocket_api.rooms.get_coordinator",
+            return_value=None,
+        ):
+            ws_get_groups(hass, connection, {"id": 2})
+        connection.send_error.assert_called_once()

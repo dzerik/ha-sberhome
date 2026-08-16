@@ -137,14 +137,18 @@ flowchart LR
   дыма/газа, шторы, ворота, клапаны, все HVAC, увлажнители, очистители,
   чайники, пылесосы, ТВ, сценарные кнопки, домофоны, хабы, **колонки
   SberBoom/Portal/Box/Satellite**).
-- **Sber Cloud Scenarios → HA buttons** — каждый твой Sber-сценарий
-  (`/scenario/v2/scenario`) появляется как `button` entity. Нажми в
-  HA → выполняется в облаке Сбера. Идеально для интеграции в HA-
-  автоматизации триггеров от датчиков HA, которых нет в Sber.
-- **At-home presence** — `binary_sensor.sber_at_home` зеркалит
-  глобальную переменную `at_home` из Sber-облака; парный
-  `switch.sber_at_home` пишет обратно. Используй как `condition` или
-  `trigger` в HA-автоматизациях («когда пришёл домой»).
+- **Sber Cloud Scenarios → HA entities** — каждый твой Sber-сценарий
+  (`/scenario/v2/scenario`) появляется как `button` (запустить),
+  `switch` (вкл/выкл автосрабатывание) и **`event.sber_scenarios_<имя>`** —
+  нативный device-триггер «сценарий сработал» в редакторе автоматизаций
+  (альтернатива слушанию сырого `sberhome_intent` в YAML).
+- **At-home presence (per-home)** — на каждый дом аккаунта свой
+  `binary_sensor` + `switch` «At home (<дом>)»: зеркалит и пишет обратно
+  переменную `at_home` конкретного дома. Используй как `condition` или
+  `trigger` («когда пришёл домой»).
+- **Группы устройств** — кастомные группы Sber (`group_type=GROUP`)
+  доступны bulk-переключателем `switch.<группа>` и секцией «Группы» в
+  панели (таб «Автоматизации»).
 - **Sber LED indicator** — `light.sber_indicator_color` (HSV) управляет
   цветом и яркостью LED-кольца на колонках Сбера через `IndicatorAPI`.
 - **Per-device firmware updates** — `update.<device>_firmware` per
