@@ -10,9 +10,24 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
 from ..aiosber.dto.device import DeviceDto
+from ..aiosber.dto.union import UnionType
 from ..const import DOMAIN
 from ..sbermap import resolve_device_category
 from ._common import find_ha_device, get_coordinator
+
+
+def _device_groups(coord: Any, dto: DeviceDto) -> list[dict[str, str]]:
+    """Кастомные группы (group_type=GROUP) устройства — [{id, name}].
+
+    Комнаты/дома (ROOM/HOME) из ``group_ids`` отфильтрованы: комната у
+    устройства показывается отдельным полем ``room_name``.
+    """
+    out: list[dict[str, str]] = []
+    for gid in dto.group_ids or []:
+        group = coord.state_cache.get_group(gid)
+        if group is not None and group.group_type is UnionType.GROUP:
+            out.append({"id": gid, "name": group.name or gid})
+    return out
 
 # Известные HA→Sber мосты — устройства с такими значениями manufacturer
 # в device_info.model.manufacturer пришли в Sber из HA-инсталляций.
@@ -119,6 +134,9 @@ def ws_get_devices(
                 "room_name": coord.state_cache.device_room(device_id),
                 "home_id": coord.state_cache.device_home_id(device_id),
                 "home_name": coord.state_cache.device_home_name(device_id),
+                # Комната у устройства одна (room_name), а кастомных групп
+                # (group_type=GROUP) может быть несколько.
+                "groups": _device_groups(coord, dto),
                 "features": [av.key for av in dto.reported_state if av.key],
                 "connection_type": (
                     str(dto.connection_type.value) if dto.connection_type else None

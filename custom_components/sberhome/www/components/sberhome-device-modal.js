@@ -472,6 +472,8 @@ class SberHomeDeviceModal extends LitElement {
     const rows = [
       ["Имя", raw.name?.name || this._detail.name],
       ["Категория", this._detail.category],
+      ["Комната", this._deviceSummary?.room_name],
+      ["Группы", (this._deviceSummary?.groups || []).map((g) => g.name).join(", ")],
       ["Тип устройства", raw.device_type_name],
       ["image_set_type", raw.image_set_type],
       ["Производитель", info.manufacturer],

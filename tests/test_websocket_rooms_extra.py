@@ -196,3 +196,26 @@ class TestGetGroups:
         ):
             ws_get_groups(hass, connection, {"id": 2})
         connection.send_error.assert_called_once()
+
+
+def test_device_groups_helper_keeps_only_custom_groups():
+    """_device_groups отдаёт только group_type=GROUP (комнаты/дома выкинуты)."""
+    from custom_components.sberhome.websocket_api.devices import _device_groups
+
+    dto = MagicMock()
+    dto.group_ids = ["g1", "r1", "unknown"]
+    coord = MagicMock()
+
+    def get_group(gid):
+        if gid == "g1":
+            g = MagicMock()
+            g.group_type, g.name = UnionType.GROUP, "Вытяжки"
+            return g
+        if gid == "r1":
+            g = MagicMock()
+            g.group_type, g.name = UnionType.ROOM, "Кухня"
+            return g
+        return None
+
+    coord.state_cache.get_group.side_effect = get_group
+    assert _device_groups(coord, dto) == [{"id": "g1", "name": "Вытяжки"}]

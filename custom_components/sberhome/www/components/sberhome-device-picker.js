@@ -149,6 +149,11 @@ class SberHomeDevicePicker extends LitElement {
       }
       .badge.unknown { background: var(--error-color); color: #fff; }
       .badge.room { background: var(--primary-color); color: #fff; opacity: 0.85; }
+      .badge.group {
+        background: var(--secondary-background-color, #eaeaea);
+        color: var(--primary-text-color);
+        border: 1px solid var(--divider-color, #ccc);
+      }
       .empty { text-align: center; padding: 48px; color: var(--secondary-text-color); }
       .counter { font-size: 13px; color: var(--secondary-text-color); }
       tr.row-clickable { cursor: pointer; }
@@ -275,12 +280,14 @@ class SberHomeDevicePicker extends LitElement {
         }
         /* Меты — компактная строка под именем */
         .cell-room,
+        .cell-group,
         .cell-cat,
         .cell-status {
           flex: 0 0 auto;
           font-size: 12px;
         }
         .cell-room::before,
+        .cell-group::before,
         .cell-cat::before,
         .cell-status::before {
           font-size: 10px;
@@ -291,6 +298,7 @@ class SberHomeDevicePicker extends LitElement {
           font-weight: 500;
         }
         .cell-room::before { content: "комната"; }
+        .cell-group::before { content: "группы"; }
         .cell-cat::before { content: "категория"; }
         .cell-status::before { content: "статус"; }
         .cell-room,
@@ -368,6 +376,7 @@ class SberHomeDevicePicker extends LitElement {
                   <th style="width:56px"></th>
                   <th>Имя</th>
                   <th>Комната Sber</th>
+                  <th>Группы</th>
                   <th>Категория</th>
                   <th>Статус</th>
                 </tr>
@@ -398,6 +407,13 @@ class SberHomeDevicePicker extends LitElement {
                       <td class="cell-room">
                         ${d.room_name
                           ? html`<span class="badge room">${d.room_name}</span>`
+                          : html`<span style="color:var(--secondary-text-color)">—</span>`}
+                      </td>
+                      <td class="cell-group">
+                        ${d.groups && d.groups.length
+                          ? d.groups.map(
+                              (g) => html`<span class="badge group">${g.name}</span> `,
+                            )
                           : html`<span style="color:var(--secondary-text-color)">—</span>`}
                       </td>
                       <td class="cell-cat">
