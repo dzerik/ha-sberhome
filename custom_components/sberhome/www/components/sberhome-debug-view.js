@@ -10,6 +10,11 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 
+// Форма по возможностям устройства (device_write_schema) — та же, что в
+// редакторе сценариев. Генерирует desired_state из виджетов.
+const _v = new URL(import.meta.url).searchParams.get("v") || "";
+await import(`./sberhome-attr-form.js${_v ? `?v=${_v}` : ""}`);
+
 const PRESETS = [
   {
     label: "Зелёный (s/v = 1000)",
@@ -63,6 +68,7 @@ class SberHomeDebugView extends LitElement {
       _detail: { type: Object },
       _subtab: { type: String },
       _payload: { type: String },
+      _formAttrs: { state: true },
       _response: { type: Object },
       _sending: { type: Boolean },
       _error: { type: String },
@@ -77,6 +83,7 @@ class SberHomeDebugView extends LitElement {
     this._detail = null;
     this._subtab = "payload";
     this._payload = JSON.stringify(PRESETS[0].state, null, 2);
+    this._formAttrs = [];
     this._response = null;
     this._sending = false;
     this._error = "";
@@ -88,6 +95,7 @@ class SberHomeDebugView extends LitElement {
     this._detail = null;
     this._response = null;
     this._error = "";
+    this._formAttrs = [];
     if (!this._selectedId) return;
     try {
       this._detail = await this.hass.callWS({
@@ -111,7 +119,17 @@ class SberHomeDebugView extends LitElement {
     setTimeout(() => (this._toast = ""), 2000);
   }
 
+  // Форма по возможностям устройства → генерируем desired_state JSON.
+  // attr-form отдаёт голый список [{key,type,value}] — ровно формат
+  // sberhome.send_raw_command, обёртка не нужна.
+  _onFormAttrs(e) {
+    this._formAttrs = e.detail.attributes || [];
+    this._payload = JSON.stringify(this._formAttrs, null, 2);
+  }
+
   _applyPreset(preset) {
+    // Пресет перебивает форму — сбрасываем её выбор, чтобы не путать источники.
+    this._formAttrs = [];
     this._payload = JSON.stringify(preset.state, null, 2);
     this._response = null;
     this._error = "";
@@ -333,9 +351,19 @@ class SberHomeDebugView extends LitElement {
     return html`
       <div class="hint">
         Дебаг-инструмент: отправляем произвольный <code>desired_state</code>
-        в Sber API через <code>sberhome.send_raw_command</code>.
-        Используй пресеты или правь JSON вручную.
+        в Sber API через <code>sberhome.send_raw_command</code>. Собери командой
+        по возможностям устройства (форма ниже генерирует JSON), выбери пресет
+        или правь JSON вручную.
       </div>
+      <div class="section-header" style="margin-top:4px;">
+        <h3>Форма по возможностям устройства</h3>
+      </div>
+      <sberhome-attr-form
+        .hass=${this.hass}
+        .deviceId=${this._selectedId}
+        .value=${this._formAttrs}
+        @attributes-change=${this._onFormAttrs}
+      ></sberhome-attr-form>
       <div class="presets">
         ${PRESETS.map(
           (p) => html`
