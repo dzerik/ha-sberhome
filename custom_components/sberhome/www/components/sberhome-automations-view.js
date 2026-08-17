@@ -13,6 +13,7 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
 
 // Subviews импортируются ДИНАМИЧЕСКИ с тем же cache-buster `?v=…`, что
 // у самого этого модуля. Иначе браузер навсегда кэширует подмодули
@@ -30,7 +31,7 @@ await Promise.all([
   import(`./sberhome-ttc-view.js${_q}`),
 ]);
 
-export class SberhomeAutomationsView extends LitElement {
+export class SberhomeAutomationsView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { attribute: false },
@@ -207,12 +208,12 @@ export class SberhomeAutomationsView extends LitElement {
             class="toggle ${a.on ? "on" : ""}"
             ?disabled=${!a.available}
             @click=${() => this._toggleAtHome(a)}
-          >${a.on ? "Дома" : "Не дома"}</button>
+          >${a.on ? this.t("automations.at_home") : this.t("automations.away")}</button>
         </div>`,
       )}
 
       ${this._groups.length
-        ? html`<div class="section-title">🔀 Группы</div>
+        ? html`<div class="section-title">🔀 ${this.t("automations.section_groups")}</div>
             ${this._groups.map((g) => {
               const s = this._groupState(g.entity_id);
               return html`<div class="athome">
@@ -221,7 +222,7 @@ export class SberhomeAutomationsView extends LitElement {
                   class="toggle ${s?.on ? "on" : ""}"
                   ?disabled=${!s || !s.available}
                   @click=${() => this._toggleGroup(g)}
-                >${s?.on ? "Вкл" : "Выкл"}</button>
+                >${s?.on ? this.t("common.on") : this.t("common.off")}</button>
               </div>`;
             })}`
         : ""}
@@ -230,21 +231,21 @@ export class SberhomeAutomationsView extends LitElement {
         <button
           class="chip ${this._section === "intents" ? "active" : ""}"
           @click=${() => (this._section = "intents")}
-        >🎤 Сценарии</button>
+        >🎤 ${this.t("tab.scenarios")}</button>
         <button
           class="chip ${this._section === "listeners" ? "active" : ""}"
           @click=${() => (this._section = "listeners")}
-        >⚡ Слушатели${this._listenersCount
+        >⚡ ${this.t("tab.listeners")}${this._listenersCount
           ? html`<span class="count">${this._listenersCount}</span>`
           : ""}</button>
         <button
           class="chip ${this._section === "tts" ? "active" : ""}"
           @click=${() => (this._section = "tts")}
-        >🔊 Озвучка</button>
+        >🔊 ${this.t("tab.tts")}</button>
         <button
           class="chip ${this._section === "ttc" ? "active" : ""}"
           @click=${() => (this._section = "ttc")}
-        >🎙 Команда</button>
+        >🎙 ${this.t("tab.ttc")}</button>
       </div>
 
       ${this._section === "intents"

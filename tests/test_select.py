@@ -83,9 +83,10 @@ class TestVacuumProgramSelect:
         assert entity._attr_unique_id == "device_vacuum_1_vacuum_cleaner_program"
 
     def test_name_and_translation_key_from_suffix(self, entity):
-        """Суффикс становится display-именем и translation_key."""
-        assert entity._attr_name == "Vacuum Cleaner Program"
+        """Суффикс становится translation_key; _attr_name НЕ ставится
+        (иначе перебил бы translation/device_class-локализацию)."""
         assert entity._attr_translation_key == "vacuum_cleaner_program"
+        assert not hasattr(entity, "_attr_name")
 
     def test_options_from_feature_spec(self, entity):
         """options приходят из FeatureSpec без похода в enum-кэш."""

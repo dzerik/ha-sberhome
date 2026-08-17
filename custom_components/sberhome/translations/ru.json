@@ -106,11 +106,50 @@
     "binary_sensor": {
       "gamepad": {
         "name": "Геймпад"
+      },
+      "detector": {
+        "name": "Детектор"
+      },
+      "matter_ready": {
+        "name": "Готовность Matter"
+      },
+      "staros_assistant_sounds_enabled": {
+        "name": "Звуки ассистента"
+      },
+      "staros_has_hub": {
+        "name": "Наличие хаба"
+      },
+      "sub_pairing": {
+        "name": "Сопряжение"
+      },
+      "zigbee_ready": {
+        "name": "Готовность Zigbee"
       }
     },
     "switch": {
       "staros_assistant_sounds_enabled": {
         "name": "Звуки ассистента"
+      },
+      "alarm_mute": {
+        "name": "Отключение звука тревоги"
+      },
+      "child_lock": {
+        "name": "Блокировка от детей"
+      },
+      "hvac_aromatization": {
+        "name": "Ароматизация"
+      },
+      "hvac_decontaminate": {
+        "name": "Обеззараживание"
+      },
+      "hvac_ionization": {
+        "name": "Ионизация"
+      },
+      "hvac_night_mode": {
+        "name": "Ночной режим"
+      },
+      "switch_led": {
+        "name": "Подсветка"
       }
     },
     "select": {
@@ -120,6 +159,178 @@
           "adult": "Взрослый",
           "child": "Детский"
         }
+      },
+      "hvac_air_flow_direction": {
+        "name": "Направление потока воздуха",
+        "state": {
+          "auto": "Авто",
+          "top": "Вверх",
+          "middle": "По центру",
+          "bottom": "Вниз"
+        }
+      },
+      "hvac_direction_set": {
+        "name": "Направление воздуха",
+        "state": {
+          "auto": "Авто",
+          "top": "Вверх",
+          "middle": "По центру",
+          "bottom": "Вниз",
+          "swing": "Качание"
+        }
+      },
+      "hvac_heating_rate": {
+        "name": "Скорость нагрева",
+        "state": {
+          "slow": "Медленно",
+          "medium": "Средне",
+          "fast": "Быстро"
+        }
+      },
+      "hvac_thermostat_mode": {
+        "name": "Режим термостата",
+        "state": {
+          "auto": "Авто",
+          "eco": "Эко",
+          "comfort": "Комфорт",
+          "boost": "Турбо"
+        }
+      },
+      "open_rate": {
+        "name": "Скорость открытия",
+        "state": {
+          "auto": "Авто",
+          "low": "Низкая",
+          "high": "Высокая"
+        }
+      },
+      "position": {
+        "name": "Положение"
+      },
+      "sensor_sensitive": {
+        "name": "Чувствительность датчика",
+        "state": {
+          "auto": "Авто",
+          "high": "Высокая"
+        }
+      },
+      "temp_unit_view": {
+        "name": "Единицы температуры",
+        "state": {
+          "celsius": "Цельсий",
+          "fahrenheit": "Фаренгейт"
+        }
+      },
+      "vacuum_cleaner_cleaning_type": {
+        "name": "Тип уборки",
+        "state": {
+          "dry": "Сухая",
+          "wet": "Влажная",
+          "mixed": "Смешанная"
+        }
+      },
+      "vacuum_cleaner_program": {
+        "name": "Программа уборки",
+        "state": {
+          "perimeter": "По периметру",
+          "spot": "Локально",
+          "smart": "Умная"
+        }
+      }
+    },
+    "button": {
+      "reject_call": {
+        "name": "Отклонить вызов"
+      },
+      "unlock": {
+        "name": "Разблокировать"
+      }
+    },
+    "event": {
+      "button_10_event": {
+        "name": "Кнопка 10"
+      },
+      "button_1_event": {
+        "name": "Кнопка 1"
+      },
+      "button_2_event": {
+        "name": "Кнопка 2"
+      },
+      "button_3_event": {
+        "name": "Кнопка 3"
+      },
+      "button_4_event": {
+        "name": "Кнопка 4"
+      },
+      "button_5_event": {
+        "name": "Кнопка 5"
+      },
+      "button_6_event": {
+        "name": "Кнопка 6"
+      },
+      "button_7_event": {
+        "name": "Кнопка 7"
+      },
+      "button_8_event": {
+        "name": "Кнопка 8"
+      },
+      "button_9_event": {
+        "name": "Кнопка 9"
+      },
+      "button_bottom_left_event": {
+        "name": "Кнопка снизу слева"
+      },
+      "button_bottom_right_event": {
+        "name": "Кнопка снизу справа"
+      },
+      "button_event": {
+        "name": "Кнопка"
+      },
+      "button_left_event": {
+        "name": "Кнопка слева"
+      },
+      "button_right_event": {
+        "name": "Кнопка справа"
+      },
+      "button_top_left_event": {
+        "name": "Кнопка сверху слева"
+      },
+      "button_top_right_event": {
+        "name": "Кнопка сверху справа"
+      }
+    },
+    "number": {
+      "hvac_humidity_set": {
+        "name": "Заданная влажность"
+      },
+      "kitchen_water_temperature_set": {
+        "name": "Заданная температура воды"
+      },
+      "light_transmission_percentage": {
+        "name": "Процент открытия"
+      },
+      "sleep_timer": {
+        "name": "Таймер сна"
+      }
+    },
+    "sensor": {
+      "hcho_float": {
+        "name": "Формальдегид (HCHO)"
+      },
+      "hvac_water_level": {
+        "name": "Уровень воды"
+      },
+      "hvac_water_percentage": {
+        "name": "Уровень воды, %"
+      },
+      "kitchen_water_level": {
+        "name": "Уровень воды"
+      },
+      "signal_strength": {
+        "name": "Уровень сигнала"
+      },
+      "staros_age_mode": {
+        "name": "Возрастной режим"
       }
     }
   }

@@ -106,11 +106,50 @@
     "binary_sensor": {
       "gamepad": {
         "name": "Геймпад"
+      },
+      "detector": {
+        "name": "Детектор"
+      },
+      "matter_ready": {
+        "name": "Matter дайын"
+      },
+      "staros_assistant_sounds_enabled": {
+        "name": "Ассистент дыбыстары"
+      },
+      "staros_has_hub": {
+        "name": "Хаб қосылған"
+      },
+      "sub_pairing": {
+        "name": "Жалғау режимі"
+      },
+      "zigbee_ready": {
+        "name": "Zigbee дайын"
       }
     },
     "switch": {
       "staros_assistant_sounds_enabled": {
         "name": "Көмекші дыбыстары"
+      },
+      "alarm_mute": {
+        "name": "Дабылды өшіру"
+      },
+      "child_lock": {
+        "name": "Балалардан қорғау"
+      },
+      "hvac_aromatization": {
+        "name": "Хош иістендіру"
+      },
+      "hvac_decontaminate": {
+        "name": "Зарарсыздандыру"
+      },
+      "hvac_ionization": {
+        "name": "Иондау"
+      },
+      "hvac_night_mode": {
+        "name": "Түнгі режим"
+      },
+      "switch_led": {
+        "name": "Артқы жарық"
       }
     },
     "select": {
@@ -120,6 +159,178 @@
           "adult": "Ересек",
           "child": "Балалар"
         }
+      },
+      "hvac_air_flow_direction": {
+        "name": "Ауа ағынының бағыты",
+        "state": {
+          "auto": "Авто",
+          "top": "Жоғары",
+          "middle": "Орта",
+          "bottom": "Төмен"
+        }
+      },
+      "hvac_direction_set": {
+        "name": "Ауа бағыты",
+        "state": {
+          "auto": "Авто",
+          "top": "Жоғары",
+          "middle": "Орта",
+          "bottom": "Төмен",
+          "swing": "Тербелу"
+        }
+      },
+      "hvac_heating_rate": {
+        "name": "Қыздыру жылдамдығы",
+        "state": {
+          "slow": "Баяу",
+          "medium": "Орташа",
+          "fast": "Жылдам"
+        }
+      },
+      "hvac_thermostat_mode": {
+        "name": "Термостат режимі",
+        "state": {
+          "auto": "Авто",
+          "eco": "Эко",
+          "comfort": "Жайлы",
+          "boost": "Күшейту"
+        }
+      },
+      "open_rate": {
+        "name": "Ашылу жылдамдығы",
+        "state": {
+          "auto": "Авто",
+          "low": "Төмен",
+          "high": "Жоғары"
+        }
+      },
+      "position": {
+        "name": "Орны"
+      },
+      "sensor_sensitive": {
+        "name": "Сенсор сезімталдығы",
+        "state": {
+          "auto": "Авто",
+          "high": "Жоғары"
+        }
+      },
+      "temp_unit_view": {
+        "name": "Температура бірлігі",
+        "state": {
+          "celsius": "Цельсий",
+          "fahrenheit": "Фаренгейт"
+        }
+      },
+      "vacuum_cleaner_cleaning_type": {
+        "name": "Тазалау түрі",
+        "state": {
+          "dry": "Құрғақ",
+          "wet": "Дымқыл",
+          "mixed": "Аралас"
+        }
+      },
+      "vacuum_cleaner_program": {
+        "name": "Тазалау бағдарламасы",
+        "state": {
+          "perimeter": "Периметр",
+          "spot": "Нүктелік",
+          "smart": "Ақылды"
+        }
+      }
+    },
+    "button": {
+      "reject_call": {
+        "name": "Қоңырауды қабылдамау"
+      },
+      "unlock": {
+        "name": "Құлыпты ашу"
+      }
+    },
+    "event": {
+      "button_10_event": {
+        "name": "10-түйме"
+      },
+      "button_1_event": {
+        "name": "1-түйме"
+      },
+      "button_2_event": {
+        "name": "2-түйме"
+      },
+      "button_3_event": {
+        "name": "3-түйме"
+      },
+      "button_4_event": {
+        "name": "4-түйме"
+      },
+      "button_5_event": {
+        "name": "5-түйме"
+      },
+      "button_6_event": {
+        "name": "6-түйме"
+      },
+      "button_7_event": {
+        "name": "7-түйме"
+      },
+      "button_8_event": {
+        "name": "8-түйме"
+      },
+      "button_9_event": {
+        "name": "9-түйме"
+      },
+      "button_bottom_left_event": {
+        "name": "Төменгі сол түйме"
+      },
+      "button_bottom_right_event": {
+        "name": "Төменгі оң түйме"
+      },
+      "button_event": {
+        "name": "Түйме"
+      },
+      "button_left_event": {
+        "name": "Сол түйме"
+      },
+      "button_right_event": {
+        "name": "Оң түйме"
+      },
+      "button_top_left_event": {
+        "name": "Жоғарғы сол түйме"
+      },
+      "button_top_right_event": {
+        "name": "Жоғарғы оң түйме"
+      }
+    },
+    "number": {
+      "hvac_humidity_set": {
+        "name": "Ылғалдылық"
+      },
+      "kitchen_water_temperature_set": {
+        "name": "Су температурасы"
+      },
+      "light_transmission_percentage": {
+        "name": "Ашылу пайызы"
+      },
+      "sleep_timer": {
+        "name": "Ұйқы таймері"
+      }
+    },
+    "sensor": {
+      "hcho_float": {
+        "name": "Формальдегид (HCHO)"
+      },
+      "hvac_water_level": {
+        "name": "Су деңгейі"
+      },
+      "hvac_water_percentage": {
+        "name": "Су пайызы"
+      },
+      "kitchen_water_level": {
+        "name": "Су деңгейі"
+      },
+      "staros_age_mode": {
+        "name": "Жас режимі"
+      },
+      "signal_strength": {
+        "name": "Сигнал күші"
       }
     }
   }

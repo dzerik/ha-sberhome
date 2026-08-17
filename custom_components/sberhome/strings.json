@@ -105,11 +105,50 @@
     "binary_sensor": {
       "gamepad": {
         "name": "Gamepad"
+      },
+      "detector": {
+        "name": "Detector"
+      },
+      "matter_ready": {
+        "name": "Matter ready"
+      },
+      "staros_assistant_sounds_enabled": {
+        "name": "Assistant sounds"
+      },
+      "staros_has_hub": {
+        "name": "Hub connected"
+      },
+      "sub_pairing": {
+        "name": "Pairing mode"
+      },
+      "zigbee_ready": {
+        "name": "Zigbee ready"
       }
     },
     "switch": {
       "staros_assistant_sounds_enabled": {
         "name": "Assistant sounds"
+      },
+      "alarm_mute": {
+        "name": "Mute alarm"
+      },
+      "child_lock": {
+        "name": "Child lock"
+      },
+      "hvac_aromatization": {
+        "name": "Aromatization"
+      },
+      "hvac_decontaminate": {
+        "name": "Sterilization"
+      },
+      "hvac_ionization": {
+        "name": "Ionization"
+      },
+      "hvac_night_mode": {
+        "name": "Night mode"
+      },
+      "switch_led": {
+        "name": "LED indicator"
       }
     },
     "select": {
@@ -119,6 +158,178 @@
           "adult": "Adult",
           "child": "Child"
         }
+      },
+      "hvac_air_flow_direction": {
+        "name": "Airflow direction",
+        "state": {
+          "auto": "Auto",
+          "top": "Top",
+          "middle": "Middle",
+          "bottom": "Bottom"
+        }
+      },
+      "hvac_direction_set": {
+        "name": "Vane direction",
+        "state": {
+          "auto": "Auto",
+          "top": "Top",
+          "middle": "Middle",
+          "bottom": "Bottom",
+          "swing": "Swing"
+        }
+      },
+      "hvac_heating_rate": {
+        "name": "Heating rate",
+        "state": {
+          "slow": "Slow",
+          "medium": "Medium",
+          "fast": "Fast"
+        }
+      },
+      "hvac_thermostat_mode": {
+        "name": "Thermostat mode",
+        "state": {
+          "auto": "Auto",
+          "eco": "Eco",
+          "comfort": "Comfort",
+          "boost": "Boost"
+        }
+      },
+      "open_rate": {
+        "name": "Opening speed",
+        "state": {
+          "auto": "Auto",
+          "low": "Low",
+          "high": "High"
+        }
+      },
+      "position": {
+        "name": "Position"
+      },
+      "sensor_sensitive": {
+        "name": "Sensor sensitivity",
+        "state": {
+          "auto": "Auto",
+          "high": "High"
+        }
+      },
+      "temp_unit_view": {
+        "name": "Temperature unit",
+        "state": {
+          "celsius": "Celsius",
+          "fahrenheit": "Fahrenheit"
+        }
+      },
+      "vacuum_cleaner_cleaning_type": {
+        "name": "Cleaning type",
+        "state": {
+          "dry": "Dry",
+          "wet": "Wet",
+          "mixed": "Mixed"
+        }
+      },
+      "vacuum_cleaner_program": {
+        "name": "Cleaning program",
+        "state": {
+          "perimeter": "Perimeter",
+          "spot": "Spot",
+          "smart": "Smart"
+        }
+      }
+    },
+    "button": {
+      "reject_call": {
+        "name": "Reject call"
+      },
+      "unlock": {
+        "name": "Unlock"
+      }
+    },
+    "event": {
+      "button_1_event": {
+        "name": "Button 1"
+      },
+      "button_2_event": {
+        "name": "Button 2"
+      },
+      "button_3_event": {
+        "name": "Button 3"
+      },
+      "button_4_event": {
+        "name": "Button 4"
+      },
+      "button_5_event": {
+        "name": "Button 5"
+      },
+      "button_6_event": {
+        "name": "Button 6"
+      },
+      "button_7_event": {
+        "name": "Button 7"
+      },
+      "button_8_event": {
+        "name": "Button 8"
+      },
+      "button_9_event": {
+        "name": "Button 9"
+      },
+      "button_10_event": {
+        "name": "Button 10"
+      },
+      "button_event": {
+        "name": "Button"
+      },
+      "button_left_event": {
+        "name": "Left button"
+      },
+      "button_right_event": {
+        "name": "Right button"
+      },
+      "button_top_left_event": {
+        "name": "Top-left button"
+      },
+      "button_top_right_event": {
+        "name": "Top-right button"
+      },
+      "button_bottom_left_event": {
+        "name": "Bottom-left button"
+      },
+      "button_bottom_right_event": {
+        "name": "Bottom-right button"
+      }
+    },
+    "number": {
+      "hvac_humidity_set": {
+        "name": "Target humidity"
+      },
+      "kitchen_water_temperature_set": {
+        "name": "Target water temperature"
+      },
+      "light_transmission_percentage": {
+        "name": "Opening percentage"
+      },
+      "sleep_timer": {
+        "name": "Sleep timer"
+      }
+    },
+    "sensor": {
+      "hcho_float": {
+        "name": "Formaldehyde (HCHO)"
+      },
+      "hvac_water_level": {
+        "name": "Water level"
+      },
+      "hvac_water_percentage": {
+        "name": "Water remaining"
+      },
+      "kitchen_water_level": {
+        "name": "Water level"
+      },
+      "signal_strength": {
+        "name": "Signal strength"
+      },
+      "staros_age_mode": {
+        "name": "Age mode"
       }
     }
   }

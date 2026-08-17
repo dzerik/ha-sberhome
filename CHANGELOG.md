@@ -1,5 +1,23 @@
 # Changelog
 
+## [5.35.0] — 2026-08-17
+
+### Added — локализация имён сущностей (5 языков) + i18n-фундамент панели
+
+- **Человекочитаемые имена сущностей** вместо snake_case: 52 feature-ключа
+  без стандартного device_class (open_rate, sleep_timer, light_transmission_percentage,
+  signal_strength, vacuum_cleaner_program, switch_led, child_lock, button_N_event…)
+  + переводы опций select — на **ru/en/be/kk/uz**. Ключи с device_class
+  локализуются HA автоматически.
+- **Фикс `entity.py`**: убран `_attr_name = .title()`, который перебивал и
+  translation_key, и device_class-локализацию (см. HA `Entity._name_internal`).
+  Теперь имя берётся из translations, иначе — из device_class.
+- **Аудит пропусков**: все 5 файлов переводов в полном паритете со strings.json.
+- **i18n-фундамент панели**: `www/i18n/` (localize + миксин Localized, словари
+  на 5 языков, fallback lang→ru→en). Проведена вкладка Automations (табы,
+  дома/группы) как образец. Остальные компоненты — по этому же образцу далее.
+
+
 ## [5.34.0] — 2026-08-17
 
 ### Changed — настройки колонки в модалке устройства + визуальный эквалайзер

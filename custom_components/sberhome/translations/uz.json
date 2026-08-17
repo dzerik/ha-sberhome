@@ -106,11 +106,50 @@
     "binary_sensor": {
       "gamepad": {
         "name": "Geympad"
+      },
+      "detector": {
+        "name": "Detektor"
+      },
+      "matter_ready": {
+        "name": "Matter tayyor"
+      },
+      "staros_assistant_sounds_enabled": {
+        "name": "Yordamchi tovushlari"
+      },
+      "staros_has_hub": {
+        "name": "Markaz mavjud"
+      },
+      "sub_pairing": {
+        "name": "Qurilma ulash"
+      },
+      "zigbee_ready": {
+        "name": "Zigbee tayyor"
       }
     },
     "switch": {
       "staros_assistant_sounds_enabled": {
         "name": "Yordamchi tovushlari"
+      },
+      "alarm_mute": {
+        "name": "Signalni oʻchirish"
+      },
+      "child_lock": {
+        "name": "Bolalardan himoya"
+      },
+      "hvac_aromatization": {
+        "name": "Aromatlashtirish"
+      },
+      "hvac_decontaminate": {
+        "name": "Zararsizlantirish"
+      },
+      "hvac_ionization": {
+        "name": "Ionlashtirish"
+      },
+      "hvac_night_mode": {
+        "name": "Tungi rejim"
+      },
+      "switch_led": {
+        "name": "Indikator"
       }
     },
     "select": {
@@ -120,6 +159,178 @@
           "adult": "Kattalar",
           "child": "Bolalar"
         }
+      },
+      "hvac_air_flow_direction": {
+        "name": "Havo oqimi yoʻnalishi",
+        "state": {
+          "auto": "Avtomatik",
+          "top": "Yuqoriga",
+          "middle": "Oʻrtaga",
+          "bottom": "Pastga"
+        }
+      },
+      "hvac_direction_set": {
+        "name": "Yoʻnalishni sozlash",
+        "state": {
+          "auto": "Avtomatik",
+          "top": "Yuqoriga",
+          "middle": "Oʻrtaga",
+          "bottom": "Pastga",
+          "swing": "Tebranish"
+        }
+      },
+      "hvac_heating_rate": {
+        "name": "Isitish tezligi",
+        "state": {
+          "slow": "Sekin",
+          "medium": "Oʻrtacha",
+          "fast": "Tez"
+        }
+      },
+      "hvac_thermostat_mode": {
+        "name": "Termostat rejimi",
+        "state": {
+          "auto": "Avtomatik",
+          "eco": "Eko",
+          "comfort": "Komfort",
+          "boost": "Kuchaytirish"
+        }
+      },
+      "open_rate": {
+        "name": "Ochilish tezligi",
+        "state": {
+          "auto": "Avtomatik",
+          "low": "Past",
+          "high": "Yuqori"
+        }
+      },
+      "position": {
+        "name": "Holat"
+      },
+      "sensor_sensitive": {
+        "name": "Sezgirlik",
+        "state": {
+          "auto": "Avtomatik",
+          "high": "Yuqori"
+        }
+      },
+      "temp_unit_view": {
+        "name": "Harorat birligi",
+        "state": {
+          "celsius": "Selsiy",
+          "fahrenheit": "Farengeyt"
+        }
+      },
+      "vacuum_cleaner_cleaning_type": {
+        "name": "Tozalash turi",
+        "state": {
+          "dry": "Quruq",
+          "wet": "Hoʻl",
+          "mixed": "Aralash"
+        }
+      },
+      "vacuum_cleaner_program": {
+        "name": "Tozalash dasturi",
+        "state": {
+          "perimeter": "Perimetr",
+          "spot": "Nuqtaviy",
+          "smart": "Aqlli"
+        }
+      }
+    },
+    "button": {
+      "reject_call": {
+        "name": "Qoʻngʻiroqni rad etish"
+      },
+      "unlock": {
+        "name": "Qulfni ochish"
+      }
+    },
+    "event": {
+      "button_1_event": {
+        "name": "1-tugma"
+      },
+      "button_2_event": {
+        "name": "2-tugma"
+      },
+      "button_3_event": {
+        "name": "3-tugma"
+      },
+      "button_4_event": {
+        "name": "4-tugma"
+      },
+      "button_5_event": {
+        "name": "5-tugma"
+      },
+      "button_6_event": {
+        "name": "6-tugma"
+      },
+      "button_7_event": {
+        "name": "7-tugma"
+      },
+      "button_8_event": {
+        "name": "8-tugma"
+      },
+      "button_9_event": {
+        "name": "9-tugma"
+      },
+      "button_10_event": {
+        "name": "10-tugma"
+      },
+      "button_event": {
+        "name": "Tugma"
+      },
+      "button_left_event": {
+        "name": "Chap tugma"
+      },
+      "button_right_event": {
+        "name": "Oʻng tugma"
+      },
+      "button_top_left_event": {
+        "name": "Yuqori chap tugma"
+      },
+      "button_top_right_event": {
+        "name": "Yuqori oʻng tugma"
+      },
+      "button_bottom_left_event": {
+        "name": "Pastki chap tugma"
+      },
+      "button_bottom_right_event": {
+        "name": "Pastki oʻng tugma"
+      }
+    },
+    "number": {
+      "hvac_humidity_set": {
+        "name": "Belgilangan namlik"
+      },
+      "kitchen_water_temperature_set": {
+        "name": "Suv haroratini sozlash"
+      },
+      "light_transmission_percentage": {
+        "name": "Ochilish foizi"
+      },
+      "sleep_timer": {
+        "name": "Uyqu taymeri"
+      }
+    },
+    "sensor": {
+      "hcho_float": {
+        "name": "Formaldegid (HCHO)"
+      },
+      "hvac_water_level": {
+        "name": "Suv sathi"
+      },
+      "hvac_water_percentage": {
+        "name": "Suv foizi"
+      },
+      "kitchen_water_level": {
+        "name": "Suv sathi"
+      },
+      "signal_strength": {
+        "name": "Signal kuchi"
+      },
+      "staros_age_mode": {
+        "name": "Yosh rejimi"
       }
     }
   }
