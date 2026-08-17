@@ -306,7 +306,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         if _legacy_id is not None:
             _ent_reg.async_remove(_legacy_id)
 
-
     # Платформы форвардятся ТОЛЬКО если пользователь явно выбрал устройства
     # в панели. Новые установки стартуют с пустым enabled_device_ids → 0
     # entities в HA до выбора. Legacy установки (без ключа options) считаются

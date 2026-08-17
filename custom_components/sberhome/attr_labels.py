@@ -53,6 +53,4 @@ def humanize(key: str) -> str:
 def attr_label(key: str, lang: str = "ru") -> str:
     """Подпись атрибута на языке ``lang`` (fallback lang→ru→humanize)."""
     code = (lang or "ru").split("-")[0]
-    return (
-        _labels_for(code).get(key) or _labels_for(_FALLBACK_LANG).get(key) or humanize(key)
-    )
+    return _labels_for(code).get(key) or _labels_for(_FALLBACK_LANG).get(key) or humanize(key)

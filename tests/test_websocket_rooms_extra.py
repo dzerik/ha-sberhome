@@ -246,7 +246,11 @@ class TestDeviceWriteSchema:
                     "type": "INTEGER",
                     "int_values": {"range": {"min": 50, "max": 1000, "step": 1}, "unit": "32"},
                 },
-                {"key": "light_scene", "type": "ENUM", "enum_values": {"values": ["candle", "arctic"]}},
+                {
+                    "key": "light_scene",
+                    "type": "ENUM",
+                    "enum_values": {"values": ["candle", "arctic"]},
+                },
                 {"key": "online", "type": "BOOL"},  # не в commands → пропустить
             ],
             "reported_state": [
