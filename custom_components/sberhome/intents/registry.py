@@ -157,11 +157,9 @@ _DEVICE_COMMAND_FIELDS = (
     ),
     FieldSpec(
         key="attributes",
-        type="multitext",
-        label="Атрибуты JSON",
-        help_text=(
-            'Список AttributeValueDto (например [{"key":"on_off","type":"BOOL","bool_value":true}])'
-        ),
+        type="attr_form",
+        label="Что задать",
+        help_text="Отметьте атрибуты и задайте значения — форма по возможностям устройства.",
         required=True,
     ),
 )

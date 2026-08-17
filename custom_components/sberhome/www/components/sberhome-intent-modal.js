@@ -9,6 +9,13 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 
+// Модуль формы «команда устройству» (визард действия) — грузим с тем же
+// cache-buster `?v=`, что у самого редактора, чтобы бампы версии
+// инвалидировали и его. Top-level await регистрирует custom element до
+// первого render'а.
+const _attrFormV = new URL(import.meta.url).searchParams.get("v") || "";
+await import(`./sberhome-attr-form.js${_attrFormV ? `?v=${_attrFormV}` : ""}`);
+
 class SberHomeIntentModal extends LitElement {
   static get properties() {
     return {
@@ -791,6 +798,19 @@ class SberHomeIntentModal extends LitElement {
             @value-changed=${(e) => onChange(e.detail.value)}
           ></sberhome-device-picker-field>
         `;
+      case "attr_form": {
+        // Форма желаемого состояния по возможностям выбранного устройства.
+        // device_id берём из соседнего поля этого же действия.
+        const act = this._draft.actions?.[actionIdx];
+        return html`
+          <sberhome-attr-form
+            .hass=${this.hass}
+            .deviceId=${act?.data?.device_id || ""}
+            .value=${Array.isArray(value) ? value : []}
+            @attributes-change=${(e) => onChange(e.detail.attributes)}
+          ></sberhome-attr-form>
+        `;
+      }
       default:
         return html`
           <em>Unsupported field type: ${field.type}</em>
