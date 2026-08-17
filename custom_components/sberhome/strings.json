@@ -330,6 +330,9 @@
       },
       "staros_age_mode": {
         "name": "Age mode"
+      },
+      "subdevice_count": {
+        "name": "Sub-device count"
       }
     }
   }

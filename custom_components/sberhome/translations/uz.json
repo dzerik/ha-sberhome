@@ -331,6 +331,9 @@
       },
       "staros_age_mode": {
         "name": "Yosh rejimi"
+      },
+      "subdevice_count": {
+        "name": "Ichki qurilmalar soni"
       }
     }
   }

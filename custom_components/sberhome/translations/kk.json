@@ -331,6 +331,9 @@
       },
       "signal_strength": {
         "name": "Сигнал күші"
+      },
+      "subdevice_count": {
+        "name": "Ішкі құрылғылар саны"
       }
     }
   }

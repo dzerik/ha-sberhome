@@ -97,7 +97,8 @@ class SberHubSubdeviceCount(SberBaseEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Sub-device count"
+    # Имя через translation_key (subdevice_count) в translations — иначе
+    # _attr_name перебил бы локализацию.
     _attr_icon = "mdi:hubspot"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC

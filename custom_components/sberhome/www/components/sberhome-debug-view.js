@@ -15,34 +15,6 @@ import { mobileBase } from "../mobile-css.js";
 const _v = new URL(import.meta.url).searchParams.get("v") || "";
 await import(`./sberhome-attr-form.js${_v ? `?v=${_v}` : ""}`);
 
-const PRESETS = [
-  {
-    label: "Зелёный (s/v = 1000)",
-    state: [{ key: "light_colour", type: "COLOR", color_value: { h: 120, s: 1000, v: 500 } }],
-  },
-  {
-    label: "Красный (s/v = 1000)",
-    state: [{ key: "light_colour", type: "COLOR", color_value: { h: 0, s: 1000, v: 500 } }],
-  },
-  {
-    label: "Синий (s/v = 1000)",
-    state: [{ key: "light_colour", type: "COLOR", color_value: { h: 240, s: 1000, v: 500 } }],
-  },
-  {
-    label: "Цвет + light_mode=colour",
-    state: [
-      { key: "light_mode", type: "ENUM", enum_value: "colour" },
-      { key: "light_colour", type: "COLOR", color_value: { h: 60, s: 1000, v: 500 } },
-    ],
-  },
-  {
-    label: "light_brightness=500",
-    state: [{ key: "light_brightness", type: "INTEGER", integer_value: 500 }],
-  },
-  { label: "Power ON", state: [{ key: "on_off", type: "BOOL", bool_value: true }] },
-  { label: "Power OFF", state: [{ key: "on_off", type: "BOOL", bool_value: false }] },
-];
-
 async function copyJson(obj) {
   const text = JSON.stringify(obj, null, 2);
   try {
@@ -82,7 +54,7 @@ class SberHomeDebugView extends LitElement {
     this._selectedId = "";
     this._detail = null;
     this._subtab = "payload";
-    this._payload = JSON.stringify(PRESETS[0].state, null, 2);
+    this._payload = "[]";
     this._formAttrs = [];
     this._response = null;
     this._sending = false;
@@ -125,14 +97,6 @@ class SberHomeDebugView extends LitElement {
   _onFormAttrs(e) {
     this._formAttrs = e.detail.attributes || [];
     this._payload = JSON.stringify(this._formAttrs, null, 2);
-  }
-
-  _applyPreset(preset) {
-    // Пресет перебивает форму — сбрасываем её выбор, чтобы не путать источники.
-    this._formAttrs = [];
-    this._payload = JSON.stringify(preset.state, null, 2);
-    this._response = null;
-    this._error = "";
   }
 
   async _send() {
@@ -271,12 +235,6 @@ class SberHomeDebugView extends LitElement {
         white-space: pre-wrap;
         margin: 0;
       }
-      .presets {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
       .hint {
         font-size: 12px;
         color: var(--secondary-text-color);
@@ -352,8 +310,8 @@ class SberHomeDebugView extends LitElement {
       <div class="hint">
         Дебаг-инструмент: отправляем произвольный <code>desired_state</code>
         в Sber API через <code>sberhome.send_raw_command</code>. Собери командой
-        по возможностям устройства (форма ниже генерирует JSON), выбери пресет
-        или правь JSON вручную.
+        по возможностям устройства (форма ниже генерирует JSON) или правь JSON
+        вручную.
       </div>
       <div class="section-header" style="margin-top:4px;">
         <h3>Форма по возможностям устройства</h3>
@@ -364,13 +322,6 @@ class SberHomeDebugView extends LitElement {
         .value=${this._formAttrs}
         @attributes-change=${this._onFormAttrs}
       ></sberhome-attr-form>
-      <div class="presets">
-        ${PRESETS.map(
-          (p) => html`
-            <button @click=${() => this._applyPreset(p)}>${p.label}</button>
-          `
-        )}
-      </div>
       <textarea
         .value=${this._payload}
         @input=${(e) => (this._payload = e.target.value)}
