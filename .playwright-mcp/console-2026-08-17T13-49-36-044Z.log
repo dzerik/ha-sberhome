@@ -1,9 +1,0 @@
-[  360157ms] [LOG] Websocket died, forcing reconnect... @ http://192.168.1.40:8123/frontend_latest/app.d53ce8172fc8c85d.js:134
-[  360165ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  361176ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  363181ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  366190ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  370194ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  375208ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  380221ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
-[  385441ms] Object

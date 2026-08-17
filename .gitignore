@@ -26,3 +26,5 @@ uv.lock
 .claude/
 /specs/
 .superpowers/
+
+.playwright-mcp/
