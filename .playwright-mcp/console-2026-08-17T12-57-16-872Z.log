@@ -1,0 +1,15 @@
+[  448065ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  449073ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  451080ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  454084ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  458092ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  463114ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  468122ms] [ERROR] WebSocket connection to 'ws://192.168.1.40:8123/api/websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://192.168.1.40:8123/frontend_latest/core.250396ba5ded497f.js:0
+[  473306ms] Object
+[  488780ms] DOMException: Failed to execute 'define' on 'CustomElementRegistry': the name "sberhome-toast" has already been used with this registry
+    at A.define (http://192.168.1.40:8123/frontend_latest/app.d53ce8172fc8c85d.js:2:5799)
+    at http://192.168.1.40:8123/sberhome_panel/components/sberhome-toast.js?v=5.32.0:79:16
+[  489015ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://192.168.1.40:8123/unknown/node_modules/@webcomponents/scoped-custom-element-registry/src/scoped-custom-element-registry.ts:0
+[  520709ms] DOMException: Failed to execute 'define' on 'CustomElementRegistry': the name "sberhome-toast" has already been used with this registry
+    at A.define (http://192.168.1.40:8123/frontend_latest/app.d53ce8172fc8c85d.js:2:5799)
+    at http://192.168.1.40:8123/sberhome_panel/components/sberhome-toast.js?v=5.32.0:79:16

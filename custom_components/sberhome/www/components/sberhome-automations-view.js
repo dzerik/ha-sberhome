@@ -27,6 +27,7 @@ await Promise.all([
   import(`./sberhome-intents-view.js${_q}`),
   import(`./sberhome-listeners-view.js${_q}`),
   import(`./sberhome-tts-view.js${_q}`),
+  import(`./sberhome-ttc-view.js${_q}`),
 ]);
 
 export class SberhomeAutomationsView extends LitElement {
@@ -240,6 +241,10 @@ export class SberhomeAutomationsView extends LitElement {
           class="chip ${this._section === "tts" ? "active" : ""}"
           @click=${() => (this._section = "tts")}
         >🔊 Озвучка</button>
+        <button
+          class="chip ${this._section === "ttc" ? "active" : ""}"
+          @click=${() => (this._section = "ttc")}
+        >🎙 Команда</button>
       </div>
 
       ${this._section === "intents"
@@ -253,7 +258,9 @@ export class SberhomeAutomationsView extends LitElement {
             .hass=${this.hass}
             @listeners-count=${this._onListenersCount}
           ></sberhome-listeners-view>`
-        : html`<sberhome-tts-view .hass=${this.hass}></sberhome-tts-view>`}
+        : this._section === "tts"
+        ? html`<sberhome-tts-view .hass=${this.hass}></sberhome-tts-view>`
+        : html`<sberhome-ttc-view .hass=${this.hass}></sberhome-ttc-view>`}
     `;
   }
 }

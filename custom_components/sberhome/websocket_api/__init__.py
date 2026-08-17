@@ -72,6 +72,11 @@ from .state_diffs import (
     ws_subscribe_state_diffs,
 )
 from .status import ws_get_status
+from .ttc_surrogate import (
+    ws_ensure_ttc_surrogate,
+    ws_status_ttc_surrogate,
+    ws_test_ttc_surrogate,
+)
 from .tts_surrogate import (
     ws_ensure_tts_surrogate,
     ws_status_tts_surrogate,
@@ -145,6 +150,10 @@ _COMMANDS = (
     ws_status_tts_surrogate,
     ws_ensure_tts_surrogate,
     ws_test_tts_surrogate,
+    # v5.33.0 — TTC surrogate (команда ассистенту): status / ensure / test
+    ws_status_ttc_surrogate,
+    ws_ensure_ttc_surrogate,
+    ws_test_ttc_surrogate,
     # v5.21.0 — настройки умных колонок (канал /v18): таб «Колонки»
     ws_staros_list,
 )
