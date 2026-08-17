@@ -29,6 +29,7 @@ class SberHomeIntentModal extends LitElement {
       _error: { type: String },
       _phraseInput: { type: String },
       _codeEditorReady: { type: Boolean, state: true },
+      _editingActionIdx: { state: true }, // индекс действия в визарде (null = список)
     };
   }
 
@@ -41,6 +42,7 @@ class SberHomeIntentModal extends LitElement {
     this._schema = [];
     this._saving = false;
     this._error = "";
+    this._editingActionIdx = null;
     this._phraseInput = "";
     this._codeEditorReady = !!customElements.get("ha-code-editor");
   }
@@ -159,13 +161,10 @@ class SberHomeIntentModal extends LitElement {
   }
 
   _onAddAction() {
-    this._draft = {
-      ...this._draft,
-      actions: [
-        ...(this._draft.actions || []),
-        { type: "ha_event_only", data: {} },
-      ],
-    };
+    const actions = [...(this._draft.actions || []), { type: "ha_event_only", data: {} }];
+    this._draft = { ...this._draft, actions };
+    // Сразу открываем визард нового действия для редактирования.
+    this._editingActionIdx = actions.length - 1;
   }
 
   _onRemoveAction(idx) {
@@ -173,6 +172,12 @@ class SberHomeIntentModal extends LitElement {
       ...this._draft,
       actions: this._draft.actions.filter((_, i) => i !== idx),
     };
+    // Если удалили редактируемое действие — закрыть визард.
+    if (this._editingActionIdx === idx) {
+      this._editingActionIdx = null;
+    } else if (this._editingActionIdx > idx) {
+      this._editingActionIdx -= 1;
+    }
   }
 
   _onEnabledToggle(e) {
@@ -392,6 +397,44 @@ class SberHomeIntentModal extends LitElement {
         width: 100%; font-size: 13px;
       }
       .add-btn:hover { background: var(--primary-background-color); }
+      /* Дайджест-строки действий */
+      .digest-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px; margin-bottom: 6px;
+        border: 1px solid var(--divider-color, #ddd); border-radius: 8px;
+        cursor: pointer; background: var(--card-background-color, #fff);
+      }
+      .digest-row:hover { border-color: var(--primary-color); }
+      .digest-row.unknown { cursor: default; opacity: 0.7; }
+      .digest-summary { flex: 1; font-size: 14px; }
+      .digest-edit { opacity: 0.5; font-size: 13px; }
+      .digest-del {
+        border: 0; background: transparent; cursor: pointer;
+        color: var(--secondary-text-color); font-size: 18px; line-height: 1;
+        padding: 0 4px;
+      }
+      /* Визард-оверлей поверх модалки */
+      .wizard-overlay {
+        position: fixed; inset: 0; z-index: 10;
+        background: rgba(0, 0, 0, 0.4);
+        display: flex; align-items: center; justify-content: center;
+        padding: 16px;
+      }
+      .wizard {
+        background: var(--card-background-color, #fff);
+        border-radius: 12px; width: 100%; max-width: 560px;
+        max-height: 90vh; overflow: auto;
+        display: flex; flex-direction: column;
+      }
+      .wizard-header, .wizard-footer {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px 16px;
+      }
+      .wizard-header { border-bottom: 1px solid var(--divider-color, #eee); }
+      .wizard-header strong { flex: 1; }
+      .wizard-footer { justify-content: flex-end; border-top: 1px solid var(--divider-color, #eee); }
+      .wizard-body { padding: 12px 16px; }
+      .wizard-x { padding: 2px 10px; font-size: 18px; }
       .footer {
         display: flex; justify-content: flex-end; gap: 8px;
         margin-top: 16px;
@@ -618,12 +661,12 @@ class SberHomeIntentModal extends LitElement {
           <label for="enabled" style="margin: 0;">Активен в Sber</label>
         </div>
 
-        <!-- Actions -->
+        <!-- Actions — дайджест-строки, редактирование в визарде -->
         <div class="field">
           <label>Действия</label>
           <div class="actions-section">
             ${(this._draft.actions || []).map((action, idx) =>
-              this._renderAction(action, idx, readOnly)
+              this._renderActionDigest(action, idx, readOnly)
             )}
             ${!readOnly
               ? html`
@@ -644,6 +687,80 @@ class SberHomeIntentModal extends LitElement {
           >
             ${this._saving ? "Сохранение…" : this.isNew ? "Создать" : "Сохранить"}
           </button>
+        </div>
+
+        ${this._editingActionIdx !== null ? this._renderActionWizard(readOnly) : ""}
+      </div>
+    `;
+  }
+
+  _actionDigest(action) {
+    const reg = this._schema.find((s) => s.type === action.type);
+    const label = reg?.ui_label || action.type;
+    const d = action.data || {};
+    switch (action.type) {
+      case "tts":
+        return `🗣 ${d.text ? `«${String(d.text).slice(0, 40)}»` : label}`;
+      case "device_command": {
+        const n = Array.isArray(d.attributes) ? d.attributes.length : 0;
+        return `💡 команда устройству${n ? ` — ${n} атр.` : ""}`;
+      }
+      case "trigger_notify":
+        return "🔔 уведомление";
+      case "ha_event_only":
+        return "⚙ только HA event";
+      default:
+        return label;
+    }
+  }
+
+  _renderActionDigest(action, idx, readOnly) {
+    if (action.unknown) {
+      return html`<div class="digest-row unknown">
+        <span class="digest-summary">⚠ ${action.type} (Sber, read-only)</span>
+      </div>`;
+    }
+    return html`
+      <div class="digest-row" @click=${() => this._openActionWizard(idx)}>
+        <span class="digest-summary">${this._actionDigest(action)}</span>
+        <span class="digest-edit">✎</span>
+        ${!readOnly && (this._draft.actions || []).length > 1
+          ? html`<button
+              class="digest-del"
+              title="Удалить действие"
+              @click=${(e) => {
+                e.stopPropagation();
+                this._onRemoveAction(idx);
+              }}
+            >×</button>`
+          : ""}
+      </div>
+    `;
+  }
+
+  _openActionWizard(idx) {
+    this._editingActionIdx = idx;
+  }
+
+  _closeActionWizard() {
+    this._editingActionIdx = null;
+  }
+
+  _renderActionWizard(readOnly) {
+    const idx = this._editingActionIdx;
+    const action = this._draft.actions?.[idx];
+    if (!action) return "";
+    return html`
+      <div class="wizard-overlay" @click=${() => this._closeActionWizard()}>
+        <div class="wizard" @click=${(e) => e.stopPropagation()}>
+          <div class="wizard-header">
+            <strong>Действие</strong>
+            <button class="btn wizard-x" @click=${() => this._closeActionWizard()}>×</button>
+          </div>
+          <div class="wizard-body">${this._renderAction(action, idx, readOnly)}</div>
+          <div class="wizard-footer">
+            <button class="btn primary" @click=${() => this._closeActionWizard()}>Готово</button>
+          </div>
         </div>
       </div>
     `;
