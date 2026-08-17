@@ -28,7 +28,6 @@ await Promise.all([
   import(`./components/sberhome-automations-view.js${_q}`),
   import(`./components/sberhome-intent-modal.js${_q}`),
   import(`./components/sberhome-home-switcher.js${_q}`),
-  import(`./components/sberhome-speakers-view.js${_q}`),
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
@@ -341,10 +340,9 @@ class SberHomePanel extends LitElement {
   }
 
   render() {
+    // Настройки колонки (эквалайзер/светомузыка/LED/детские режимы) переехали
+    // в модалку устройства (таб «🔊 Звук») — отдельного верхнего таба больше нет.
     const tabs = ["Devices", "Automations", "Monitor", "Debug", "Settings"];
-    // Таб «Колонки» — только когда обнаружена колонка Сбер. Добавляем в конец,
-    // чтобы не сдвигать индексы существующих вкладок (this._tab).
-    if (this._status?.speaker_present) tabs.push("Колонки");
     return html`
       <div class="top">
         <div class="header">
@@ -422,8 +420,6 @@ class SberHomePanel extends LitElement {
           </sberhome-debug-view>` : ""}
         ${this._tab === 4 ? html`
           <sberhome-settings .hass=${this.hass}></sberhome-settings>` : ""}
-        ${this._tab === 5 ? html`
-          <sberhome-speakers-view .hass=${this.hass}></sberhome-speakers-view>` : ""}
       </div>
       <sberhome-toast></sberhome-toast>
       ${this._modalDeviceId

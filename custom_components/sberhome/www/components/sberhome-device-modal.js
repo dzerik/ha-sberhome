@@ -10,6 +10,10 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 
+// Настройки колонки (таб «🔊 Звук») — грузим с тем же cache-buster `?v=`.
+const _v = new URL(import.meta.url).searchParams.get("v") || "";
+await import(`./sberhome-speaker-settings.js${_v ? `?v=${_v}` : ""}`);
+
 const IMG_BASE = "https://img.iot.sberdevices.ru";
 
 function imgUrl(path) {
@@ -1017,8 +1021,10 @@ class SberHomeDeviceModal extends LitElement {
       .filter(Boolean)
       .join(", ");
 
+    const isSpeaker = this._deviceSummary?.category === "sber_speaker";
     const tabs = [
       ["connection", "Подключение"],
+      ...(isSpeaker ? [["speaker", "🔊 Звук"]] : []),
       ["info", "Info"],
       ["attrs", "Attributes"],
       ["images", "Images"],
@@ -1064,6 +1070,12 @@ class SberHomeDeviceModal extends LitElement {
 
           <div class="body">
             ${this._tab === "connection" ? this._renderConnection(raw) : ""}
+            ${this._tab === "speaker"
+              ? html`<sberhome-speaker-settings
+                  .hass=${this.hass}
+                  .serial=${raw.serial_number}
+                ></sberhome-speaker-settings>`
+              : ""}
             ${this._tab === "info" ? this._renderInfo(raw) : ""}
             ${this._tab === "attrs" ? this._renderAttrs(raw) : ""}
             ${this._tab === "images" ? this._renderImages(raw) : ""}
