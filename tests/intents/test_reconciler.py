@@ -12,7 +12,11 @@ from custom_components.sberhome.intents.reconciler import (
     _resolve_home_id,
     reconcile_intents,
 )
-from custom_components.sberhome.intents.spec import IntentAction, IntentSpec
+from custom_components.sberhome.intents.spec import (
+    IntentAction,
+    IntentSpec,
+    IntentTrigger,
+)
 
 
 def _yaml_spec(name: str, slug: str, phrases=None, actions=None) -> IntentSpec:
@@ -29,13 +33,19 @@ def _yaml_spec(name: str, slug: str, phrases=None, actions=None) -> IntentSpec:
 
 
 def _sber_spec(
-    id_: str, name: str, slug: str | None = None, phrases=None, actions=None
+    id_: str,
+    name: str,
+    slug: str | None = None,
+    phrases=None,
+    actions=None,
+    triggers=None,
 ) -> IntentSpec:
     """Sber-side IntentSpec — с HA-managed marker'ом в description если slug задан."""
     return IntentSpec(
         id=id_,
         name=name,
         phrases=phrases or [f"фраза {id_}"],
+        triggers=triggers or [],
         actions=actions or [IntentAction(type="ha_event_only", data={})],
         enabled=True,
         description=build_description(slug) if slug else "",
@@ -96,6 +106,52 @@ class TestReconcileUpdatePath:
         assert args.args[0] == "sber-1"
         # Имя из YAML
         assert args.args[1].name == "Morning NEW"
+
+    @pytest.mark.asyncio
+    async def test_update_preserves_cloud_triggers(self):
+        """YAML их не описывает → device/time-триггеры облака НЕ стираются."""
+        cloud_triggers = [
+            IntentTrigger(type="time", data={"rrule": "RRULE:FREQ=DAILY"}),
+            IntentTrigger(
+                type="device",
+                data={"device_id": "dev1", "attribute": {"key": "k"}},
+            ),
+        ]
+        existing = [
+            _sber_spec(
+                "sber-1",
+                "Morning OLD",
+                "morning",
+                phrases=["старая"],
+                triggers=cloud_triggers,
+            ),
+        ]
+        svc = _make_service(existing=existing)
+        yamls = [_yaml_spec("Morning NEW", "morning", phrases=["новая"])]
+        report = await reconcile_intents(svc, yamls)
+        assert report.updated == ["morning"]
+        sent = svc.update_intent.await_args.args[1]
+        assert sent.triggers == cloud_triggers
+
+    @pytest.mark.asyncio
+    async def test_action_order_difference_is_not_update(self):
+        """decode переупорядочивает actions по реестру — reorder ≠ update."""
+        acts_a = [
+            IntentAction(type="tts", data={"phrase": "hi", "device_ids": ["s"]}),
+            IntentAction(type="trigger_notify", data={}),
+        ]
+        acts_b = [
+            IntentAction(type="trigger_notify", data={}),
+            IntentAction(type="tts", data={"phrase": "hi", "device_ids": ["s"]}),
+        ]
+        existing = [
+            _sber_spec("sber-1", "N", "morning", phrases=["p"], actions=acts_a),
+        ]
+        svc = _make_service(existing=existing)
+        yamls = [_yaml_spec("N", "morning", phrases=["p"], actions=acts_b)]
+        report = await reconcile_intents(svc, yamls)
+        assert report.unchanged == ["morning"]
+        svc.update_intent.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_unchanged_skips_update(self):

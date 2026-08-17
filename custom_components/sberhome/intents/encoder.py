@@ -43,7 +43,7 @@ from __future__ import annotations
 from typing import Any
 
 from .registry import get_action, list_actions
-from .spec import IntentAction, IntentSpec
+from .spec import IntentAction, IntentSpec, IntentTrigger
 
 # Default timezone — берётся из config_entry если отличается. Sber отвергает
 # create без timezone, поэтому ставим разумный дефолт.
@@ -89,14 +89,16 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
 
     steps = scenario.get("steps") or []
     phrases: list[str] = []
+    triggers: list[IntentTrigger] = []
     actions: list[IntentAction] = []
     is_ha_managed = True
 
-    # Фразы и actions — agg по всем steps. На практике обычно 1 step.
+    # Фразы, triggers и actions — agg по всем steps. На практике обычно 1 step.
     for step in steps:
         if not isinstance(step, dict):
             continue
         phrases.extend(_collect_phrases(step.get("condition")))
+        triggers.extend(_collect_triggers(step.get("condition")))
         step_actions, step_is_ha = _decode_tasks(step.get("tasks") or [])
         actions.extend(step_actions)
         if not step_is_ha:
@@ -116,6 +118,7 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
         id=spec_id if spec_id else None,
         name=name,
         phrases=_dedup_keep_order(phrases),
+        triggers=triggers,
         actions=actions,
         enabled=enabled,
         description=str(scenario.get("description") or ""),
@@ -126,18 +129,96 @@ def decode_scenario(scenario: dict[str, Any]) -> IntentSpec:
 
 
 def _collect_phrases(condition: Any) -> list[str]:
-    """Рекурсивно собрать все строки phrases из условия."""
+    """Собрать phrases С ВЕРХНЕЙ OR-плоскости (симметрично `_collect_triggers`).
+
+    Ходим ровно по тем же top-level children, что и `_collect_triggers`, и
+    НЕ спускаемся во вложенные группы: их `_collect_triggers` захватывает
+    целиком как unknown-триггер (`data['raw']`). Если бы мы рекурсивно
+    вытягивали PHRASES из такой подгруппы в `IntentSpec.phrases`, то при
+    encode фраза продублировалась бы (внутри raw-блока + отдельной top-level
+    PHRASES), а `(PHRASES AND DEVICE)` превратилось бы в
+    `(PHRASES AND DEVICE) OR PHRASES` — сценарий сработал бы на голую фразу
+    в обход DEVICE-условия (нарушение round-trip).
+    """
     if not isinstance(condition, dict):
         return []
-    out: list[str] = []
     cond_type = str(condition.get("type") or "").upper()
     if cond_type == "PHRASES":
         data = condition.get("phrases_data") or {}
-        out.extend(str(p) for p in (data.get("phrases") or []))
+        return [str(p) for p in (data.get("phrases") or [])]
     nested = condition.get("nested_conditions_data") or {}
-    for sub in nested.get("conditions") or []:
-        out.extend(_collect_phrases(sub))
+    children = nested.get("conditions")
+    if children is None:
+        return []
+    out: list[str] = []
+    for c in children:
+        if isinstance(c, dict) and str(c.get("type") or "").upper() == "PHRASES":
+            data = c.get("phrases_data") or {}
+            out.extend(str(p) for p in (data.get("phrases") or []))
     return out
+
+
+def _collect_triggers(condition: Any) -> list[IntentTrigger]:
+    """Собрать триггеры с ВЕРХНЕЙ OR-плоскости условия.
+
+    Ходим только по top-level `nested_conditions_data.conditions` (или по
+    самому condition, если он одиночный без обёртки). Внутрь вложенных
+    AND/CONDITIONS НЕ спускаемся — они уходят целиком в unknown-триггер
+    с дословным `data['raw']` (round-trip lossless).
+
+    PHRASES пропускаем — они живут в `IntentSpec.phrases`.
+    """
+    if not isinstance(condition, dict):
+        return []
+    nested = condition.get("nested_conditions_data") or {}
+    children = nested.get("conditions")
+    if children is None:
+        children = [condition]  # плоский single-condition без обёртки
+    out: list[IntentTrigger] = []
+    for c in children:
+        if not isinstance(c, dict):
+            continue
+        c_type = str(c.get("type") or "").upper()
+        if c_type == "PHRASES":
+            continue
+        if c_type == "TIME":
+            out.append(_decode_time_trigger(c))
+        elif c_type == "DEVICE":
+            out.append(_decode_device_trigger(c))
+        else:
+            out.append(IntentTrigger(type="unknown", data={"raw": c}, unknown=True))
+    return out
+
+
+def _decode_time_trigger(c: dict[str, Any]) -> IntentTrigger:
+    """TIME-condition → IntentTrigger('time', {'rrule': ...})."""
+    time_data = c.get("time_data") or {}
+    return IntentTrigger(
+        type="time",
+        data={"rrule": str(time_data.get("rrule", ""))},
+    )
+
+
+def _decode_device_trigger(c: dict[str, Any]) -> IntentTrigger:
+    """DEVICE-condition → IntentTrigger('device', {...}).
+
+    Полный `state`-dict сохраняем дословно в `data['attribute']` —
+    device-триггер lossless и не рискует неполным AttributeValue-скелетом
+    при re-encode.
+    """
+    dd = c.get("device_data") or {}
+    inner = dd.get("condition") or {}
+    return IntentTrigger(
+        type="device",
+        data={
+            "device_id": str(dd.get("device_id", "")),
+            "categories_slugs": list(dd.get("categories_slugs") or []),
+            "attribute": inner.get("state") or {},
+            "operator": str(inner.get("condition", "EQUAL")),
+            "delay_seconds": _parse_delay_seconds(inner.get("delay")),
+            "parent_id": str(dd.get("parent_id", "")),
+        },
+    )
 
 
 def _decode_tasks(
@@ -255,9 +336,9 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
                 task["start_delay"] = f"{delay}s"
         tasks.extend(encoded)
 
-    # Условие — wraps нашу phrases-фразу в каноничный CONDITIONS/nested
-    # вид (Sber всё равно обернёт сам, но шлём правильно сразу).
-    condition = _build_condition(spec.phrases)
+    # Условие — собираем triggers + phrases в каноничный CONDITIONS/nested
+    # top-OR (Sber всё равно обернёт сам, но шлём правильно сразу).
+    condition = _build_condition(spec.phrases, spec.triggers)
 
     # Базовая структура.
     body: dict[str, Any] = {
@@ -296,29 +377,62 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
     return body
 
 
-def _build_condition(phrases: list[str]) -> dict[str, Any]:
-    """Каноничная Sber-обёртка для phrase-trigger'а.
+def _build_condition(
+    phrases: list[str], triggers: list[IntentTrigger] | None = None
+) -> dict[str, Any]:
+    """Каноничная Sber-обёртка top-OR: триггеры → одна PHRASES-condition.
 
-    Sber на сервере оборачивает single-condition в CONDITIONS/nested,
-    но воспринимает и плоский вариант. Шлём канонический.
+    Порядок conditions: сначала time/device/unknown-триггеры (в исходном
+    порядке), затем — единая PHRASES-condition со всеми фразами. Sber на
+    сервере оборачивает single-condition в CONDITIONS/nested, но
+    воспринимает и плоский вариант. Шлём канонический.
     """
-    if not phrases:
-        # Без фраз сценарий бесполезен, но Sber примет — wrap пустым.
-        return {
-            "type": "CONDITIONS",
-            "nested_conditions_data": {"conditions": [], "relation": "OR"},
-        }
-    inner = {
-        "type": "PHRASES",
-        "phrases_data": {"phrases": list(phrases)},
-    }
+    conditions: list[dict[str, Any]] = []
+    for trig in triggers or []:
+        enc = _encode_trigger(trig)
+        if enc is not None:
+            conditions.append(enc)
+    if phrases:
+        conditions.append({"type": "PHRASES", "phrases_data": {"phrases": list(phrases)}})
     return {
         "type": "CONDITIONS",
-        "nested_conditions_data": {
-            "conditions": [inner],
-            "relation": "OR",
+        "nested_conditions_data": {"conditions": conditions, "relation": "OR"},
+    }
+
+
+def _encode_trigger(trig: IntentTrigger) -> dict[str, Any] | None:
+    """IntentTrigger → Sber condition-dict (или None если пустой/невалидный)."""
+    if trig.type == "unknown":
+        raw = trig.data.get("raw")
+        return raw if isinstance(raw, dict) else None
+    if trig.type == "time":
+        rrule = str(trig.data.get("rrule", "")).strip()
+        if not rrule:
+            return None
+        return {"type": "TIME", "time_data": {"execute_at": None, "rrule": rrule}}
+    if trig.type == "device":
+        return _encode_device_trigger(trig)
+    return None
+
+
+def _encode_device_trigger(trig: IntentTrigger) -> dict[str, Any] | None:
+    """IntentTrigger('device') → DEVICE-condition. Полный state дословно."""
+    device_id = str(trig.data.get("device_id", "")).strip()
+    if not device_id:
+        return None
+    parent_id = str(trig.data.get("parent_id", "")).strip()
+    device_data: dict[str, Any] = {
+        "device_id": device_id,
+        "categories_slugs": list(trig.data.get("categories_slugs") or []),
+        "condition": {
+            "state": trig.data.get("attribute") or {},
+            "condition": str(trig.data.get("operator", "EQUAL")),
+            "delay": f"{_parse_delay_seconds(trig.data.get('delay_seconds'))}s",
         },
     }
+    if parent_id:
+        device_data["parent_id"] = parent_id
+    return {"type": "DEVICE", "device_data": device_data}
 
 
 __all__ = ["DEFAULT_IMAGE", "DEFAULT_TIMEZONE", "decode_scenario", "encode_scenario"]

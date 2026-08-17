@@ -57,6 +57,39 @@ class IntentAction:
 
 
 @dataclass(slots=True)
+class IntentTrigger:
+    """Один триггер (условие запуска) в intent'е.
+
+    Симметрично `IntentAction`. `type` — discriminator:
+        'time'    — по расписанию (data={'rrule': 'DTSTART;...\\nRRULE:...'})
+        'device'  — по состоянию устройства (data={'device_id', 'attribute',
+                    'operator', 'delay_seconds', 'categories_slugs', 'parent_id'})
+        'unknown' — незнакомый top-level condition (CHECK_DEVICE, geo_time, …);
+                    дословный оригинал в data['raw'], round-trip lossless.
+
+    Голосовые фразы (PHRASES) — НЕ триггер этого типа: они живут в
+    `IntentSpec.phrases` плоским списком (историческая совместимость).
+    `_build_condition(phrases, triggers)` собирает и то, и другое в один
+    top-OR при encode.
+    """
+
+    type: str
+    data: dict[str, Any] = field(default_factory=dict)
+    unknown: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": self.type, "data": dict(self.data), "unknown": self.unknown}
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> IntentTrigger:
+        return cls(
+            type=str(raw.get("type", "unknown")),
+            data=dict(raw.get("data") or {}),
+            unknown=bool(raw.get("unknown", False)),
+        )
+
+
+@dataclass(slots=True)
 class IntentSpec:
     """Voice intent — то что пользователь видит в UI вкладки «Voice Intents».
 
@@ -81,6 +114,7 @@ class IntentSpec:
     id: str | None = None
     name: str = ""
     phrases: list[str] = field(default_factory=list)
+    triggers: list[IntentTrigger] = field(default_factory=list)
     actions: list[IntentAction] = field(default_factory=list)
     enabled: bool = True
     description: str = ""
@@ -94,6 +128,7 @@ class IntentSpec:
             "id": self.id,
             "name": self.name,
             "phrases": list(self.phrases),
+            "triggers": [t.to_dict() for t in self.triggers],
             "actions": [a.to_dict() for a in self.actions],
             "enabled": self.enabled,
             "description": self.description,
@@ -108,6 +143,7 @@ class IntentSpec:
             id=raw.get("id"),
             name=str(raw.get("name", "")),
             phrases=[str(p) for p in (raw.get("phrases") or []) if str(p).strip()],
+            triggers=[IntentTrigger.from_dict(t) for t in (raw.get("triggers") or [])],
             actions=[IntentAction.from_dict(a) for a in (raw.get("actions") or [])],
             enabled=bool(raw.get("enabled", True)),
             description=str(raw.get("description", "")),

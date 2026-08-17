@@ -244,6 +244,210 @@ def _decode_trigger_notify(
     return IntentAction(type="trigger_notify", data={}), leftover
 
 
+# ---- speaker_text (REGIME_COMMAND → одиночный HEAD_DIALOG_COMMAND) ----
+# Колонка ВЫПОЛНЯЕТ текст как голосовую команду ассистенту («Включи радио»,
+# «Какая погода»), а не просто озвучивает — отсюда ui_label. Мультипериодные
+# REGIME (несколько head_dialog) декодер НЕ забирает → остаются unknown/read-only.
+_SPEAKER_PERIODS = ("common", "morning", "afternoon", "evening", "night")
+
+_SPEAKER_TEXT_FIELDS = (
+    FieldSpec(
+        key="device_id",
+        type="device_picker",
+        label="Колонка",
+        required=True,
+        device_category=("sber_speaker",),
+    ),
+    FieldSpec(
+        key="text",
+        type="text",
+        label="Текст команды ассистенту",
+        required=True,
+        help_text="Колонка выполнит это как голосовую команду («Включи радио»).",
+    ),
+    FieldSpec(
+        key="period",
+        type="enum",
+        label="Время суток",
+        default="common",
+        options=_SPEAKER_PERIODS,
+        help_text="Когда команда активна (common — всегда).",
+    ),
+)
+
+
+def _encode_speaker_text(data: dict[str, Any]) -> list[dict[str, Any]]:
+    device_id = str(data.get("device_id", "")).strip()
+    text = str(data.get("text", "")).strip()
+    if not device_id or not text:
+        return []
+    period = str(data.get("period") or "common").strip() or "common"
+    return [
+        {
+            "type": "REGIME_COMMAND",
+            "regime_command_data": {
+                "tasks": [
+                    {
+                        "type": "HEAD_DIALOG_COMMAND",
+                        "head_dialog_command_task_data": {
+                            "device_id": device_id,
+                            "text": text,
+                            "content_id": "",
+                            "cinema": "",
+                            "action_type": "",
+                            "content": "",
+                        },
+                        "regime_condition": {
+                            "daypart": "common",
+                            "period": period,
+                            "calendar": "common",
+                            "rrule": "",
+                        },
+                    }
+                ]
+            },
+        }
+    ]
+
+
+def _speaker_text_reproducible(head: dict[str, Any]) -> bool:
+    """True, если head_dialog можно re-encode нашей минимальной формой без потерь.
+
+    Наш encoder кладёт regime_condition={daypart:common, period:X, calendar:common,
+    rrule:''} и content_id/cinema/action_type/content=''. Если облачный task несёт
+    что-то сверх (расписание rrule, контент, нестандартный daypart/calendar) —
+    забирать его нельзя: re-encode стёр бы эти поля.
+    """
+    hd = head.get("head_dialog_command_task_data") or {}
+    for extra in ("content_id", "cinema", "action_type", "content"):
+        if str(hd.get(extra) or ""):
+            return False
+    rc = head.get("regime_condition") or {}
+    if str(rc.get("rrule") or ""):
+        return False
+    if str(rc.get("daypart") or "common") != "common":
+        return False
+    return str(rc.get("calendar") or "common") == "common"
+
+
+def _decode_speaker_text(
+    tasks: list[dict[str, Any]],
+) -> tuple[IntentAction | None, list[dict[str, Any]]]:
+    leftover: list[dict[str, Any]] = []
+    matched: IntentAction | None = None
+    for t in tasks:
+        if matched is None and t.get("type") == "REGIME_COMMAND":
+            inner = (t.get("regime_command_data") or {}).get("tasks") or []
+            heads = [h for h in inner if h.get("type") == "HEAD_DIALOG_COMMAND"]
+            # Забираем ТОЛЬКО одиночный head_dialog В ТОЧНО ВОСПРОИЗВОДИМОЙ форме:
+            # регулярка (rrule)/произвольные content-поля/нестандартные
+            # daypart/calendar мы re-encode не сохраняем — такие REGIME
+            # остаются unknown/read-only (round-trip lossless через raw).
+            if len(inner) == 1 and len(heads) == 1 and _speaker_text_reproducible(heads[0]):
+                hd = heads[0].get("head_dialog_command_task_data") or {}
+                rc = heads[0].get("regime_condition") or {}
+                matched = IntentAction(
+                    type="speaker_text",
+                    data={
+                        "device_id": str(hd.get("device_id", "")),
+                        "text": str(hd.get("text", "")),
+                        "period": str(rc.get("period") or "common"),
+                    },
+                )
+                continue
+        leftover.append(t)
+    if matched is None:
+        return None, tasks
+    return matched, leftover
+
+
+# ---- scenario_status (SCENARIO_SET_ACTIVE) ----
+_SCENARIO_STATUS_FIELDS = (
+    FieldSpec(
+        key="scenario_id",
+        # В Release D тип станет 'scenario_picker'. Пока — text (TODO D2).
+        type="text",
+        label="Сценарий (id)",
+        required=True,
+        help_text="Какой сценарий включить/выключить.",
+    ),
+    FieldSpec(
+        key="active",
+        type="bool",
+        label="Сделать активным",
+        default=True,
+    ),
+)
+
+
+def _encode_scenario_status(data: dict[str, Any]) -> list[dict[str, Any]]:
+    scenario_id = str(data.get("scenario_id", "")).strip()
+    if not scenario_id:
+        return []
+    return [
+        {
+            "type": "SCENARIO_SET_ACTIVE",
+            "scenario_set_active_task_data": {
+                "scenario_id": scenario_id,
+                "active": bool(data.get("active", True)),
+            },
+        }
+    ]
+
+
+def _decode_scenario_status(
+    tasks: list[dict[str, Any]],
+) -> tuple[IntentAction | None, list[dict[str, Any]]]:
+    leftover: list[dict[str, Any]] = []
+    matched: IntentAction | None = None
+    for t in tasks:
+        if matched is None and t.get("type") == "SCENARIO_SET_ACTIVE":
+            sd = t.get("scenario_set_active_task_data") or {}
+            matched = IntentAction(
+                type="scenario_status",
+                data={
+                    "scenario_id": str(sd.get("scenario_id", "")),
+                    "active": bool(sd.get("active", True)),
+                },
+            )
+            continue
+        leftover.append(t)
+    if matched is None:
+        return None, tasks
+    return matched, leftover
+
+
+# ---- sms (SEND_SMS_COMMAND) ----
+# Sber сам заполняет scenario_id/scenario_name/trigger_device_id при срабатывании.
+# UI-полей нет; decode кладёт наблюдаемый task_data в data['_raw'] для lossless.
+def _encode_sms(data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = data.get("_raw")
+    payload = (
+        dict(raw)
+        if isinstance(raw, dict)
+        else {"scenario_id": "", "scenario_name": "", "trigger_device_id": ""}
+    )
+    return [{"type": "SEND_SMS_COMMAND", "send_sms_command_task_data": payload}]
+
+
+def _decode_sms(
+    tasks: list[dict[str, Any]],
+) -> tuple[IntentAction | None, list[dict[str, Any]]]:
+    leftover: list[dict[str, Any]] = []
+    matched: IntentAction | None = None
+    for t in tasks:
+        if matched is None and t.get("type") == "SEND_SMS_COMMAND":
+            matched = IntentAction(
+                type="sms",
+                data={"_raw": dict(t.get("send_sms_command_task_data") or {})},
+            )
+            continue
+        leftover.append(t)
+    if matched is None:
+        return None, tasks
+    return matched, leftover
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -271,6 +475,27 @@ _DEFAULT_ACTIONS: tuple[ActionRegistration, ...] = (
         ui_fields=(),
         encode=_encode_trigger_notify,
         decode=_decode_trigger_notify,
+    ),
+    ActionRegistration(
+        type="speaker_text",
+        ui_label="Команда ассистенту текстом (на колонку)",
+        ui_fields=_SPEAKER_TEXT_FIELDS,
+        encode=_encode_speaker_text,
+        decode=_decode_speaker_text,
+    ),
+    ActionRegistration(
+        type="scenario_status",
+        ui_label="Включить/выключить другой сценарий",
+        ui_fields=_SCENARIO_STATUS_FIELDS,
+        encode=_encode_scenario_status,
+        decode=_decode_scenario_status,
+    ),
+    ActionRegistration(
+        type="sms",
+        ui_label="Отправить SMS-уведомление",
+        ui_fields=(),
+        encode=_encode_sms,
+        decode=_decode_sms,
     ),
     ActionRegistration(
         type="ha_event_only",

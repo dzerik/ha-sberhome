@@ -1,0 +1,508 @@
+{
+  "id": "6a823ba4d6f0ca1701dd0292",
+  "meta": {
+    "created_at": "2026-08-16T22:37:24.795188Z",
+    "updated_at": "2026-08-16T22:37:24.823402Z",
+    "deleted_at": null
+  },
+  "account_id": "28775",
+  "image": "https://img.iot.sberdevices.ru/p/q100/f1/d1/f13cd11ae0a7aec7b651e4d49fb2385a4e98464688c7867abff0bd36f9f55bb1",
+  "name": "Все что есть",
+  "steps": [
+    {
+      "tasks": [
+        {
+          "type": "DEVICE_COMMAND",
+          "duration": null,
+          "device_command_data": {
+            "device_id": "d76rg9meilc7es33a0gg",
+            "desired_state": [
+              {
+                "state": {
+                  "key": "on_off",
+                  "type": "BOOL",
+                  "float_value": 0,
+                  "integer_value": "0",
+                  "string_value": "",
+                  "bool_value": true,
+                  "enum_value": "",
+                  "color_value": null,
+                  "last_sync": null,
+                  "schedule_value": [],
+                  "sequence": []
+                },
+                "relative": false,
+                "mode": "RANGE_SET"
+              }
+            ],
+            "parent_id": "d70jcbmpl1sff4h10odg",
+            "categories_slugs": [
+              "light"
+            ],
+            "alter_state": [],
+            "alter_state_ttl": ""
+          },
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "DEVICE_COMMAND",
+          "duration": null,
+          "device_command_data": {
+            "device_id": "d70k2j6pl1sff4h114j0",
+            "desired_state": [
+              {
+                "state": {
+                  "key": "on_off",
+                  "type": "BOOL",
+                  "float_value": 0,
+                  "integer_value": "0",
+                  "string_value": "",
+                  "bool_value": true,
+                  "enum_value": "",
+                  "color_value": null,
+                  "last_sync": null,
+                  "schedule_value": [],
+                  "sequence": []
+                },
+                "relative": true,
+                "mode": "INVERT"
+              }
+            ],
+            "parent_id": "d70jcbmpl1sff4h10odg",
+            "categories_slugs": [
+              "light"
+            ],
+            "alter_state": [],
+            "alter_state_ttl": ""
+          },
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "PRONOUNCE_COMMAND",
+          "duration": null,
+          "device_command_data": null,
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": {
+            "device_ids": [
+              "d7l4bbkelq0et912ro1g"
+            ],
+            "phrase": "Полей цветы"
+          },
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "REGIME_COMMAND",
+          "duration": null,
+          "device_command_data": null,
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": {
+            "tasks": [
+              {
+                "type": "HEAD_DIALOG_COMMAND",
+                "duration": null,
+                "device_command_data": null,
+                "device_group_command_data": null,
+                "home_assistant_task_data": null,
+                "head_dialog_command_task_data": {
+                  "device_id": "d7l4bbkelq0et912ro1g",
+                  "text": "Какая сейчас погода",
+                  "content_id": "",
+                  "cinema": "",
+                  "action_type": "",
+                  "content": ""
+                },
+                "Id": "",
+                "regime_condition": {
+                  "daypart": "common",
+                  "period": "evening",
+                  "calendar": "common",
+                  "rrule": ""
+                },
+                "regime_command_data": null,
+                "forced_regime_command_data": null,
+                "start_delay": "0s",
+                "steps": [],
+                "scenario_set_active_task_data": null,
+                "send_sms_command_task_data": null,
+                "start_step_task_data": null,
+                "light_group_command_data": null,
+                "pronounce_data": null,
+                "trigger_notify_task_data": null
+              },
+              {
+                "type": "HEAD_DIALOG_COMMAND",
+                "duration": null,
+                "device_command_data": null,
+                "device_group_command_data": null,
+                "home_assistant_task_data": null,
+                "head_dialog_command_task_data": {
+                  "device_id": "d7l4bbkelq0et912ro1g",
+                  "text": "Включи радио",
+                  "content_id": "",
+                  "cinema": "",
+                  "action_type": "",
+                  "content": ""
+                },
+                "Id": "",
+                "regime_condition": {
+                  "daypart": "common",
+                  "period": "morning",
+                  "calendar": "common",
+                  "rrule": ""
+                },
+                "regime_command_data": null,
+                "forced_regime_command_data": null,
+                "start_delay": "0s",
+                "steps": [],
+                "scenario_set_active_task_data": null,
+                "send_sms_command_task_data": null,
+                "start_step_task_data": null,
+                "light_group_command_data": null,
+                "pronounce_data": null,
+                "trigger_notify_task_data": null
+              },
+              {
+                "type": "HEAD_DIALOG_COMMAND",
+                "duration": null,
+                "device_command_data": null,
+                "device_group_command_data": null,
+                "home_assistant_task_data": null,
+                "head_dialog_command_task_data": {
+                  "device_id": "d7l4bbkelq0et912ro1g",
+                  "text": "Спокойной ночи ",
+                  "content_id": "",
+                  "cinema": "",
+                  "action_type": "",
+                  "content": ""
+                },
+                "Id": "",
+                "regime_condition": {
+                  "daypart": "common",
+                  "period": "night",
+                  "calendar": "common",
+                  "rrule": ""
+                },
+                "regime_command_data": null,
+                "forced_regime_command_data": null,
+                "start_delay": "0s",
+                "steps": [],
+                "scenario_set_active_task_data": null,
+                "send_sms_command_task_data": null,
+                "start_step_task_data": null,
+                "light_group_command_data": null,
+                "pronounce_data": null,
+                "trigger_notify_task_data": null
+              }
+            ]
+          },
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "SCENARIO_SET_ACTIVE",
+          "duration": null,
+          "device_command_data": null,
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": {
+            "scenario_id": "69efa35911f9dae5a1fc5025",
+            "active": false
+          },
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "SEND_SMS_COMMAND",
+          "duration": null,
+          "device_command_data": null,
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": {
+            "scenario_id": "",
+            "scenario_name": "",
+            "trigger_device_id": ""
+          },
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        },
+        {
+          "type": "TRIGGER_NOTIFY_COMMAND",
+          "duration": null,
+          "device_command_data": null,
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "0s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": {
+            "destination": "COMPANION"
+          }
+        },
+        {
+          "type": "DEVICE_COMMAND",
+          "duration": null,
+          "device_command_data": {
+            "device_id": "d70k2iepl1sff4h113k0",
+            "desired_state": [
+              {
+                "state": {
+                  "key": "on_off",
+                  "type": "BOOL",
+                  "float_value": 0,
+                  "integer_value": "0",
+                  "string_value": "",
+                  "bool_value": false,
+                  "enum_value": "",
+                  "color_value": null,
+                  "last_sync": null,
+                  "schedule_value": [],
+                  "sequence": []
+                },
+                "relative": false,
+                "mode": "RANGE_SET"
+              }
+            ],
+            "parent_id": "d70jcbmpl1sff4h10odg",
+            "categories_slugs": [
+              "light"
+            ],
+            "alter_state": [],
+            "alter_state_ttl": ""
+          },
+          "device_group_command_data": null,
+          "home_assistant_task_data": null,
+          "head_dialog_command_task_data": null,
+          "Id": "",
+          "regime_condition": null,
+          "regime_command_data": null,
+          "forced_regime_command_data": null,
+          "start_delay": "240s",
+          "steps": [],
+          "scenario_set_active_task_data": null,
+          "send_sms_command_task_data": null,
+          "start_step_task_data": null,
+          "light_group_command_data": null,
+          "pronounce_data": null,
+          "trigger_notify_task_data": null
+        }
+      ],
+      "condition": {
+        "type": "CONDITIONS",
+        "time_data": null,
+        "phrases_data": null,
+        "nested_conditions_data": {
+          "conditions": [
+            {
+              "type": "TIME",
+              "time_data": {
+                "execute_at": null,
+                "rrule": "DTSTART;TZID=Europe/Moscow:20260817T013246\nRRULE:FREQ=DAILY;WKST=MO;BYDAY=MO,TU,WE,TH,FR,SA,SU;BYHOUR=13;BYMINUTE=0;BYSECOND=0"
+              },
+              "phrases_data": null,
+              "nested_conditions_data": null,
+              "device_data": null,
+              "check_device_conditions_data": null,
+              "check_scenario_conditions_data": null,
+              "geo_time_conditions_data": null
+            },
+            {
+              "type": "CONDITIONS",
+              "time_data": null,
+              "phrases_data": null,
+              "nested_conditions_data": {
+                "conditions": [
+                  {
+                    "type": "DEVICE",
+                    "time_data": null,
+                    "phrases_data": null,
+                    "nested_conditions_data": null,
+                    "device_data": {
+                      "device_id": "d712psepl1sff4h178k0",
+                      "categories_slugs": [
+                        "sensor_water_leak"
+                      ],
+                      "condition": {
+                        "state": {
+                          "key": "water_leak_state",
+                          "type": "BOOL",
+                          "float_value": 0,
+                          "integer_value": "0",
+                          "string_value": "",
+                          "bool_value": true,
+                          "enum_value": "",
+                          "color_value": null,
+                          "last_sync": null,
+                          "schedule_value": [],
+                          "sequence": []
+                        },
+                        "condition": "EQUAL",
+                        "delay": "0s"
+                      },
+                      "parent_id": "d70jcbmpl1sff4h10odg"
+                    },
+                    "check_device_conditions_data": null,
+                    "check_scenario_conditions_data": null,
+                    "geo_time_conditions_data": null
+                  },
+                  {
+                    "type": "CHECK_DEVICE",
+                    "time_data": null,
+                    "phrases_data": null,
+                    "nested_conditions_data": null,
+                    "device_data": null,
+                    "check_device_conditions_data": {
+                      "device_id": "d76rg9meilc7es33a0gg",
+                      "condition": {
+                        "state": {
+                          "key": "on_off",
+                          "type": "BOOL",
+                          "float_value": 0,
+                          "integer_value": "0",
+                          "string_value": "",
+                          "bool_value": true,
+                          "enum_value": "",
+                          "color_value": null,
+                          "last_sync": null,
+                          "schedule_value": [],
+                          "sequence": []
+                        },
+                        "condition": "EQUAL"
+                      }
+                    },
+                    "check_scenario_conditions_data": null,
+                    "geo_time_conditions_data": null
+                  },
+                  {
+                    "type": "CHECK_SCENARIO",
+                    "time_data": null,
+                    "phrases_data": null,
+                    "nested_conditions_data": null,
+                    "device_data": null,
+                    "check_device_conditions_data": null,
+                    "check_scenario_conditions_data": {
+                      "scenario_id": "65415ca1e745258583015741",
+                      "status": "pending"
+                    },
+                    "geo_time_conditions_data": null
+                  }
+                ],
+                "relation": "AND"
+              },
+              "device_data": null,
+              "check_device_conditions_data": null,
+              "check_scenario_conditions_data": null,
+              "geo_time_conditions_data": null
+            },
+            {
+              "type": "PHRASES",
+              "time_data": null,
+              "phrases_data": {
+                "phrases": [
+                  "Все что есть",
+                  "Охоз"
+                ]
+              },
+              "nested_conditions_data": null,
+              "device_data": null,
+              "check_device_conditions_data": null,
+              "check_scenario_conditions_data": null,
+              "geo_time_conditions_data": null
+            }
+          ],
+          "relation": "OR"
+        },
+        "device_data": null,
+        "check_device_conditions_data": null,
+        "check_scenario_conditions_data": null,
+        "geo_time_conditions_data": null
+      }
+    }
+  ],
+  "is_active": true,
+  "timezone": "Europe/Moscow",
+  "is_faulty": false,
+  "home_id": "c0o3edhu7jqgr5lbnks0",
+  "hub_id": "",
+  "access_level": "OWNER",
+  "requires": null
+}

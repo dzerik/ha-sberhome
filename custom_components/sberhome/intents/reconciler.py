@@ -31,6 +31,7 @@ Sync conflict (пользователь редактировал в Sber-app):
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -127,6 +128,7 @@ def _prepare_for_sber(spec: IntentSpec, slug: str, home_id: str | None) -> Inten
         id=spec.id,
         name=spec.name,
         phrases=list(spec.phrases),
+        triggers=list(spec.triggers),
         actions=list(spec.actions),
         enabled=spec.enabled,
         description=build_description(slug, user_desc),
@@ -156,15 +158,21 @@ def _spec_equivalent(yaml_spec: IntentSpec, sber_spec: IntentSpec) -> bool:
     # home_id — None считаем эквивалентным любому (default-home semantics).
     if yaml_spec.home_id and sber_spec.home_id and yaml_spec.home_id != sber_spec.home_id:
         return False
-    # Actions: type + data; порядок важен (исполняются последовательно).
+    # Actions: type + data. Сравниваем как мультимножество, НЕ по порядку:
+    # decode раскладывает actions в порядке реестра (tts→device_command→…),
+    # а не в исходном порядке tasks, поэтому позиционный zip давал бы вечные
+    # ложные «updated» для любого multi-action intent'а с иным YAML-порядком.
     if len(yaml_spec.actions) != len(sber_spec.actions):
         return False
-    for a, b in zip(yaml_spec.actions, sber_spec.actions, strict=True):
-        if a.type != b.type:
-            return False
-        if a.data != b.data:
-            return False
-    return True
+    return _actions_multiset(yaml_spec.actions) == _actions_multiset(sber_spec.actions)
+
+
+def _actions_multiset(actions: list) -> list[str]:
+    """Сортированные (type, data)-ключи для order-independent сравнения."""
+    return sorted(
+        json.dumps({"type": a.type, "data": a.data}, sort_keys=True, ensure_ascii=False)
+        for a in actions
+    )
 
 
 async def reconcile_intents(
@@ -254,10 +262,14 @@ async def reconcile_intents(
                 # Mergим raw_extras: Sber может хранить служебные поля
                 # (image, meta, home_id и т.п.), которые decoder бережно
                 # сохраняет в raw_extras. Без этого update теряет их.
+                # triggers: YAML их пока не описывает — сохраняем облачные
+                # (device/time), иначе update молча стёр бы их. Если YAML
+                # когда-нибудь начнёт задавать triggers — они в приоритете.
                 prepared_with_extras = IntentSpec(
                     id=existing_spec.id,
                     name=prepared.name,
                     phrases=prepared.phrases,
+                    triggers=list(prepared.triggers or existing_spec.triggers),
                     actions=prepared.actions,
                     enabled=prepared.enabled,
                     description=prepared.description,

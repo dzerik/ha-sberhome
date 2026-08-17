@@ -116,6 +116,7 @@ _INTENT_SPEC_SCHEMA = vol.Schema(
         vol.Optional("id"): vol.Any(str, None),
         vol.Required("name"): vol.All(str, vol.Length(min=1, max=128)),
         vol.Required("phrases"): [str],
+        vol.Optional("triggers", default=[]): [dict],
         vol.Required("actions"): [dict],
         vol.Optional("enabled", default=True): bool,
         vol.Optional("description", default=""): str,

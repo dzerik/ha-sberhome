@@ -17,7 +17,15 @@ from custom_components.sberhome.intents.spec import FieldSpec, IntentAction
 class TestRegistry:
     def test_default_actions_present(self):
         types = {a.type for a in list_actions()}
-        assert types == {"tts", "device_command", "trigger_notify", "ha_event_only"}
+        assert types == {
+            "tts",
+            "device_command",
+            "trigger_notify",
+            "speaker_text",
+            "scenario_status",
+            "sms",
+            "ha_event_only",
+        }
 
     def test_get_action_unknown_returns_none(self):
         assert get_action("not_a_real_type") is None
@@ -100,7 +108,11 @@ class TestEncodeDecodeDeviceCommand:
                     "device_id": "lamp-1",
                     "desired_state": [
                         {
-                            "state": {"key": "light_brightness", "type": "INTEGER", "integer_value": "500"},
+                            "state": {
+                                "key": "light_brightness",
+                                "type": "INTEGER",
+                                "integer_value": "500",
+                            },
                             "relative": False,
                             "mode": "RANGE_SET",
                         }
