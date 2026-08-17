@@ -245,6 +245,11 @@ class SberHomeIntentModal extends LitElement {
     if (!(this._draft.name || "").trim()) {
       return "Имя intent'а не может быть пустым";
     }
+    // Sber не распознаёт латиницу в названии сценария (имя используется как
+    // голосовой триггер «Запусти …»). Проверено вживую.
+    if (/[a-z]/i.test(this._draft.name || "")) {
+      return "В названии нельзя использовать латинские буквы — Сбер их не распознаёт по голосу. Используйте кириллицу.";
+    }
     const triggers = this._triggers();
     if (!(this._draft.phrases || []).length && !triggers.length) {
       return "Нужен хотя бы один триггер: фраза, расписание или условие по устройству";
@@ -730,6 +735,12 @@ class SberHomeIntentModal extends LitElement {
                 </div>
               `
             : html`<div class="help">Произнесённые в колонку — будут триггерить intent.</div>`}
+          <div class="help">
+            ⚠ Не используйте зарезервированные слова ассистента («Новости»,
+            «Погода», «Время», «Музыка», «Таймер»…) — их перехватывает встроенный
+            навык, сценарий не сработает. Добавляйте отличительные фразы, лучше
+            несколько вариантов.
+          </div>
         </div>
 
         <!-- Триггеры: расписание / условие по устройству (ИЛИ) -->
@@ -993,6 +1004,12 @@ class SberHomeIntentModal extends LitElement {
       }
       case "trigger_notify":
         return "🔔 уведомление";
+      case "speaker_text":
+        return `💬 ${d.text ? `«${String(d.text).slice(0, 40)}»` : "команда ассистенту"}`;
+      case "scenario_status":
+        return `🎬 сценарий → ${d.active ? "вкл" : "выкл"}`;
+      case "sms":
+        return "📩 SMS-уведомление";
       case "ha_event_only":
         return "⚙ только HA event";
       default:
@@ -1239,10 +1256,21 @@ class SberHomeIntentModal extends LitElement {
             .hass=${this.hass}
             .deviceId=${act?.data?.device_id || ""}
             .value=${Array.isArray(value) ? value : []}
+            .allowInvert=${true}
             @attributes-change=${(e) => onChange(e.detail.attributes)}
           ></sberhome-attr-form>
         `;
       }
+      case "scenario_picker":
+        return html`
+          <sberhome-scenario-picker-field
+            .hass=${this.hass}
+            .value=${value || ""}
+            .excludeId=${this._draft?.id || ""}
+            ?disabled=${readOnly}
+            @value-changed=${(e) => onChange(e.detail.value)}
+          ></sberhome-scenario-picker-field>
+        `;
       default:
         return html`
           <em>Unsupported field type: ${field.type}</em>
@@ -1475,6 +1503,75 @@ customElements.define(
   "sberhome-device-picker-field",
   SberHomeDevicePickerField
 );
+
+/**
+ * Scenario picker field — <select> из существующих сценариев
+ * (sberhome/intents/list). Исключает self (excludeId), чтобы сценарий
+ * не ссылался сам на себя.
+ */
+class SberHomeScenarioPickerField extends LitElement {
+  static get properties() {
+    return {
+      hass: { type: Object },
+      value: {},
+      excludeId: { type: String },
+      disabled: { type: Boolean },
+      _scenarios: { type: Array },
+    };
+  }
+
+  constructor() {
+    super();
+    this._scenarios = [];
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._fetch();
+  }
+
+  async _fetch() {
+    try {
+      const resp = await this.hass.callWS({ type: "sberhome/intents/list" });
+      const items = resp.intents || resp || [];
+      this._scenarios = (Array.isArray(items) ? items : [])
+        .filter((s) => s.id && s.id !== this.excludeId)
+        .map((s) => ({ id: s.id, name: s.name || s.id }));
+    } catch (e) {
+      console.warn("scenario picker fetch failed", e);
+    }
+  }
+
+  static get styles() {
+    return css`
+      :host { display: block; }
+      select { width: 100%; padding: 6px; }
+      .empty { color: var(--secondary-text-color); font-size: 13px; padding: 4px 0; }
+    `;
+  }
+
+  render() {
+    if (!this._scenarios.length) {
+      return html`<div class="empty">Нет других сценариев</div>`;
+    }
+    return html`
+      <select
+        ?disabled=${this.disabled}
+        @change=${(e) =>
+          this.dispatchEvent(
+            new CustomEvent("value-changed", { detail: { value: e.target.value } }),
+          )}
+      >
+        <option value="" ?selected=${!this.value}>— выберите сценарий —</option>
+        ${this._scenarios.map(
+          (s) => html`<option value=${s.id} ?selected=${s.id === this.value}>${s.name}</option>`,
+        )}
+      </select>
+    `;
+  }
+}
+
+customElements.define("sberhome-scenario-picker-field", SberHomeScenarioPickerField);
 
 // ---------------------------------------------------------------------------
 // Trigger helpers (pure functions) — rrule build/parse, дни, операторы

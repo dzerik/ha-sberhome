@@ -78,6 +78,19 @@ def ws_device_write_schema(
         enum_values = (attr.get("enum_values") or {}).get("values")
         if enum_values:
             field["enum"] = enum_values
+        color_values = attr.get("color_values")
+        if color_values:
+            color: dict[str, Any] = {}
+            for comp in ("h", "s", "v"):
+                cr = color_values.get(comp)
+                if cr:
+                    color[comp] = {
+                        "min": cr.get("min"),
+                        "max": cr.get("max"),
+                        "step": cr.get("step") or 1,
+                    }
+            if color:
+                field["color"] = color
         fields.append(field)
 
     connection.send_result(msg["id"], {"device_id": msg["device_id"], "fields": fields})
@@ -95,6 +108,7 @@ def _device_groups(coord: Any, dto: DeviceDto) -> list[dict[str, str]]:
         if group is not None and group.group_type is UnionType.GROUP:
             out.append({"id": gid, "name": group.name or gid})
     return out
+
 
 # Известные HA→Sber мосты — устройства с такими значениями manufacturer
 # в device_info.model.manufacturer пришли в Sber из HA-инсталляций.

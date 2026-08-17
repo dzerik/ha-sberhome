@@ -362,89 +362,39 @@ class TestTriggerRoundTrip:
 
 
 class TestSpeakerText:
-    def test_round_trip(self):
+    def test_round_trip_bare_head_dialog(self):
+        # Каноничная форма — голый HEAD_DIALOG_COMMAND (как в приложении Sber,
+        # проверено живьём: срабатывает по голосу).
         reg = get_action("speaker_text")
-        data = {"device_id": "spk1", "text": "Включи радио", "period": "evening"}
+        data = {"device_id": "spk1", "text": "Расскажи анекдот"}
         tasks = reg.encode(data)
-        assert tasks[0]["type"] == "REGIME_COMMAND"
+        assert tasks[0]["type"] == "HEAD_DIALOG_COMMAND"
+        hd = tasks[0]["head_dialog_command_task_data"]
+        assert hd["device_id"] == "spk1"
+        assert hd["text"] == "Расскажи анекдот"
+        # каноничные пустые поля присутствуют
+        assert hd["content_id"] == "" and hd["content"] == ""
         got, leftover = reg.decode(tasks)
         assert leftover == []
         assert got.data == data
 
-    def test_default_period(self):
+    def test_decode_bare_head_dialog(self):
         reg = get_action("speaker_text")
-        tasks = reg.encode({"device_id": "spk1", "text": "hi"})
-        hd = tasks[0]["regime_command_data"]["tasks"][0]
-        assert hd["regime_condition"]["period"] == "common"
+        task = {
+            "type": "HEAD_DIALOG_COMMAND",
+            "head_dialog_command_task_data": {"device_id": "d1", "text": "Какая погода"},
+        }
+        got, leftover = reg.decode([task])
+        assert leftover == []
+        assert got.data == {"device_id": "d1", "text": "Какая погода"}
 
     def test_empty_drops(self):
         reg = get_action("speaker_text")
         assert reg.encode({"device_id": "", "text": "hi"}) == []
         assert reg.encode({"device_id": "s", "text": ""}) == []
 
-    def test_regime_with_rrule_not_consumed(self):
-        # одиночный head_dialog, но с rrule → не воспроизводим → unknown
-        reg = get_action("speaker_text")
-        task = {
-            "type": "REGIME_COMMAND",
-            "regime_command_data": {
-                "tasks": [
-                    {
-                        "type": "HEAD_DIALOG_COMMAND",
-                        "head_dialog_command_task_data": {
-                            "device_id": "s1",
-                            "text": "hi",
-                            "content_id": "",
-                            "cinema": "",
-                            "action_type": "",
-                            "content": "",
-                        },
-                        "regime_condition": {
-                            "daypart": "common",
-                            "period": "morning",
-                            "calendar": "common",
-                            "rrule": "FREQ=DAILY",
-                        },
-                    }
-                ]
-            },
-        }
-        got, leftover = reg.decode([task])
-        assert got is None
-        assert leftover == [task]
-
-    def test_regime_with_content_not_consumed(self):
-        reg = get_action("speaker_text")
-        task = {
-            "type": "REGIME_COMMAND",
-            "regime_command_data": {
-                "tasks": [
-                    {
-                        "type": "HEAD_DIALOG_COMMAND",
-                        "head_dialog_command_task_data": {
-                            "device_id": "s1",
-                            "text": "hi",
-                            "content_id": "film42",
-                            "cinema": "",
-                            "action_type": "",
-                            "content": "",
-                        },
-                        "regime_condition": {
-                            "daypart": "common",
-                            "period": "common",
-                            "calendar": "common",
-                            "rrule": "",
-                        },
-                    }
-                ]
-            },
-        }
-        got, leftover = reg.decode([task])
-        assert got is None
-        assert leftover == [task]
-
-    def test_multiperiod_not_consumed(self):
-        # реальный REGIME из fixture с 3 head_dialog → НЕ speaker_text
+    def test_multiperiod_regime_not_consumed(self):
+        # REGIME_COMMAND (мультипериод из fixture) НЕ speaker_text → unknown.
         regime = next(t for t in _FIXTURE["steps"][0]["tasks"] if t["type"] == "REGIME_COMMAND")
         reg = get_action("speaker_text")
         got, leftover = reg.decode([regime])
@@ -493,6 +443,71 @@ class TestSms:
         }
 
 
+class TestDeviceCommandInvert:
+    def test_encode_invert(self):
+        reg = get_action("device_command")
+        data = {
+            "device_id": "lamp1",
+            "attributes": [{"key": "on_off", "type": "BOOL", "_mode": "INVERT"}],
+        }
+        tasks = reg.encode(data)
+        ds = tasks[0]["device_command_data"]["desired_state"][0]
+        assert ds["mode"] == "INVERT"
+        assert ds["relative"] is True
+        # sentinel НЕ протекает в wire state
+        assert "_mode" not in ds["state"]
+        assert ds["state"] == {"key": "on_off", "type": "BOOL"}
+
+    def test_encode_range_set_default(self):
+        reg = get_action("device_command")
+        data = {
+            "device_id": "lamp1",
+            "attributes": [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+        }
+        ds = reg.encode(data)[0]["device_command_data"]["desired_state"][0]
+        assert ds["mode"] == "RANGE_SET"
+        assert ds["relative"] is False
+
+    def test_decode_invert_sets_sentinel(self):
+        reg = get_action("device_command")
+        task = {
+            "type": "DEVICE_COMMAND",
+            "device_command_data": {
+                "device_id": "lamp1",
+                "desired_state": [
+                    {
+                        "state": {"key": "on_off", "type": "BOOL"},
+                        "relative": True,
+                        "mode": "INVERT",
+                    }
+                ],
+            },
+        }
+        got, _ = reg.decode([task])
+        assert got.data["attributes"][0]["_mode"] == "INVERT"
+
+    def test_invert_roundtrip_no_degradation(self):
+        reg = get_action("device_command")
+        task = {
+            "type": "DEVICE_COMMAND",
+            "device_command_data": {
+                "device_id": "lamp1",
+                "desired_state": [
+                    {
+                        "state": {"key": "on_off", "type": "BOOL", "bool_value": True},
+                        "relative": True,
+                        "mode": "INVERT",
+                    }
+                ],
+            },
+        }
+        got, _ = reg.decode([task])
+        ds = reg.encode(got.data)[0]["device_command_data"]["desired_state"][0]
+        assert ds["mode"] == "INVERT"
+        assert ds["relative"] is True
+        assert "_mode" not in ds["state"]
+
+
 class TestSchemaDict:
     def test_new_actions_present(self):
         from custom_components.sberhome.intents.registry import schema_dict
@@ -505,7 +520,6 @@ class TestSchemaDict:
 
         st = next(a for a in schema_dict() if a["type"] == "speaker_text")
         keys = {f["key"] for f in st["fields"]}
-        assert keys == {"device_id", "text", "period"}
-        period = next(f for f in st["fields"] if f["key"] == "period")
-        assert period["type"] == "enum"
-        assert "common" in period["options"]
+        assert keys == {"device_id", "text"}
+        text = next(f for f in st["fields"] if f["key"] == "text")
+        assert text["type"] == "text"

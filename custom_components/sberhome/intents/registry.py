@@ -178,9 +178,15 @@ def _encode_device_command(data: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(attr, dict):
             continue
         if "state" in attr and ("mode" in attr or "relative" in attr):
-            desired.append(attr)
+            desired.append(attr)  # forward-compat: уже обёрнут — не трогаем
+            continue
+        # UI-only sentinel `_mode` определяет режим; в wire его НЕ пускаем.
+        ui_mode = attr.get("_mode")
+        state = {k: v for k, v in attr.items() if not k.startswith("_")}
+        if ui_mode == "INVERT":
+            desired.append({"state": state, "relative": True, "mode": "INVERT"})
         else:
-            desired.append({"state": attr, "relative": False, "mode": "RANGE_SET"})
+            desired.append({"state": state, "relative": False, "mode": "RANGE_SET"})
     return [
         {
             "type": "DEVICE_COMMAND",
@@ -207,10 +213,17 @@ def _decode_device_command(
     dc = matched.get("device_command_data") or {}
     # Разворачиваем {state, relative, mode} обратно в голый AttributeValue,
     # чтобы редактор/форма работали с плоским attr (encode обернёт снова).
-    attributes = [
-        item.get("state", item) if isinstance(item, dict) else item
-        for item in (dc.get("desired_state") or [])
-    ]
+    # Режим INVERT (переключить) помечаем UI-only sentinel'ом `_mode`,
+    # чтобы round-trip не деградировал INVERT в RANGE_SET.
+    attributes: list[Any] = []
+    for item in dc.get("desired_state") or []:
+        if isinstance(item, dict) and "state" in item:
+            st = dict(item.get("state") or {})
+            if item.get("mode") == "INVERT" or item.get("relative"):
+                st["_mode"] = "INVERT"
+            attributes.append(st)
+        else:
+            attributes.append(item)
     return (
         IntentAction(
             type="device_command",
@@ -244,12 +257,12 @@ def _decode_trigger_notify(
     return IntentAction(type="trigger_notify", data={}), leftover
 
 
-# ---- speaker_text (REGIME_COMMAND → одиночный HEAD_DIALOG_COMMAND) ----
-# Колонка ВЫПОЛНЯЕТ текст как голосовую команду ассистенту («Включи радио»,
-# «Какая погода»), а не просто озвучивает — отсюда ui_label. Мультипериодные
-# REGIME (несколько head_dialog) декодер НЕ забирает → остаются unknown/read-only.
-_SPEAKER_PERIODS = ("common", "morning", "afternoon", "evening", "night")
-
+# ---- speaker_text (голый HEAD_DIALOG_COMMAND) ----
+# Колонка ВЫПОЛНЯЕТ текст как голосовую команду ассистенту («Расскажи анекдот»,
+# «Какая погода»). Каноничная форма «сказать сейчас» — ГОЛЫЙ HEAD_DIALOG_COMMAND
+# на верхнем уровне tasks[] (проверено живьём: приложение Sber использует именно
+# её, и она корректно срабатывает по голосу). Обёртка REGIME_COMMAND — только
+# для мультипериодных «по утрам/вечерам»; такие остаются unknown/read-only.
 _SPEAKER_TEXT_FIELDS = (
     FieldSpec(
         key="device_id",
@@ -263,15 +276,7 @@ _SPEAKER_TEXT_FIELDS = (
         type="text",
         label="Текст команды ассистенту",
         required=True,
-        help_text="Колонка выполнит это как голосовую команду («Включи радио»).",
-    ),
-    FieldSpec(
-        key="period",
-        type="enum",
-        label="Время суток",
-        default="common",
-        options=_SPEAKER_PERIODS,
-        help_text="Когда команда активна (common — всегда).",
+        help_text="Колонка выполнит это как голосовую команду («Расскажи анекдот»).",
     ),
 )
 
@@ -281,53 +286,19 @@ def _encode_speaker_text(data: dict[str, Any]) -> list[dict[str, Any]]:
     text = str(data.get("text", "")).strip()
     if not device_id or not text:
         return []
-    period = str(data.get("period") or "common").strip() or "common"
     return [
         {
-            "type": "REGIME_COMMAND",
-            "regime_command_data": {
-                "tasks": [
-                    {
-                        "type": "HEAD_DIALOG_COMMAND",
-                        "head_dialog_command_task_data": {
-                            "device_id": device_id,
-                            "text": text,
-                            "content_id": "",
-                            "cinema": "",
-                            "action_type": "",
-                            "content": "",
-                        },
-                        "regime_condition": {
-                            "daypart": "common",
-                            "period": period,
-                            "calendar": "common",
-                            "rrule": "",
-                        },
-                    }
-                ]
+            "type": "HEAD_DIALOG_COMMAND",
+            "head_dialog_command_task_data": {
+                "device_id": device_id,
+                "text": text,
+                "content_id": "",
+                "cinema": "",
+                "action_type": "",
+                "content": "",
             },
         }
     ]
-
-
-def _speaker_text_reproducible(head: dict[str, Any]) -> bool:
-    """True, если head_dialog можно re-encode нашей минимальной формой без потерь.
-
-    Наш encoder кладёт regime_condition={daypart:common, period:X, calendar:common,
-    rrule:''} и content_id/cinema/action_type/content=''. Если облачный task несёт
-    что-то сверх (расписание rrule, контент, нестандартный daypart/calendar) —
-    забирать его нельзя: re-encode стёр бы эти поля.
-    """
-    hd = head.get("head_dialog_command_task_data") or {}
-    for extra in ("content_id", "cinema", "action_type", "content"):
-        if str(hd.get(extra) or ""):
-            return False
-    rc = head.get("regime_condition") or {}
-    if str(rc.get("rrule") or ""):
-        return False
-    if str(rc.get("daypart") or "common") != "common":
-        return False
-    return str(rc.get("calendar") or "common") == "common"
 
 
 def _decode_speaker_text(
@@ -336,25 +307,18 @@ def _decode_speaker_text(
     leftover: list[dict[str, Any]] = []
     matched: IntentAction | None = None
     for t in tasks:
-        if matched is None and t.get("type") == "REGIME_COMMAND":
-            inner = (t.get("regime_command_data") or {}).get("tasks") or []
-            heads = [h for h in inner if h.get("type") == "HEAD_DIALOG_COMMAND"]
-            # Забираем ТОЛЬКО одиночный head_dialog В ТОЧНО ВОСПРОИЗВОДИМОЙ форме:
-            # регулярка (rrule)/произвольные content-поля/нестандартные
-            # daypart/calendar мы re-encode не сохраняем — такие REGIME
-            # остаются unknown/read-only (round-trip lossless через raw).
-            if len(inner) == 1 and len(heads) == 1 and _speaker_text_reproducible(heads[0]):
-                hd = heads[0].get("head_dialog_command_task_data") or {}
-                rc = heads[0].get("regime_condition") or {}
-                matched = IntentAction(
-                    type="speaker_text",
-                    data={
-                        "device_id": str(hd.get("device_id", "")),
-                        "text": str(hd.get("text", "")),
-                        "period": str(rc.get("period") or "common"),
-                    },
-                )
-                continue
+        # Голый top-level HEAD_DIALOG_COMMAND — наша каноничная форма.
+        # REGIME_COMMAND (мультипериод) НЕ забираем → остаётся unknown.
+        if matched is None and t.get("type") == "HEAD_DIALOG_COMMAND":
+            hd = t.get("head_dialog_command_task_data") or {}
+            matched = IntentAction(
+                type="speaker_text",
+                data={
+                    "device_id": str(hd.get("device_id", "")),
+                    "text": str(hd.get("text", "")),
+                },
+            )
+            continue
         leftover.append(t)
     if matched is None:
         return None, tasks
@@ -365,9 +329,8 @@ def _decode_speaker_text(
 _SCENARIO_STATUS_FIELDS = (
     FieldSpec(
         key="scenario_id",
-        # В Release D тип станет 'scenario_picker'. Пока — text (TODO D2).
-        type="text",
-        label="Сценарий (id)",
+        type="scenario_picker",
+        label="Сценарий",
         required=True,
         help_text="Какой сценарий включить/выключить.",
     ),

@@ -269,6 +269,36 @@ class TestDeviceWriteSchema:
         assert fields["light_brightness"]["current"] == 500
         assert fields["light_scene"]["enum"] == ["candle", "arctic"]
 
+    def test_color_field_from_color_values(self, hass, connection):
+        coord = MagicMock()
+        coord.state_cache.get_raw_payload.return_value = {
+            "commands": [{"key": "light_colour"}, {"key": "on_off"}],
+            "attributes": [
+                {
+                    "key": "light_colour",
+                    "type": "COLOR",
+                    "color_values": {
+                        "h": {"min": 0, "max": 359, "step": 1},
+                        "s": {"min": 0, "max": 100, "step": 1},
+                        "v": {"min": 0, "max": 100, "step": 1},
+                    },
+                },
+                {"key": "on_off", "type": "BOOL"},  # без color_values
+            ],
+            "reported_state": [],
+        }
+        with patch(
+            "custom_components.sberhome.websocket_api.devices.get_coordinator",
+            return_value=coord,
+        ):
+            ws_device_write_schema(hass, connection, {"id": 1, "device_id": "d1"})
+        fields = {f["key"]: f for f in connection.send_result.call_args[0][1]["fields"]}
+        assert fields["light_colour"]["type"] == "COLOR"
+        assert fields["light_colour"]["color"]["h"] == {"min": 0, "max": 359, "step": 1}
+        assert set(fields["light_colour"]["color"]) == {"h", "s", "v"}
+        # без color_values ключ color отсутствует
+        assert "color" not in fields["on_off"]
+
     def test_not_loaded(self, hass, connection):
         with patch(
             "custom_components.sberhome.websocket_api.devices.get_coordinator",

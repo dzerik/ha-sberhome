@@ -25,6 +25,7 @@ export class SberhomeAttrForm extends LitElement {
       hass: { attribute: false },
       deviceId: { attribute: false },
       value: { attribute: false }, // [{key, type, bool_value|integer_value|...}]
+      allowInvert: { attribute: false }, // BOOL mode-селектор (только для действия)
       _fields: { state: true },
       _loading: { state: true },
     };
@@ -47,12 +48,22 @@ export class SberhomeAttrForm extends LitElement {
       .widget input[type="range"] { flex: 1; }
       .widget select, .widget input[type="number"] { flex: 1; }
       .val { min-width: 54px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+      .color-widget { display: flex; align-items: center; gap: 10px; flex: 1; }
+      .swatch {
+        width: 28px; height: 28px; border-radius: 6px; flex: none;
+        border: 1px solid var(--divider-color, #ccc);
+      }
+      .color-sliders { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+      .color-row { display: flex; align-items: center; gap: 8px; }
+      .color-row input[type="range"] { flex: 1; }
+      .color-lbl { width: 14px; font-size: 12px; color: var(--secondary-text-color); }
     `, mobileBase];
   }
 
   constructor() {
     super();
     this.value = [];
+    this.allowInvert = false;
     this._fields = [];
     this._loading = false;
     this._loadedFor = null;
@@ -102,6 +113,25 @@ export class SberhomeAttrForm extends LitElement {
 
   _set(field, raw) {
     const attr = this._buildAttr(field, raw);
+    // Сохраняем UI-only режим (INVERT) при изменении значения.
+    const prev = this._cur(field.key);
+    if (prev && prev._mode) attr._mode = prev._mode;
+    this._emit([...(this.value || []).filter((a) => a.key !== field.key), attr]);
+  }
+
+  _setMode(field, mode) {
+    const prev = this._cur(field.key) || this._defaultAttr(field);
+    const attr = { ...prev };
+    if (mode === "INVERT") attr._mode = "INVERT";
+    else delete attr._mode;
+    this._emit([...(this.value || []).filter((a) => a.key !== field.key), attr]);
+  }
+
+  _setColor(field, comp, val) {
+    const prev = this._cur(field.key) || this._defaultAttr(field);
+    const cv = { ...(prev.color_value || {}), [comp]: Math.round(Number(val) || 0) };
+    const attr = { key: field.key, type: "COLOR", color_value: cv };
+    if (prev._mode) attr._mode = prev._mode;
     this._emit([...(this.value || []).filter((a) => a.key !== field.key), attr]);
   }
 
@@ -116,6 +146,17 @@ export class SberhomeAttrForm extends LitElement {
         return { key: field.key, type: "FLOAT", float_value: Number(c ?? field.frange?.min ?? 0) };
       case "ENUM":
         return { key: field.key, type: "ENUM", enum_value: String(c ?? field.enum?.[0] ?? "") };
+      case "COLOR": {
+        const cv =
+          c && typeof c === "object"
+            ? { h: c.h ?? 0, s: c.s ?? 0, v: c.v ?? 100 }
+            : {
+                h: field.color?.h?.min ?? 0,
+                s: field.color?.s?.min ?? 0,
+                v: field.color?.v?.max ?? 100,
+              };
+        return { key: field.key, type: "COLOR", color_value: cv };
+      }
       default:
         return { key: field.key, type: field.type };
     }
@@ -169,12 +210,26 @@ export class SberhomeAttrForm extends LitElement {
   _renderWidget(field) {
     const cur = this._cur(field.key);
     switch (field.type) {
-      case "BOOL":
-        return html`<input
-          type="checkbox"
-          .checked=${cur?.bool_value ?? false}
-          @change=${(e) => this._set(field, e.target.checked)}
-        />`;
+      case "BOOL": {
+        const invert = cur?._mode === "INVERT";
+        const modeSel = this.allowInvert
+          ? html`<select
+              @change=${(e) => this._setMode(field, e.target.value)}
+              title="Режим"
+            >
+              <option value="RANGE_SET" ?selected=${!invert}>Задать</option>
+              <option value="INVERT" ?selected=${invert}>Переключить</option>
+            </select>`
+          : "";
+        // В режиме INVERT значение не задаётся (переключается текущее).
+        return html`${modeSel}${invert
+          ? html`<span class="hint">инвертировать</span>`
+          : html`<input
+              type="checkbox"
+              .checked=${cur?.bool_value ?? false}
+              @change=${(e) => this._set(field, e.target.checked)}
+            />`}`;
+      }
       case "INTEGER":
       case "FLOAT": {
         const isInt = field.type === "INTEGER";
@@ -207,8 +262,46 @@ export class SberhomeAttrForm extends LitElement {
           )}
         </select>`;
       }
-      case "COLOR":
-        return html`<span class="hint">цвет — скоро</span>`;
+      case "COLOR": {
+        const cv = cur?.color_value || {};
+        const h = cv.h ?? field.color?.h?.min ?? 0;
+        const s = cv.s ?? field.color?.s?.min ?? 0;
+        const v = cv.v ?? field.color?.v?.max ?? 100;
+        const rng = (comp, dflMax) => field.color?.[comp] || { min: 0, max: dflMax, step: 1 };
+        const rh = rng("h", 359);
+        const rs = rng("s", 100);
+        const rv = rng("v", 100);
+        // Свотч: нормализуем h→0..360, s/v→0..100 по диапазонам устройства.
+        const hp = ((h - rh.min) / Math.max(1, rh.max - rh.min)) * 360;
+        const sp = ((s - rs.min) / Math.max(1, rs.max - rs.min)) * 100;
+        const vp = ((v - rv.min) / Math.max(1, rv.max - rv.min)) * 100;
+        const swatch = `hsl(${hp}, ${sp}%, ${Math.max(20, vp)}%)`;
+        return html`
+          <div class="color-widget">
+            <span class="swatch" style="background:${swatch}"></span>
+            <div class="color-sliders">
+              ${[
+                ["h", "H", h, rh],
+                ["s", "S", s, rs],
+                ["v", "V", v, rv],
+              ].map(
+                ([comp, lbl, val, r]) => html`<label class="color-row">
+                  <span class="color-lbl">${lbl}</span>
+                  <input
+                    type="range"
+                    min=${r.min}
+                    max=${r.max}
+                    step=${r.step || 1}
+                    .value=${val}
+                    @input=${(e) => this._setColor(field, comp, e.target.value)}
+                  />
+                  <span class="val">${val}</span>
+                </label>`,
+              )}
+            </div>
+          </div>
+        `;
+      }
       default:
         return html`<span class="hint">${field.type}</span>`;
     }
