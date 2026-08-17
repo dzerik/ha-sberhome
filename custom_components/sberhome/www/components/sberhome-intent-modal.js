@@ -30,6 +30,7 @@ class SberHomeIntentModal extends LitElement {
       _phraseInput: { type: String },
       _codeEditorReady: { type: Boolean, state: true },
       _editingActionIdx: { state: true }, // индекс действия в визарде (null = список)
+      _editingTriggerIdx: { state: true }, // индекс триггера time/device в визарде
     };
   }
 
@@ -43,6 +44,7 @@ class SberHomeIntentModal extends LitElement {
     this._saving = false;
     this._error = "";
     this._editingActionIdx = null;
+    this._editingTriggerIdx = null;
     this._phraseInput = "";
     this._codeEditorReady = !!customElements.get("ha-code-editor");
   }
@@ -184,12 +186,76 @@ class SberHomeIntentModal extends LitElement {
     this._draft = { ...this._draft, enabled: e.target.checked };
   }
 
+  // ---- Триггеры (time / device) --------------------------------------
+  // Голосовые фразы остаются отдельной секцией (chips). Здесь — триггеры
+  // по расписанию и по состоянию устройства, живущие в _draft.triggers.
+
+  _triggers() {
+    return this._draft.triggers || [];
+  }
+
+  _addTrigger(kind) {
+    let data;
+    if (kind === "time") {
+      // дефолт: каждый день в 9:00
+      data = {
+        rrule: buildRrule(
+          ["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
+          9,
+          0,
+          this._tz(),
+        ),
+      };
+    } else {
+      data = {
+        device_id: "",
+        categories_slugs: [],
+        attribute: {},
+        operator: "EQUAL",
+        delay_seconds: 0,
+        parent_id: "",
+      };
+    }
+    const triggers = [...this._triggers(), { type: kind, data, unknown: false }];
+    this._draft = { ...this._draft, triggers };
+    this._editingTriggerIdx = triggers.length - 1;
+  }
+
+  _removeTrigger(idx) {
+    this._draft = {
+      ...this._draft,
+      triggers: this._triggers().filter((_, i) => i !== idx),
+    };
+    if (this._editingTriggerIdx === idx) this._editingTriggerIdx = null;
+    else if (this._editingTriggerIdx > idx) this._editingTriggerIdx -= 1;
+  }
+
+  _onTriggerFieldChange(idx, key, value) {
+    const triggers = this._triggers().map((t, i) =>
+      i === idx ? { ...t, data: { ...t.data, [key]: value } } : t,
+    );
+    this._draft = { ...this._draft, triggers };
+  }
+
+  _tz() {
+    return (this._draft.raw_extras && this._draft.raw_extras.timezone) || "Europe/Moscow";
+  }
+
   _validate() {
     if (!(this._draft.name || "").trim()) {
       return "Имя intent'а не может быть пустым";
     }
-    if (!(this._draft.phrases || []).length) {
-      return "Нужна хотя бы одна голосовая фраза";
+    const triggers = this._triggers();
+    if (!(this._draft.phrases || []).length && !triggers.length) {
+      return "Нужен хотя бы один триггер: фраза, расписание или условие по устройству";
+    }
+    for (const t of triggers) {
+      if (t.type === "device" && (!t.data?.device_id || !t.data?.attribute?.key)) {
+        return "В условии по устройству выберите устройство и атрибут";
+      }
+      if (t.type === "time" && !t.data?.rrule) {
+        return "В условии по расписанию выберите дни и время";
+      }
     }
     const actions = this._draft.actions || [];
     if (!actions.length) {
@@ -397,6 +463,21 @@ class SberHomeIntentModal extends LitElement {
         width: 100%; font-size: 13px;
       }
       .add-btn:hover { background: var(--primary-background-color); }
+      /* Триггеры: кнопки добавления, дни, оператор */
+      .trig-add { display: flex; gap: 8px; }
+      .trig-add .add-btn { flex: 1; }
+      .trig-days { display: flex; gap: 6px; flex-wrap: wrap; }
+      .trig-day {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 4px 8px; border: 1px solid var(--divider-color); border-radius: 6px;
+        font-size: 13px; cursor: pointer; user-select: none;
+      }
+      .trig-day.on { border-color: var(--primary-color); color: var(--primary-color); }
+      .trig-day input { margin: 0; }
+      .trig-day-presets { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+      .trig-day-presets .btn { padding: 4px 10px; font-size: 12px; }
+      .trig-op-row { margin-bottom: 8px; }
+      .trig-op-row select { width: 100%; }
       /* Дайджест-строки действий */
       .digest-row {
         display: flex; align-items: center; gap: 8px;
@@ -651,6 +732,31 @@ class SberHomeIntentModal extends LitElement {
             : html`<div class="help">Произнесённые в колонку — будут триггерить intent.</div>`}
         </div>
 
+        <!-- Триггеры: расписание / условие по устройству (ИЛИ) -->
+        ${readOnly
+          ? this._renderTriggerDigestsReadOnly()
+          : html`
+              <div class="field">
+                <label>Триггеры по расписанию / устройству</label>
+                <div class="actions-section">
+                  ${this._triggers().map((t, idx) =>
+                    this._renderTriggerDigest(t, idx, readOnly),
+                  )}
+                  <div class="trig-add">
+                    <button class="add-btn" @click=${() => this._addTrigger("time")}>
+                      + по расписанию ⏰
+                    </button>
+                    <button class="add-btn" @click=${() => this._addTrigger("device")}>
+                      + по устройству 📟
+                    </button>
+                  </div>
+                </div>
+                <div class="help">
+                  Сработает по ЛЮБОМу триггеру (фраза, расписание или условие).
+                </div>
+              </div>
+            `}
+
         <!-- Enabled -->
         <div class="field switch-row">
           <input
@@ -691,6 +797,185 @@ class SberHomeIntentModal extends LitElement {
         </div>
 
         ${this._editingActionIdx !== null ? this._renderActionWizard(readOnly) : ""}
+        ${this._editingTriggerIdx !== null ? this._renderTriggerWizard(readOnly) : ""}
+      </div>
+    `;
+  }
+
+  // ---- Триггеры: дайджесты и визард --------------------------------------
+
+  _triggerDigest(t) {
+    if (t.type === "time") {
+      const p = parseRrule(t.data?.rrule || "");
+      return `⏰ ${describeDays(p.days)} в ${pad2(p.hour)}:${pad2(p.minute)}`;
+    }
+    if (t.type === "device") {
+      const attr = t.data?.attribute || {};
+      const op = OPERATOR_LABELS[t.data?.operator] || t.data?.operator || "=";
+      const val = attrValueText(attr);
+      return `📟 ${attr.key || "устройство"} ${op} ${val}`;
+    }
+    return `⚠ ${t.type} (Sber, read-only)`;
+  }
+
+  _renderTriggerDigest(t, idx, readOnly) {
+    if (t.unknown || t.type === "unknown") {
+      return html`<div class="digest-row unknown">
+        <span class="digest-summary">${this._triggerDigest(t)}</span>
+        ${!readOnly
+          ? html`<button
+              class="digest-del"
+              title="Удалить триггер"
+              @click=${() => this._removeTrigger(idx)}
+            >×</button>`
+          : ""}
+      </div>`;
+    }
+    return html`
+      <div class="digest-row" @click=${() => (this._editingTriggerIdx = idx)}>
+        <span class="digest-summary">${this._triggerDigest(t)}</span>
+        <span class="digest-edit">✎</span>
+        ${!readOnly
+          ? html`<button
+              class="digest-del"
+              title="Удалить триггер"
+              @click=${(e) => {
+                e.stopPropagation();
+                this._removeTrigger(idx);
+              }}
+            >×</button>`
+          : ""}
+      </div>
+    `;
+  }
+
+  _renderTriggerDigestsReadOnly() {
+    const trigs = this._triggers();
+    if (!trigs.length) return "";
+    return html`
+      <div class="field">
+        <label>Триггеры по расписанию / устройству</label>
+        <div class="actions-section">
+          ${trigs.map(
+            (t) => html`<div class="digest-row unknown">
+              <span class="digest-summary">${this._triggerDigest(t)}</span>
+            </div>`,
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderTriggerWizard(readOnly) {
+    const idx = this._editingTriggerIdx;
+    const t = this._triggers()[idx];
+    if (!t) return "";
+    return html`
+      <div class="wizard-overlay" @click=${() => (this._editingTriggerIdx = null)}>
+        <div class="wizard" @click=${(e) => e.stopPropagation()}>
+          <div class="wizard-header">
+            <strong>${t.type === "time" ? "Триггер по расписанию" : "Триггер по устройству"}</strong>
+            <button class="btn wizard-x" @click=${() => (this._editingTriggerIdx = null)}>×</button>
+          </div>
+          <div class="wizard-body">
+            ${t.type === "time"
+              ? this._renderTimeTriggerBody(t, idx, readOnly)
+              : this._renderDeviceTriggerBody(t, idx, readOnly)}
+          </div>
+          <div class="wizard-footer">
+            <button class="btn primary" @click=${() => (this._editingTriggerIdx = null)}>Готово</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderTimeTriggerBody(t, idx, readOnly) {
+    const parsed = parseRrule(t.data?.rrule || "");
+    const setTime = (days, hour, minute) =>
+      this._onTriggerFieldChange(idx, "rrule", buildRrule(days, hour, minute, this._tz()));
+    const toggleDay = (day, on) => {
+      const days = on
+        ? [...parsed.days, day]
+        : parsed.days.filter((d) => d !== day);
+      setTime(days, parsed.hour, parsed.minute);
+    };
+    return html`
+      <div class="field">
+        <label>Дни</label>
+        <div class="trig-days">
+          ${DAY_ORDER.map(
+            (d) => html`<label class="trig-day ${parsed.days.includes(d.key) ? "on" : ""}">
+              <input
+                type="checkbox"
+                .checked=${parsed.days.includes(d.key)}
+                ?disabled=${readOnly}
+                @change=${(e) => toggleDay(d.key, e.target.checked)}
+              />
+              ${d.short}
+            </label>`,
+          )}
+        </div>
+        <div class="trig-day-presets">
+          <button class="btn" ?disabled=${readOnly}
+            @click=${() => setTime(DAY_ORDER.map((d) => d.key), parsed.hour, parsed.minute)}>Каждый день</button>
+          <button class="btn" ?disabled=${readOnly}
+            @click=${() => setTime(["MO", "TU", "WE", "TH", "FR"], parsed.hour, parsed.minute)}>Будни</button>
+          <button class="btn" ?disabled=${readOnly}
+            @click=${() => setTime(["SA", "SU"], parsed.hour, parsed.minute)}>Выходные</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Время</label>
+        <input
+          type="time"
+          .value=${`${pad2(parsed.hour)}:${pad2(parsed.minute)}`}
+          ?disabled=${readOnly}
+          @input=${(e) => {
+            const [h, m] = (e.target.value || "0:0").split(":").map((x) => parseInt(x, 10) || 0);
+            setTime(parsed.days, h, m);
+          }}
+        />
+      </div>
+    `;
+  }
+
+  _renderDeviceTriggerBody(t, idx, readOnly) {
+    const deviceField = { key: "device_id", type: "device_picker", multiple: false };
+    const attrArray = t.data?.attribute?.key ? [t.data.attribute] : [];
+    return html`
+      <div class="field">
+        <label>Устройство *</label>
+        <sberhome-device-picker-field
+          .hass=${this.hass}
+          .field=${deviceField}
+          .value=${t.data?.device_id || ""}
+          ?disabled=${readOnly}
+          @value-changed=${(e) => this._onTriggerFieldChange(idx, "device_id", e.detail.value)}
+        ></sberhome-device-picker-field>
+      </div>
+      <div class="field">
+        <label>Условие срабатывания *</label>
+        <div class="trig-op-row">
+          <select
+            ?disabled=${readOnly}
+            @change=${(e) => this._onTriggerFieldChange(idx, "operator", e.target.value)}
+          >
+            ${Object.entries(OPERATOR_LABELS).map(
+              ([k, lbl]) => html`<option value=${k} ?selected=${k === (t.data?.operator || "EQUAL")}>${lbl}</option>`,
+            )}
+          </select>
+        </div>
+        <sberhome-attr-form
+          .hass=${this.hass}
+          .deviceId=${t.data?.device_id || ""}
+          .value=${attrArray}
+          @attributes-change=${(e) => {
+            const arr = e.detail.attributes || [];
+            this._onTriggerFieldChange(idx, "attribute", arr.length ? arr[arr.length - 1] : {});
+          }}
+        ></sberhome-attr-form>
+        <div class="help">Отметьте один атрибут — при его значении сработает триггер.</div>
       </div>
     `;
   }
@@ -1190,3 +1475,104 @@ customElements.define(
   "sberhome-device-picker-field",
   SberHomeDevicePickerField
 );
+
+// ---------------------------------------------------------------------------
+// Trigger helpers (pure functions) — rrule build/parse, дни, операторы
+// ---------------------------------------------------------------------------
+
+const DAY_ORDER = [
+  { key: "MO", short: "Пн" },
+  { key: "TU", short: "Вт" },
+  { key: "WE", short: "Ср" },
+  { key: "TH", short: "Чт" },
+  { key: "FR", short: "Пт" },
+  { key: "SA", short: "Сб" },
+  { key: "SU", short: "Вс" },
+];
+
+const OPERATOR_LABELS = {
+  EQUAL: "равно (=)",
+  NOT_EQUAL: "не равно (≠)",
+  GREATER: "больше (>)",
+  LESS: "меньше (<)",
+  GREATER_OR_EQUAL: "больше-равно (≥)",
+  LESS_OR_EQUAL: "меньше-равно (≤)",
+};
+
+function pad2(n) {
+  return String(n ?? 0).padStart(2, "0");
+}
+
+// «Сейчас в tz» в формате YYYYMMDDThhmmss для DTSTART-якоря.
+function nowInTz(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const g = (t) => (parts.find((p) => p.type === t) || {}).value || "00";
+    let hh = g("hour");
+    if (hh === "24") hh = "00";
+    return `${g("year")}${g("month")}${g("day")}T${hh}${g("minute")}${g("second")}`;
+  } catch {
+    return "20260101T000000";
+  }
+}
+
+function buildRrule(days, hour, minute, tz) {
+  const ordered = DAY_ORDER.map((d) => d.key).filter((d) => days.includes(d));
+  const byday = ordered.length ? ordered.join(",") : DAY_ORDER.map((d) => d.key).join(",");
+  return (
+    `DTSTART;TZID=${tz}:${nowInTz(tz)}\n` +
+    `RRULE:FREQ=DAILY;WKST=MO;BYDAY=${byday};BYHOUR=${hour};BYMINUTE=${minute};BYSECOND=0`
+  );
+}
+
+function parseRrule(rrule) {
+  const out = { days: DAY_ORDER.map((d) => d.key), hour: 9, minute: 0 };
+  if (!rrule) return out;
+  const rlLine = rrule.split("\n").find((l) => l.startsWith("RRULE:")) || rrule;
+  const grab = (re) => {
+    const m = rlLine.match(re);
+    return m ? m[1] : null;
+  };
+  const byday = grab(/BYDAY=([^;\n]+)/);
+  if (byday) {
+    const valid = new Set(DAY_ORDER.map((d) => d.key));
+    out.days = byday.split(",").map((x) => x.trim()).filter((x) => valid.has(x));
+  }
+  const byhour = grab(/BYHOUR=(\d+)/);
+  if (byhour !== null) out.hour = parseInt(byhour, 10) || 0;
+  const bymin = grab(/BYMINUTE=(\d+)/);
+  if (bymin !== null) out.minute = parseInt(bymin, 10) || 0;
+  return out;
+}
+
+function describeDays(days) {
+  const set = new Set(days || []);
+  if (set.size === 7) return "каждый день";
+  const weekdays = ["MO", "TU", "WE", "TH", "FR"];
+  const weekend = ["SA", "SU"];
+  if (set.size === 5 && weekdays.every((d) => set.has(d))) return "по будням";
+  if (set.size === 2 && weekend.every((d) => set.has(d))) return "по выходным";
+  if (set.size === 0) return "никогда";
+  return DAY_ORDER.filter((d) => set.has(d.key))
+    .map((d) => d.short)
+    .join(",");
+}
+
+function attrValueText(attr) {
+  if (!attr || typeof attr !== "object") return "";
+  if ("bool_value" in attr) return attr.bool_value ? "вкл" : "выкл";
+  if ("integer_value" in attr) return String(attr.integer_value);
+  if ("float_value" in attr) return String(attr.float_value);
+  if ("enum_value" in attr) return String(attr.enum_value);
+  if ("color_value" in attr) return "цвет";
+  return "";
+}
