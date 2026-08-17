@@ -200,7 +200,7 @@ export class SberhomeAttrForm extends LitElement {
             .checked=${on}
             @change=${(e) => this._toggle(field, e.target.checked)}
           />
-          <span>${field.key}</span>
+          <span title=${field.key}>${field.label || field.key}</span>
         </label>
         ${on ? html`<div class="widget">${this._renderWidget(field)}</div>` : ""}
       </div>

@@ -11,6 +11,7 @@ from homeassistant.helpers import entity_registry as er
 
 from ..aiosber.dto.device import DeviceDto
 from ..aiosber.dto.union import UnionType
+from ..attr_labels import attr_label
 from ..const import DOMAIN
 from ..sbermap import resolve_device_category
 from ._common import find_ha_device, get_coordinator
@@ -61,13 +62,19 @@ def ws_device_write_schema(
     raw = coord.state_cache.get_raw_payload(msg["device_id"]) or {}
     writable = {c.get("key") for c in (raw.get("commands") or []) if c.get("key")}
     current = {av.get("key"): _reported_value(av) for av in (raw.get("reported_state") or [])}
+    lang = hass.config.language or "ru"
 
     fields: list[dict[str, Any]] = []
     for attr in raw.get("attributes") or []:
         key = attr.get("key")
         if key not in writable:
             continue
-        field: dict[str, Any] = {"key": key, "type": attr.get("type"), "current": current.get(key)}
+        field: dict[str, Any] = {
+            "key": key,
+            "label": attr_label(key, lang),
+            "type": attr.get("type"),
+            "current": current.get(key),
+        }
         int_range = (attr.get("int_values") or {}).get("range")
         if int_range:
             field["range"] = int_range

@@ -1,5 +1,18 @@
 # Changelog
 
+## [5.37.0] — 2026-08-17
+
+### Added — человекочитаемые подписи атрибутов в формах (5 языков)
+
+- Форма «Команда устройству» (редактор сценариев / debug / условие-триггер)
+  больше не показывает сырые ключи (`light_brightness`, `open_percentage`,
+  `staros_LedBrightness`). `device_write_schema` отдаёт `label` на языке
+  HA-инстанса; attr-form показывает подпись, ключ — в подсказке.
+- Подписи 48 writable-атрибутов хранятся в `translations/{ru,en,be,kk,uz}.json`
+  (ключ `attr_labels`) — единое место для переводов. Незнакомые ключи —
+  humanize-фолбэк (staros_-префикс срезается, camelCase/snake → слова).
+
+
 ## [5.36.1] — 2026-08-17
 
 ### Changed — debug-таб: убраны хардкод-пресеты; фикс имени subdevice_count
