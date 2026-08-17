@@ -84,6 +84,7 @@ from .sbermap import (
 )
 from .schema_validator import ValidationCollector
 from .state_diff import DiffCollector
+from .ttc_surrogate import TtcSurrogateService
 from .tts_surrogate import TtsSurrogateService
 from .ws_devtools import WsDevToolsRecorder
 
@@ -328,6 +329,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # lookup-or-create + edit-then-run.
         self.tts_surrogates: dict[str, str] = {}
         self.tts_service: TtsSurrogateService = TtsSurrogateService(self)
+
+        # TTC (text-to-command) surrogate — колонка ВЫПОЛНЯЕТ текст как команду
+        # ассистенту (голый HEAD_DIALOG_COMMAND). Тот же lookup-or-create +
+        # edit-then-run механизм, отдельный кэш и marker.
+        self.ttc_surrogates: dict[str, str] = {}
+        self.ttc_service: TtcSurrogateService = TtcSurrogateService(self)
 
     @property
     def devices(self) -> dict[str, DeviceDto]:

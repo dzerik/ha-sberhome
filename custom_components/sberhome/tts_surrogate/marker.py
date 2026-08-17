@@ -77,7 +77,9 @@ def match_surrogate(scenario: ScenarioDto, home_id: str) -> bool:
     Fallback: marker в description (если был full GET с description).
     """
     short_marker = NAME_HOME_ID_TEMPLATE.format(home_short=home_id_short(home_id))
-    if scenario.name and short_marker in scenario.name:
+    # NAME_PREFIX обязателен: иначе TTS-матчер поймал бы TTC-surrogate того же
+    # дома (у него тот же `[home_id=…]`-substring, но префикс «Sber TTC …»).
+    if scenario.name and NAME_PREFIX in scenario.name and short_marker in scenario.name:
         return True
     # Fallback по description (на случай если juzер переименовал scenario
     # в Sber app, но description остался).
