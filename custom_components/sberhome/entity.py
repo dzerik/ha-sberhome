@@ -38,7 +38,11 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             f"{device_real_id}_{unique_id_suffix}" if unique_id_suffix else device_real_id
         )
         if unique_id_suffix:
-            self._attr_name = unique_id_suffix.replace("_", " ").title()
+            # translation_key → имя берётся из translations (entity.<platform>.<key>.name).
+            # НЕ ставим _attr_name: в HA он перебивает и translation_key, и
+            # device_class-локализацию (см. Entity._name_internal). Если перевода
+            # нет — HA молча использует локализованное имя device_class, а для
+            # ключей без device_class именуем через translations на 5 языках.
             self._attr_translation_key = unique_id_suffix
         else:
             self._attr_name = None

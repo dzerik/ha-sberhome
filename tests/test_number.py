@@ -75,9 +75,10 @@ class TestSleepTimerNumber:
         assert entity._attr_unique_id == "device_ledstrip_1_sleep_timer"
 
     def test_name_and_translation_key_from_suffix(self, entity):
-        """Суффикс становится display-именем и translation_key."""
-        assert entity._attr_name == "Sleep Timer"
+        """Суффикс становится translation_key; _attr_name НЕ ставится
+        (иначе перебил бы translation/device_class-локализацию)."""
         assert entity._attr_translation_key == "sleep_timer"
+        assert not hasattr(entity, "_attr_name")
 
     def test_native_value(self, entity):
         """reported sleep_timer=30 → native_value=30."""
