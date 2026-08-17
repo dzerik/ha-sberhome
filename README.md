@@ -242,6 +242,78 @@ click/double_click/long_press для до 10 кнопок и directional-вар�
 архитектурный лимит Gateway), но мы экспонируем connectivity +
 Zigbee/Matter readiness + position select + LED-индикатор.
 
+## Типы сущностей в Home Assistant (полный список)
+
+Интеграция создаёт сущности **16 HA-платформ** (доменов). Ниже — что каждый
+домен представляет и пример `entity_id`.
+
+| Домен | Что представляет | Пример |
+|---|---|---|
+| `light` | лампы, LED-ленты, LED-индикатор (кольцо) колонок | `light.spalnya_lampa`, `light.sber_indicator_color` |
+| `switch` | розетки, реле, чайник вкл, child_lock, alarm_mute, **«Я дома»**, **Sber-группы**, «сценарий активен» | `switch.kuhnya_rozetka`, `switch.sber_at_home`, `switch.sber_groups_vytyazhki` |
+| `sensor` | температура/влажность/давление/батарея/сигнал, вода/энергия, статусы техники | `sensor.spalnya_temperatura` |
+| `binary_sensor` | протечка/движение/дым/газ/дверь-окно, online, tamper, low-battery, **«Я дома»** | `binary_sensor.koridor_dvizhenie`, `binary_sensor.sber_at_home` |
+| `number` | таймер сна, целевые значения (яркость/температура/влажность), open_rate штор | `number.uvlazhnitel_tselevaya_vlazhnost` |
+| `select` | режимы/чувствительность/программы/источник/направление воздуха | `select.pylesos_programma` |
+| `climate` | HVAC: кондиционеры, обогреватели, радиаторы, бойлеры, тёплый пол | `climate.gostinaya_konditsioner` |
+| `cover` | шторы, жалюзи, ворота, клапаны (open/close/position) | `cover.spalnya_shtory` |
+| `fan` | вентиляторы, очистители воздуха | `fan.ochistitel` |
+| `humidifier` | увлажнители (target humidity + режимы) | `humidifier.detskaya` |
+| `media_player` | телевизоры (source/volume/channel/mute) | `media_player.tv_gostinaya` |
+| `vacuum` | роботы-пылесосы (старт/пауза/док/зоны/программы) | `vacuum.robot` |
+| `button` | **запуск Sber-сценария**, домофон, ручной refetch устройства | `button.sber_scenarios_uhod_iz_doma` |
+| `event` | **голосовые срабатывания** сценариев, scenario-кнопки (click/double/long) | `event.sber_scenario_marker_odin` |
+| `notify` | **TTS-суррогат** (озвучка) + **TTC-суррогат** (команда ассистенту) per home | `notify.moi_dom_sber_tts_moi_dom`, `notify.moi_dom_sber_komanda_assistentu_moi_dom` |
+| `update` | обновления прошивки устройств | `update.lyustra_proshivka` |
+
+### Нематериальные сущности (двусторонняя интеграция HA ↔ Sber)
+
+Помимо физических устройств интеграция маппит «нематериальные» сущности Sber:
+
+- **Sber-сценарии** → `button.sber_scenarios_*` (программный запуск) + `event.*`
+  (ловля голосовых/любых срабатываний). Создание/редактирование — из панели.
+- **«Я дома» (at_home)** — per home: `switch.sber_at_home` (запись) и
+  `binary_sensor.sber_at_home` (чтение). «Я на даче» ≠ «я дома» — по каждому дому свой.
+- **Sber-группы устройств** → `switch.*` под устройством «Sber Groups».
+- **LED-индикатор колонок** → `light.sber_indicator_color` (окрасить кольцо из HA).
+- **TTS / TTC** → `notify.*` (озвучить текст / выполнить команду ассистенту).
+- **Настройки колонок** (канал `/v18`) → эквалайзер/светомузыка/яркость LED/детские
+  режимы как `select`/`number`/`switch` (вкладка «Колонки» в панели).
+
+### Категория устройства → создаваемые платформы
+
+30 категорий устройств (60 вариантов `image_set_type`) раскладываются так:
+
+| Категория | Платформы |
+|---|---|
+| `light` | light |
+| `led_strip` | light · number · switch |
+| `socket`, `relay` | switch · sensor |
+| `sensor_temp`, `sensor_air` | sensor · select |
+| `sensor_water_leak` | binary_sensor |
+| `sensor_door`, `sensor_pir` | binary_sensor · select |
+| `sensor_smoke` | binary_sensor · switch |
+| `sensor_gas` | binary_sensor · switch · select |
+| `curtain`, `gate` | cover · select |
+| `window_blind` | cover · select · number |
+| `valve` | cover |
+| `hvac_ac` | climate · switch · number · select |
+| `hvac_heater`, `hvac_boiler`, `hvac_underfloor_heating` | climate · select |
+| `hvac_radiator` | climate |
+| `hvac_fan` | fan · select |
+| `hvac_air_purifier` | fan · switch · binary_sensor |
+| `hvac_humidifier` | humidifier · sensor · binary_sensor · switch |
+| `kettle` | switch · number · sensor · binary_sensor |
+| `vacuum_cleaner` | vacuum · select · switch |
+| `tv` | media_player |
+| `scenario_button` | event |
+| `intercom` | binary_sensor · button |
+| `hub` | binary_sensor |
+| `sber_speaker` | binary_sensor · light · select · sensor |
+
+Незнакомые категории получают generic-фолбэк (сенсоры из reported-состояния),
+поэтому новое устройство не остаётся «пустым».
+
 ## Что нового в 4.x — examples
 
 ### 🎙️ Voice intents — bidirectional bridge с Sber-сценариями
@@ -346,6 +418,47 @@ automation:
         target:
           entity_id: switch.heater
 ```
+
+Проще — через **TTS-суррогат** (`notify`-сущность per home, вкладка «🔊 Озвучка»):
+
+```yaml
+automation:
+  - alias: Озвучить температуру на колонке
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.hallway_motion
+        to: "on"
+    action:
+      - service: notify.send_message
+        target:
+          entity_id: notify.moi_dom_sber_tts_moi_dom
+        data:
+          message: "В коридоре движение, температура {{ states('sensor.hall_temp') }} градусов"
+```
+
+#### Use-case: HA-автоматизация → колонка ВЫПОЛНЯЕТ команду ассистенту (TTC)
+
+**TTC-суррогат** (вкладка «🎙 Команда»): колонка исполняет текст как голосовую
+команду ассистенту — «Расскажи анекдот», «Включи радио», «Поставь таймер на
+5 минут», «Какая погода».
+
+```yaml
+automation:
+  - alias: Утренний ритуал — колонка ставит музыку
+    trigger:
+      - platform: time
+        at: "07:30:00"
+    action:
+      - service: notify.send_message
+        target:
+          entity_id: notify.moi_dom_sber_komanda_assistentu_moi_dom
+        data:
+          message: "Включи бодрую музыку"
+```
+
+> Не используй зарезервированные слова ассистента как **триггер-фразу** сценария
+> («Новости», «Погода», «Время»…) — их перехватывает встроенный навык. Для команд
+> внутри TTC это не ограничение: там текст и есть команда ассистенту.
 
 #### WS-эндпоинты (для custom panel/cards)
 
@@ -585,8 +698,8 @@ Aggregated state:
 > Не для частых уведомлений (>1/мин). Sber может изменить wire-формат
 > или начать лимитировать.
 
-Для каждого дома Sber регистрируется HA-entity `notify.sberhome_<home_slug>`.
-Вызов:
+Для каждого дома Sber регистрируется HA-entity
+`notify.<дом>_sber_tts_<дом>`. Вызов:
 
 ```yaml
 automation:
@@ -597,7 +710,7 @@ automation:
     action:
       - service: notify.send_message
         target:
-          entity_id: notify.sberhome_moy_dom
+          entity_id: notify.moi_dom_sber_tts_moi_dom
         data:
           message: "Ужин готов"
 ```
@@ -641,6 +754,35 @@ HA `target` (media_player entity_id) пока **не резолвится** — 
   Sber произнесёт что-то.
 - Latency: ~500ms–2s на вызов.
 - API rate: 2–3 request per call. Не для high-freq.
+
+## TTC surrogate — команда ассистенту из HA (v5.32.0+, 🧪 EXPERIMENTAL)
+
+Родственник TTS, но колонка **выполняет** текст как голосовую команду
+ассистенту, а не просто озвучивает: «Расскажи анекдот», «Включи радио»,
+«Поставь таймер на 5 минут», «Какая погода».
+
+Для каждого дома регистрируется entity
+`notify.<дом>_sber_komanda_assistentu_<дом>`. Вызов идентичен TTS:
+
+```yaml
+automation:
+  - alias: "Утром — музыка на колонке"
+    trigger:
+      platform: time
+      at: "07:30:00"
+    action:
+      - service: notify.send_message
+        target:
+          entity_id: notify.moi_dom_sber_komanda_assistentu_moi_dom
+        data:
+          message: "Включи бодрую музыку"
+```
+
+Под капотом: сценарий-болванка per home с задачей `HEAD_DIALOG_COMMAND`
+(каноничная форма, проверено голосом), PUT текста → POST /run. Управление и
+тест — панель → **Automations** → segment **🎙 Команда** (статус, «Создать
+сейчас», тестовое поле команды + latency, Jinja-шаблоны, YAML-сниппет).
+Ограничения по колонкам/латентности/rate — те же, что у TTS.
 
 ## YAML Listeners (v5.5.0+)
 

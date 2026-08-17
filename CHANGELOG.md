@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.33.1] — 2026-08-17
+
+### Docs — README: полный список типов сущностей + примеры
+
+- Новая секция **«Типы сущностей в Home Assistant (полный список)»**: таблица
+  всех 16 HA-доменов (light/switch/sensor/binary_sensor/number/select/climate/
+  cover/fan/humidifier/media_player/vacuum/button/event/notify/update) с примерами
+  `entity_id`, список нематериальных сущностей (сценарии/at_home/группы/индикатор/
+  TTS/TTC/настройки колонок) и таблица «категория устройства → платформы» (30 категорий).
+- Примеры автоматизаций для TTS (`notify` озвучка) и **TTC** (команда ассистенту).
+- Отдельная секция **«TTC surrogate»**; исправлены неточные имена notify-entity.
+
 ## [5.33.0] — 2026-08-17
 
 ### Added — таб «🎙 Команда» (TTC) в панели
