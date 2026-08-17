@@ -246,7 +246,7 @@ export class SberhomeTtcView extends LitElement {
     const lines = [
       `- service: notify.send_message`,
       `  target:`,
-      `    entity_id: notify.${slug}_sber_komanda_assistentu_${slug}`,
+      `    entity_id: notify.${slug}_sber_ttc_${slug}`,
       `  data:`,
       `    message: "${this._message.replace(/"/g, '\\"')}"`,
       `    # device_ids:  # раскомментируйте для override (default = все колонки дома)`,
@@ -433,7 +433,7 @@ export class SberhomeTtcView extends LitElement {
         </ul>
         <div class="template-hint">
           Surrogate-TTC подставляет значения <strong>на каждое произнесение</strong>
-          (через <code>notify.<дом>_sber_komanda_assistentu_<дом></code> в HA-автоматизации).
+          (через <code>notify.<дом>_sber_ttc_<дом></code> в HA-автоматизации).
           Доступны стандартные функции: <code>states()</code>,
           <code>state_attr()</code>, <code>is_state()</code>,
           <code>now()</code>, фильтры (<code>round</code>, <code>float</code> и т.п.).

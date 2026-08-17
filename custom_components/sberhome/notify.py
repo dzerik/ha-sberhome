@@ -126,7 +126,9 @@ class SberHomeTtcNotify(NotifyEntity):
         self._ttc = ttc_service
         self._home = home
         self._attr_unique_id = f"sber_ttc_{home.id}"
-        self._attr_name = f"Sber команда ассистенту ({home.name})"
+        # Имя латиницей (как «Sber TTS») — иначе HA транслитерирует кириллицу
+        # в уродливый entity_id вида `sber_komanda_assistentu`.
+        self._attr_name = f"Sber TTC ({home.name})"
 
     @property
     def device_info(self) -> DeviceInfo:

@@ -132,7 +132,7 @@ flowchart LR
   всех Sber-устройств без HA-enabled фильтра. Sber-сценарии фразой
   пробрасываются в HA как `sberhome_intent` event для автоматизаций.
   Подробности в секции [«Что нового в 4.x»](#что-нового-в-4x--examples).
-- **29 категорий устройств** — полное покрытие Sber Gateway API
+- **30 категорий устройств** — полное покрытие Sber Gateway API
   (свет, розетки, реле, датчики темп/влажности/протечки/двери/движения/
   дыма/газа, шторы, ворота, клапаны, все HVAC, увлажнители, очистители,
   чайники, пылесосы, ТВ, сценарные кнопки, домофоны, хабы, **колонки
@@ -263,7 +263,7 @@ Zigbee/Matter readiness + position select + LED-индикатор.
 | `vacuum` | роботы-пылесосы (старт/пауза/док/зоны/программы) | `vacuum.robot` |
 | `button` | **запуск Sber-сценария**, домофон, ручной refetch устройства | `button.sber_scenarios_uhod_iz_doma` |
 | `event` | **голосовые срабатывания** сценариев, scenario-кнопки (click/double/long) | `event.sber_scenario_marker_odin` |
-| `notify` | **TTS-суррогат** (озвучка) + **TTC-суррогат** (команда ассистенту) per home | `notify.moi_dom_sber_tts_moi_dom`, `notify.moi_dom_sber_komanda_assistentu_moi_dom` |
+| `notify` | **TTS-суррогат** (озвучка) + **TTC-суррогат** (команда ассистенту) per home | `notify.moi_dom_sber_tts_moi_dom`, `notify.moi_dom_sber_ttc_moi_dom` |
 | `update` | обновления прошивки устройств | `update.lyustra_proshivka` |
 
 ### Нематериальные сущности (двусторонняя интеграция HA ↔ Sber)
@@ -451,7 +451,7 @@ automation:
     action:
       - service: notify.send_message
         target:
-          entity_id: notify.moi_dom_sber_komanda_assistentu_moi_dom
+          entity_id: notify.moi_dom_sber_ttc_moi_dom
         data:
           message: "Включи бодрую музыку"
 ```
@@ -762,7 +762,7 @@ HA `target` (media_player entity_id) пока **не резолвится** — 
 «Поставь таймер на 5 минут», «Какая погода».
 
 Для каждого дома регистрируется entity
-`notify.<дом>_sber_komanda_assistentu_<дом>`. Вызов идентичен TTS:
+`notify.<дом>_sber_ttc_<дом>`. Вызов идентичен TTS:
 
 ```yaml
 automation:
@@ -773,7 +773,7 @@ automation:
     action:
       - service: notify.send_message
         target:
-          entity_id: notify.moi_dom_sber_komanda_assistentu_moi_dom
+          entity_id: notify.moi_dom_sber_ttc_moi_dom
         data:
           message: "Включи бодрую музыку"
 ```
