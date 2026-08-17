@@ -408,6 +408,7 @@ class SberHomeIntentModal extends LitElement {
       .digest-row.unknown { cursor: default; opacity: 0.7; }
       .digest-summary { flex: 1; font-size: 14px; }
       .digest-edit { opacity: 0.5; font-size: 13px; }
+      .digest-delay { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
       .digest-del {
         border: 0; background: transparent; cursor: pointer;
         color: var(--secondary-text-color); font-size: 18px; line-height: 1;
@@ -714,6 +715,12 @@ class SberHomeIntentModal extends LitElement {
     }
   }
 
+  _delayLabel(sec) {
+    const s = Number(sec) || 0;
+    if (s >= 60 && s % 60 === 0) return `${s / 60} мин`;
+    return `${s} с`;
+  }
+
   _renderActionDigest(action, idx, readOnly) {
     if (action.unknown) {
       return html`<div class="digest-row unknown">
@@ -723,6 +730,9 @@ class SberHomeIntentModal extends LitElement {
     return html`
       <div class="digest-row" @click=${() => this._openActionWizard(idx)}>
         <span class="digest-summary">${this._actionDigest(action)}</span>
+        ${action.data?.delay_seconds
+          ? html`<span class="digest-delay">⏱ ${this._delayLabel(action.data.delay_seconds)}</span>`
+          : ""}
         <span class="digest-edit">✎</span>
         ${!readOnly && (this._draft.actions || []).length > 1
           ? html`<button
@@ -757,7 +767,27 @@ class SberHomeIntentModal extends LitElement {
             <strong>Действие</strong>
             <button class="btn wizard-x" @click=${() => this._closeActionWizard()}>×</button>
           </div>
-          <div class="wizard-body">${this._renderAction(action, idx, readOnly)}</div>
+          <div class="wizard-body">
+            ${this._renderAction(action, idx, readOnly)}
+            ${action.unknown
+              ? ""
+              : html`<div class="field">
+                  <label>Задержка перед действием, сек</label>
+                  <input
+                    type="number"
+                    min="0"
+                    .value=${action.data?.delay_seconds ?? 0}
+                    ?disabled=${readOnly}
+                    @input=${(e) =>
+                      this._onActionFieldChange(
+                        idx,
+                        "delay_seconds",
+                        parseInt(e.target.value, 10) || 0,
+                      )}
+                  />
+                  <div class="help">Напр. 1200 = через 20 минут. 0 = сразу.</div>
+                </div>`}
+          </div>
           <div class="wizard-footer">
             <button class="btn primary" @click=${() => this._closeActionWizard()}>Готово</button>
           </div>

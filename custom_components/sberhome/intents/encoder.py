@@ -164,9 +164,16 @@ def _decode_tasks(
             continue
         # Один тип может встретиться несколько раз — крутим пока match.
         while True:
+            before = list(remaining)
             decoded, leftover = reg.decode(remaining)
             if decoded is None:
                 break
+            # Захватываем start_delay забранного task'а → в data действия.
+            consumed = [t for t in before if t not in leftover]
+            if consumed:
+                delay = _parse_delay_seconds(consumed[0].get("start_delay"))
+                if delay:
+                    decoded.data["delay_seconds"] = delay
             out.append(decoded)
             remaining = leftover
             if not remaining:
@@ -186,6 +193,21 @@ def _decode_tasks(
         is_ha = False
 
     return out, is_ha
+
+
+def _parse_delay_seconds(value: Any) -> int:
+    """Секунды задержки из int или строки вида '240s'. Невалид/0 → 0."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    if isinstance(value, str):
+        raw = value.strip().rstrip("s")
+        try:
+            return max(0, int(float(raw)))
+        except ValueError:
+            return 0
+    return 0
 
 
 def _dedup_keep_order(items: list[str]) -> list[str]:
@@ -225,7 +247,13 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
             # Незарегистрированный тип — skip (не должно быть после decode,
             # но защита от дёрганого UI).
             continue
-        tasks.extend(reg.encode(action.data))
+        encoded = reg.encode(action.data)
+        # Пауза перед действием — общее поле `start_delay` на любом task.
+        delay = _parse_delay_seconds(action.data.get("delay_seconds"))
+        if delay:
+            for task in encoded:
+                task["start_delay"] = f"{delay}s"
+        tasks.extend(encoded)
 
     # Условие — wraps нашу phrases-фразу в каноничный CONDITIONS/nested
     # вид (Sber всё равно обернёт сам, но шлём правильно сразу).

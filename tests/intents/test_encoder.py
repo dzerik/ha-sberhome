@@ -392,3 +392,49 @@ def test_encode_decode_roundtrip_preserves_description():
     body = encode_scenario(spec)
     decoded = decode_scenario({**body, "id": "sc-1"})
     assert decoded.description == "marker-token-abc"
+
+
+def test_start_delay_round_trip():
+    """Пауза (delay_seconds) → start_delay на task'е и обратно."""
+    spec = IntentSpec(
+        name="Пауза",
+        phrases=["позови"],
+        actions=[
+            IntentAction(
+                type="device_command",
+                data={
+                    "device_id": "lamp-1",
+                    "attributes": [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+                    "delay_seconds": 1200,
+                },
+            )
+        ],
+        enabled=True,
+    )
+    body = encode_scenario(spec)
+    task = body["steps"][0]["tasks"][0]
+    assert task["start_delay"] == "1200s"
+
+    decoded = decode_scenario({**body, "id": "x", "meta": {}})
+    dc = next(a for a in decoded.actions if a.type == "device_command")
+    assert dc.data.get("delay_seconds") == 1200
+
+
+def test_no_delay_no_start_delay_field():
+    """Без задержки свою паузу не добавляем."""
+    spec = IntentSpec(
+        name="Без паузы",
+        phrases=["позови"],
+        actions=[
+            IntentAction(
+                type="device_command",
+                data={
+                    "device_id": "lamp-1",
+                    "attributes": [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+                },
+            )
+        ],
+    )
+    body = encode_scenario(spec)
+    task = body["steps"][0]["tasks"][0]
+    assert task.get("start_delay") in (None, "0s")
