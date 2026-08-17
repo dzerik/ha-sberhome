@@ -1,16 +1,11 @@
 """attr_label: подписи из translations/ + humanize-фолбэк."""
 
-import json
-from pathlib import Path
-
 from custom_components.sberhome.attr_labels import (
     SUPPORTED_LANGS,
     _labels_for,
     attr_label,
     humanize,
 )
-
-_TR = Path(__file__).parent.parent / "custom_components" / "sberhome" / "translations"
 
 
 def test_labels_loaded_from_translations():
@@ -36,13 +31,12 @@ def test_humanize_camelcase_and_staros_prefix():
 
 
 def test_all_langs_cover_same_keys():
-    """Секция attr_labels во всех 5 языках покрывает те же ключи, что ru."""
+    """attr_labels.json: все 5 языков покрывают те же ключи, что ru, непусто."""
     ru_keys = set(_labels_for("ru"))
     assert ru_keys, "ru attr_labels must be non-empty"
     for lang in SUPPORTED_LANGS:
-        keys = set(json.loads((_TR / f"{lang}.json").read_text("utf-8")).get("attr_labels", {}))
-        missing = ru_keys - keys
-        assert not missing, f"{lang}.json attr_labels missing: {missing}"
-        # непустые значения
-        empty = [k for k, v in _labels_for(lang).items() if not str(v).strip()]
-        assert not empty, f"{lang}.json attr_labels empty: {empty}"
+        labels = _labels_for(lang)
+        missing = ru_keys - set(labels)
+        assert not missing, f"{lang} attr_labels missing: {missing}"
+        empty = [k for k, v in labels.items() if not str(v).strip()]
+        assert not empty, f"{lang} attr_labels empty: {empty}"

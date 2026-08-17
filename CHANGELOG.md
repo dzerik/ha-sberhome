@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.37.1] — 2026-08-17
+
+### Fixed — подписи атрибутов вынесены из translation-файлов (hassfest)
+
+- hassfest не допускает кастом-ключ `attr_labels` в `strings.json`/`translations/*.json`.
+  Подписи 48 атрибутов × 5 языков перенесены в отдельный `attr_labels.json`
+  ({lang:{key:label}}); стандартные translation-файлы снова проходят hassfest.
+
+
 ## [5.37.0] — 2026-08-17
 
 ### Added — человекочитаемые подписи атрибутов в формах (5 языков)

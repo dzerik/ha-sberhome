@@ -4,11 +4,12 @@
 рисует поля по `device_write_schema`. Без подписи HA-панель показывала бы
 сырой ключ (`light_brightness`, `open_percentage`, `staros_LedBrightness`).
 
-Подписи хранятся в стандартных файлах локализации
-`translations/{ru,en,be,kk,uz}.json` под ключом ``attr_labels`` (единое место
-для всех переводов). `attr_label(key, lang)` берёт подпись на языке HA-инстанса
-(fallback lang→ru→humanize), для незнакомых ключей — humanize-фолбэк
-(staros_-префикс срезается, camelCase/snake_case → слова с заглавной).
+Подписи 48 writable-атрибутов × 5 языков хранятся в `attr_labels.json`
+(единое место для всех переводов; отдельный файл, т.к. hassfest не допускает
+кастом-ключи в стандартных `strings.json`/`translations/*.json`).
+`attr_label(key, lang)` берёт подпись на языке HA-инстанса (fallback
+lang→ru→humanize), для незнакомых ключей — humanize-фолбэк (staros_-префикс
+срезается, camelCase/snake_case → слова с заглавной).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import re
 from functools import cache
 from pathlib import Path
 
-_TRANSLATIONS = Path(__file__).parent / "translations"
+_LABELS_FILE = Path(__file__).parent / "attr_labels.json"
 _FALLBACK_LANG = "ru"
 SUPPORTED_LANGS: tuple[str, ...] = ("ru", "en", "be", "kk", "uz")
 
@@ -26,16 +27,17 @@ _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 @cache
-def _labels_for(lang: str) -> dict[str, str]:
-    """`attr_labels`-секция файла перевода языка (кэш). Пустой dict если нет."""
-    path = _TRANSLATIONS / f"{lang}.json"
-    if not path.is_file():
-        return {}
+def _all_labels() -> dict[str, dict[str, str]]:
+    """Весь словарь {lang: {key: label}} из attr_labels.json (кэш)."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(_LABELS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return dict(data.get("attr_labels") or {})
+
+
+def _labels_for(lang: str) -> dict[str, str]:
+    """Подписи для языка. Пустой dict если языка нет."""
+    return dict(_all_labels().get(lang) or {})
 
 
 def humanize(key: str) -> str:
