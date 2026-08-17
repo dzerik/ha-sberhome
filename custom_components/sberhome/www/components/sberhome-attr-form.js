@@ -167,7 +167,7 @@ export class SberhomeAttrForm extends LitElement {
   }
 
   _renderWidget(field) {
-    const cur = this._cur(field);
+    const cur = this._cur(field.key);
     switch (field.type) {
       case "BOOL":
         return html`<input
