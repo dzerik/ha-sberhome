@@ -234,24 +234,24 @@ export class SberhomeTtcView extends LitElement {
   _renderYamlSnippet({ asString = false } = {}) {
     const home = this._selectedHome();
     if (!home) return asString ? "" : html``;
-    const slug = this._homeSlug(home.name);
-    // Какие speaker'ы попадут в device_ids: явно выбранные либо все из дома
-    // (default behaviour notify-entity'а). Всегда показываем закомментированными
-    // чтобы юзер мог раскомментировать для override без необходимости копировать
-    // UUID'ы вручную из device picker.
-    const ids =
-      this._selectedDeviceIds && this._selectedDeviceIds.length
-        ? this._selectedDeviceIds
-        : home.speakers.map((s) => s.id);
+    // sberhome.ttc_send (v5.38.0+) вместо notify.send_message: строгая схема
+    // notify в HA 2023.7+ режет device_ids внутри data. Если в панели выбраны
+    // конкретные колонки — вставляем их активными (сервис роутит их в
+    // дом-владелец); иначе — закомментированный пример (default = все колонки дома).
+    const explicit = this._selectedDeviceIds && this._selectedDeviceIds.length;
+    const ids = explicit ? this._selectedDeviceIds : home.speakers.map((s) => s.id);
     const lines = [
-      `- service: notify.send_message`,
-      `  target:`,
-      `    entity_id: notify.${slug}_sber_ttc_${slug}`,
+      `- service: sberhome.ttc_send`,
       `  data:`,
       `    message: "${this._message.replace(/"/g, '\\"')}"`,
-      `    # device_ids:  # раскомментируйте для override (default = все колонки дома)`,
     ];
-    ids.forEach((id) => lines.push(`    #   - ${id}`));
+    if (explicit) {
+      lines.push(`    device_ids:  # уйдёт только в дом-владелец этих колонок`);
+      ids.forEach((id) => lines.push(`      - ${id}`));
+    } else {
+      lines.push(`    # device_ids:  # раскомментируйте для конкретных колонок (default = все колонки дома)`);
+      ids.forEach((id) => lines.push(`    #   - ${id}`));
+    }
     return asString ? lines.join("\n") : html`<pre class="yaml">${lines.join("\n")}</pre>`;
   }
 
@@ -433,7 +433,8 @@ export class SberhomeTtcView extends LitElement {
         </ul>
         <div class="template-hint">
           Surrogate-TTC подставляет значения <strong>на каждое произнесение</strong>
-          (через <code>notify.<дом>_sber_ttc_<дом></code> в HA-автоматизации).
+          (через <code>sberhome.ttc_send</code> или
+          <code>notify.<дом>_sber_ttc_<дом></code> в HA-автоматизации).
           Доступны стандартные функции: <code>states()</code>,
           <code>state_attr()</code>, <code>is_state()</code>,
           <code>now()</code>, фильтры (<code>round</code>, <code>float</code> и т.п.).
