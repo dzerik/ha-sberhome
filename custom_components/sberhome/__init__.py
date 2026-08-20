@@ -609,6 +609,53 @@ def _async_register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
 
+    async def _tts_send(call: ServiceCall) -> dict[str, object]:
+        """Озвучить текст через TTS-суррогат на колонках Sber.
+
+        Обход строгой схемы `notify.send_message` (HA 2023.7+): валидатор
+        сервиса не пропускает `device_ids` внутри `data`, поэтому выбрать
+        конкретную колонку через notify нельзя. Здесь `device_ids` —
+        обычный параметр схемы сервиса, а интеграция сама вызывает
+        `TtsSurrogateService.send` (edit-then-run surrogate-сценария).
+
+        `device_ids` — список raw Sber UUID колонок. По умолчанию (None) —
+        все колонки дома.
+        """
+        message: str = call.data["message"]
+        device_ids: list[str] | None = call.data.get("device_ids")
+
+        results: dict[str, object] = {}
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            coord: SberHomeCoordinator = entry.runtime_data
+            tts = getattr(coord, "tts_service", None)
+            if tts is None:
+                continue
+            for home in coord.state_cache.get_homes():
+                if not home.id:
+                    continue
+                try:
+                    await tts.send(home.id, message, device_ids)
+                    results[home.id] = "ok"
+                except Exception as err:
+                    LOGGER.warning("tts_send to home %s failed: %s", home.id, err)
+                    results[home.id] = {"error": str(err)}
+        if not results:
+            return {"ok": False, "error": "No loaded sberhome entries with TTS service"}
+        return {"ok": True, "results": results}
+
+    hass.services.async_register(
+        DOMAIN,
+        "tts_send",
+        _tts_send,
+        schema=vol.Schema(
+            {
+                vol.Required("message"): str,
+                vol.Optional("device_ids"): [str],
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     hass.data[marker] = True
 
 

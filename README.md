@@ -747,6 +747,27 @@ data:
 HA `target` (media_player entity_id) пока **не резолвится** — будет
 в будущей минорной версии. Используйте `data.device_ids`.
 
+> **⚠️ HA 2023.7+**: схема сервиса `notify.send_message` стала строгой —
+> `device_ids` внутри `data` отклоняется валидатором (`extra keys not
+> allowed @ data['device_ids']`). Если вы получаете именно эту ошибку,
+> используйте сервис `sberhome.tts_send` (v5.38.0+): он принимает
+> `device_ids` как обычный параметр, а не внутри `data`:
+
+```yaml
+automation:
+  - alias: Озвучить на кухонной колонке
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.hallway_motion
+        to: "on"
+    action:
+      - service: sberhome.tts_send
+        data:
+          message: "В коридоре движение"
+          device_ids:
+            - "<sber-device-uuid-kitchen-speaker>"
+```
+
 ### Лимиты
 
 - 1 surrogate scenario per home создаётся при первом use.

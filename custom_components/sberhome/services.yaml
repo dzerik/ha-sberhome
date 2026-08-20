@@ -84,3 +84,26 @@ play_channel:
           min: 1
           max: 999
           mode: box
+
+tts_send:
+  name: Озвучить текст (TTS surrogate)
+  description: >
+    Озвучить `message` на колонках Sber через TTS-суррогат. Обходит строгую
+    схему `notify.send_message` (HA 2023.7+ не пропускает `device_ids` внутри
+    `data`): здесь `device_ids` — обычный параметр сервиса. По умолчанию
+    озвучиваются все колонки дома.
+  fields:
+    message:
+      name: Message
+      description: Текст для озвучивания. Поддерживает Jinja2-шаблоны.
+      required: true
+      selector:
+        text:
+    device_ids:
+      name: Device IDs
+      description: >
+        Список raw Sber UUID колонок. По умолчанию (пусто) — все колонки
+        дома.
+      required: false
+      selector:
+        object:
