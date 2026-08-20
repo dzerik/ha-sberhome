@@ -102,8 +102,34 @@ tts_send:
     device_ids:
       name: Device IDs
       description: >
-        Список raw Sber UUID колонок. По умолчанию (пусто) — все колонки
-        дома.
+        Список raw Sber UUID колонок. Команда уходит только в дом-владелец
+        указанных колонок (роутинг по device→home). По умолчанию (пусто) —
+        все колонки всех домов.
+      required: false
+      selector:
+        object:
+
+ttc_send:
+  name: Выполнить команду ассистенту (TTC surrogate)
+  description: >
+    Выполнить ассистент-команду `message` на колонках Sber через TTC-суррогат
+    («Расскажи анекдот», «Поставь таймер на 5 минут», «Включи Bluetooth»).
+    Как и tts_send, обходит строгую схему `notify.send_message`: `device_ids` —
+    обычный параметр сервиса. По умолчанию — все колонки всех домов.
+  fields:
+    message:
+      name: Message
+      description: >
+        Текст команды ассистенту (не озвучивается дословно, а исполняется).
+        Поддерживает Jinja2-шаблоны.
+      required: true
+      selector:
+        text:
+    device_ids:
+      name: Device IDs
+      description: >
+        Список raw Sber UUID колонок. Команда уходит только в дом-владелец
+        указанных колонок. По умолчанию (пусто) — все колонки всех домов.
       required: false
       selector:
         object:

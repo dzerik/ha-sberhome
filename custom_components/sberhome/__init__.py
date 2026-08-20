@@ -609,17 +609,22 @@ def _async_register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
 
-    async def _tts_send(call: ServiceCall) -> dict[str, object]:
-        """Озвучить текст через TTS-суррогат на колонках Sber.
+    async def _surrogate_send(
+        call: ServiceCall, service_attr: str, label: str
+    ) -> dict[str, object]:
+        """Общий обработчик tts_send / ttc_send.
 
-        Обход строгой схемы `notify.send_message` (HA 2023.7+): валидатор
-        сервиса не пропускает `device_ids` внутри `data`, поэтому выбрать
-        конкретную колонку через notify нельзя. Здесь `device_ids` —
-        обычный параметр схемы сервиса, а интеграция сама вызывает
-        `TtsSurrogateService.send` (edit-then-run surrogate-сценария).
+        Обход строгой схемы `notify.send_message` (HA 2023.7+): валидатор не
+        пропускает `device_ids` внутри `data`, поэтому выбрать конкретную
+        колонку через notify нельзя. Здесь `device_ids` — обычный параметр
+        сервиса, а интеграция сама зовёт `<coord>.<service_attr>.send`
+        (edit-then-run surrogate-сценария).
 
-        `device_ids` — список raw Sber UUID колонок. По умолчанию (None) —
-        все колонки дома.
+        Роутинг: указанные `device_ids` группируются по дому-владельцу через
+        `state_cache.device_home_id` — команда уходит ТОЛЬКО в тот дом (и тот
+        config entry), которому принадлежит колонка; чужие для данного кэша
+        UUID (`device_home_id is None`) отсекаются. Без `device_ids` —
+        broadcast: все дома всех entry, все колонки (`send` с None).
         """
         message: str = call.data["message"]
         device_ids: list[str] | None = call.data.get("device_ids")
@@ -627,34 +632,62 @@ def _async_register_services(hass: HomeAssistant) -> None:
         results: dict[str, object] = {}
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             coord: SberHomeCoordinator = entry.runtime_data
-            tts = getattr(coord, "tts_service", None)
-            if tts is None:
+            svc = getattr(coord, service_attr, None)
+            if svc is None:
                 continue
-            for home in coord.state_cache.get_homes():
-                if not home.id:
-                    continue
+            cache = coord.state_cache
+
+            targets: list[tuple[str, list[str] | None]]
+            if device_ids:
+                by_home: dict[str, list[str]] = {}
+                for did in device_ids:
+                    home_id = cache.device_home_id(did)
+                    if home_id:
+                        by_home.setdefault(home_id, []).append(did)
+                targets = list(by_home.items())
+            else:
+                targets = [(home.id, None) for home in cache.get_homes() if home.id]
+
+            for home_id, ids in targets:
                 try:
-                    await tts.send(home.id, message, device_ids)
-                    results[home.id] = "ok"
+                    await svc.send(home_id, message, ids)
+                    results[home_id] = "ok"
                 except Exception as err:
-                    LOGGER.warning("tts_send to home %s failed: %s", home.id, err)
-                    results[home.id] = {"error": str(err)}
+                    LOGGER.warning("%s to home %s failed: %s", label, home_id, err)
+                    results[home_id] = {"error": str(err)}
+
         if not results:
-            return {"ok": False, "error": "No loaded sberhome entries with TTS service"}
+            return {
+                "ok": False,
+                "error": (
+                    f"{label}: ни одна колонка не найдена — проверьте device_ids "
+                    "или наличие колонок Sber в доме"
+                ),
+            }
         return {"ok": True, "results": results}
 
-    hass.services.async_register(
-        DOMAIN,
-        "tts_send",
-        _tts_send,
-        schema=vol.Schema(
-            {
-                vol.Required("message"): str,
-                vol.Optional("device_ids"): [str],
-            }
-        ),
-        supports_response=SupportsResponse.OPTIONAL,
+    async def _tts_send(call: ServiceCall) -> dict[str, object]:
+        """Озвучить `message` (TTS) на колонках Sber. См. _surrogate_send."""
+        return await _surrogate_send(call, "tts_service", "tts_send")
+
+    async def _ttc_send(call: ServiceCall) -> dict[str, object]:
+        """Выполнить ассистент-команду `message` (TTC) на колонках Sber."""
+        return await _surrogate_send(call, "ttc_service", "ttc_send")
+
+    _surrogate_schema = vol.Schema(
+        {
+            vol.Required("message"): str,
+            vol.Optional("device_ids"): [str],
+        }
     )
+    for _svc_name, _svc_handler in (("tts_send", _tts_send), ("ttc_send", _ttc_send)):
+        hass.services.async_register(
+            DOMAIN,
+            _svc_name,
+            _svc_handler,
+            schema=_surrogate_schema,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
     hass.data[marker] = True
 

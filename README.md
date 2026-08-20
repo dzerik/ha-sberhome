@@ -768,6 +768,21 @@ automation:
             - "<sber-device-uuid-kitchen-speaker>"
 ```
 
+Аналогичный сервис `sberhome.ttc_send` (v5.38.0+) выполняет **ассистент-команду**
+(не озвучивает дословно, а исполняет — «Расскажи анекдот», «Включи Bluetooth»):
+
+```yaml
+      - service: sberhome.ttc_send
+        data:
+          message: "Поставь таймер на 5 минут"
+          device_ids:
+            - "<sber-device-uuid-kitchen-speaker>"
+```
+
+> **Роутинг device→home:** `device_ids` автоматически группируются по
+> дому-владельцу — команда уходит только в дом (и config entry), которому
+> принадлежит колонка. Без `device_ids` — broadcast на все колонки всех домов.
+
 ### Лимиты
 
 - 1 surrogate scenario per home создаётся при первом use.
