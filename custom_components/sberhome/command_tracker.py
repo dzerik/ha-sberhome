@@ -44,7 +44,7 @@ from typing import Any, Literal
 
 _LOGGER = logging.getLogger(__name__)
 
-CommandStatus = Literal["pending", "confirmed", "partial", "silent_rejection"]
+CommandStatus = Literal["pending", "confirmed", "partial", "silent_rejection", "send_failed"]
 SubscriberEvent = Literal["command_sent", "command_updated", "command_closed"]
 
 
@@ -60,6 +60,18 @@ class CommandRecord:
     """attr_key → confirmed value dict (what landed in reported_state)."""
     status: CommandStatus = "pending"
     closed_at: float | None = None
+    context_id: str | None = None
+    """HA context of the service call that produced the command."""
+    requested_at: float | None = None
+    """When the ``PUT`` was started; ``sent_at`` is when it returned."""
+    http_ms: int | None = None
+    """Duration of the ``PUT`` — cloud latency, separate from the device's."""
+    confirmed_at: dict[str, float] = field(default_factory=dict)
+    """attr_key → when the key showed up in reported_state."""
+    confirmed_via: dict[str, str] = field(default_factory=dict)
+    """attr_key → ``ws_push`` / ``polling``: which channel delivered the confirmation."""
+    error: str | None = None
+    """Why the ``PUT`` failed (status ``send_failed``)."""
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -189,6 +201,11 @@ class CommandTracker:
         self,
         device_id: str,
         desired_state: Iterable[dict[str, Any]],
+        *,
+        context_id: str | None = None,
+        requested_at: float | None = None,
+        error: str | None = None,
+        now: float | None = None,
     ) -> CommandRecord | None:
         """Register an outbound ``PUT /devices/{device_id}/state``.
 
@@ -199,6 +216,12 @@ class CommandTracker:
                 Items without ``key`` are ignored; an empty iterable
                 does not produce a record (no confirmation is
                 possible anyway).
+            context_id: HA context of the originating service call.
+            requested_at: When the ``PUT`` started; with it the record
+                carries the HTTP duration.
+            error: Set when the ``PUT`` failed — the record is closed at
+                once as ``send_failed``.
+            now: Current time (tests); defaults to ``time.time()``.
 
         Returns:
             The new :class:`CommandRecord`, or ``None`` when
@@ -213,12 +236,23 @@ class CommandTracker:
             keys_sent[key] = body
         if not keys_sent:
             return None
+        sent_at = time.time() if now is None else now
         cmd = CommandRecord(
             command_id=uuid.uuid4().hex[:12],
             device_id=device_id,
-            sent_at=time.time(),
+            sent_at=sent_at,
             keys_sent=copy.deepcopy(keys_sent),
+            context_id=context_id,
+            requested_at=requested_at,
+            http_ms=round((sent_at - requested_at) * 1000) if requested_at is not None else None,
+            error=error,
         )
+        if error is not None:
+            cmd.status = "send_failed"
+            cmd.closed_at = sent_at
+            self._closed.append(cmd)
+            self._notify("command_closed", cmd)
+            return cmd
         self._active[cmd.command_id] = cmd
         self._notify("command_sent", cmd)
         return cmd
@@ -227,6 +261,8 @@ class CommandTracker:
         self,
         device_id: str,
         reported_state: Iterable[dict[str, Any]],
+        *,
+        source: str = "ws_push",
     ) -> list[str]:
         """Check any pending commands for this device against a new snapshot.
 
@@ -260,6 +296,8 @@ class CommandTracker:
                     continue
                 if _value_equals(sent_value, observed_map[key]):
                     cmd.keys_confirmed[key] = copy.deepcopy(observed_map[key])
+                    cmd.confirmed_at[key] = time.time()
+                    cmd.confirmed_via[key] = source
                     newly_confirmed = True
             if not newly_confirmed:
                 continue

@@ -18,8 +18,23 @@ import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 import { Localized } from "../i18n/index.js";
 
+/**
+ * Короткое значение атрибута Sber: ``true``, ``500``, ``h=120 s=80 v=100``.
+ * Полный JSON остаётся в подсказке ячейки.
+ */
+export function formatValue(v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v !== "object") return String(v);
+  for (const field of ["bool_value", "integer_value", "float_value", "enum_value", "string_value"]) {
+    if (field in v) return String(v[field]);
+  }
+  const colour = v.color_value || v.colour_value;
+  if (colour && typeof colour === "object") return `h=${colour.h} s=${colour.s} v=${colour.v}`;
+  return JSON.stringify(v);
+}
+
 /** Статусы трекера; у каждого есть перевод ``commands.status.*``. */
-const STATUSES = ["pending", "confirmed", "partial", "silent_rejection"];
+const STATUSES = ["pending", "confirmed", "partial", "silent_rejection", "send_failed"];
 
 class SberHomeCommandsView extends Localized(LitElement) {
   static get properties() {
@@ -103,6 +118,29 @@ class SberHomeCommandsView extends Localized(LitElement) {
     return d.toLocaleTimeString(this.hass?.language, { hour12: false });
   }
 
+  /** Время отклика облака (PUT) и ошибка отправки — первая строка шкалы. */
+  _renderTimeline(c) {
+    const parts = [];
+    if (c.http_ms !== null && c.http_ms !== undefined) parts.push(this.t("commands.http_ms", { ms: c.http_ms }));
+    if (c.context_id) parts.push(this.t("commands.context", { id: c.context_id.slice(-6) }));
+    return html`
+      ${parts.length ? html`<div class="timeline">${parts.join(" · ")}</div>` : ""}
+      ${c.error ? html`<div class="send-error">${c.error}</div>` : ""}
+    `;
+  }
+
+  /** «через 850 мс · WebSocket» — когда и каким каналом пришло подтверждение ключа. */
+  _confirmedText(c, key) {
+    const at = (c.confirmed_at || {})[key];
+    if (at === undefined) return "";
+    const via = (c.confirmed_via || {})[key];
+    const ms = Math.max(0, Math.round((at - c.sent_at) * 1000));
+    const channel = this.t(`commands.via.${via === "polling" ? "polling" : "ws_push"}`);
+    if (ms < 1000) return this.t("commands.confirmed_after", { ms, via: channel });
+    const seconds = (ms / 1000).toLocaleString(this.hass?.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return this.t("commands.confirmed_after_s", { s: seconds, via: channel });
+  }
+
   _pendingCount(cmd) {
     const sent = Object.keys(cmd.keys_sent || {}).length;
     const confirmed = Object.keys(cmd.keys_confirmed || {}).length;
@@ -143,6 +181,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
           <span class="chip chip-confirmed">${this.t("commands.chip_confirmed", { n: counts.confirmed })}</span>
           <span class="chip chip-partial">${this.t("commands.chip_partial", { n: counts.partial })}</span>
           <span class="chip chip-silent_rejection">${this.t("commands.chip_silent_rejection", { n: counts.silent_rejection })}</span>
+          <span class="chip chip-send_failed">${this.t("commands.chip_send_failed", { n: counts.send_failed })}</span>
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         <div class="rows">
@@ -155,7 +194,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
   }
 
   _countByStatus() {
-    const out = { pending: 0, confirmed: 0, partial: 0, silent_rejection: 0 };
+    const out = { pending: 0, confirmed: 0, partial: 0, silent_rejection: 0, send_failed: 0 };
     for (const c of this._commands) {
       if (c.status in out) out[c.status]++;
     }
@@ -176,6 +215,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
             : ""}
           <span class="time">${this._formatTime(c.sent_at)}</span>
         </div>
+        ${this._renderTimeline(c)}
         ${keysSent.length > 0 ? html`
           <table class="keys-table">
             <tbody>
@@ -183,7 +223,8 @@ class SberHomeCommandsView extends Localized(LitElement) {
                 <tr class="key-row ${k in (c.keys_confirmed || {}) ? "confirmed" : "missing"}">
                   <td class="mark">${k in (c.keys_confirmed || {}) ? "✓" : "…"}</td>
                   <td class="k">${k}</td>
-                  <td class="v">${JSON.stringify(c.keys_sent[k])}</td>
+                  <td class="v" title=${JSON.stringify(c.keys_sent[k])}>${formatValue(c.keys_sent[k])}</td>
+                  <td class="when">${this._confirmedText(c, k)}</td>
                 </tr>`)}
             </tbody>
           </table>
@@ -240,6 +281,11 @@ class SberHomeCommandsView extends Localized(LitElement) {
       .chip-confirmed { background: rgba(76, 175, 80, 0.15); color: var(--success-color, #4caf50); }
       .chip-partial { background: rgba(255, 152, 0, 0.15); color: var(--warning-color, #ff9800); }
       .chip-silent_rejection { background: rgba(244, 67, 54, 0.15); color: var(--error-color, #f44336); }
+      .chip-send_failed { background: rgba(244, 67, 54, 0.25); color: var(--error-color, #f44336); }
+      .cmd-send_failed { border-left: 3px dashed var(--error-color, #f44336); }
+      .timeline { color: var(--secondary-text-color); font-size: 0.8em; margin-top: 4px; }
+      .send-error { color: var(--error-color, #f44336); font-family: monospace; font-size: 0.8em; margin-top: 4px; overflow-wrap: anywhere; }
+      .when { color: var(--secondary-text-color); font-size: 0.85em; }
       .error { color: var(--error-color, #f44336); margin-bottom: 8px; font-size: 0.9em; }
       .empty { color: var(--secondary-text-color); font-style: italic; padding: 16px; text-align: center; }
       .rows { display: flex; flex-direction: column; gap: 4px; }
@@ -271,6 +317,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
       .badge-confirmed { background: rgba(76, 175, 80, 0.15); color: var(--success-color, #4caf50); }
       .badge-partial { background: rgba(255, 152, 0, 0.15); color: var(--warning-color, #ff9800); }
       .badge-silent_rejection { background: rgba(244, 67, 54, 0.15); color: var(--error-color, #f44336); }
+      .badge-send_failed { background: rgba(244, 67, 54, 0.25); color: var(--error-color, #f44336); }
       .device { font-family: monospace; font-weight: 600; color: var(--primary-text-color); }
       .keys { font-family: monospace; color: var(--secondary-text-color); font-size: 0.85em; }
       .pending-count { color: var(--primary-color, #03a9f4); font-size: 0.75em; }
@@ -290,8 +337,8 @@ class SberHomeCommandsView extends Localized(LitElement) {
       .mark { width: 20px; text-align: center; font-weight: 700; }
       .key-row.confirmed .mark { color: var(--success-color, #4caf50); }
       .key-row.missing .mark { color: var(--secondary-text-color); }
-      .k { width: 200px; color: var(--primary-text-color); }
-      .v { color: var(--secondary-text-color); word-break: break-all; }
+      .k { width: 40%; color: var(--primary-text-color); overflow-wrap: anywhere; }
+      .v { color: var(--secondary-text-color); overflow-wrap: anywhere; min-width: 3em; }
     `, mobileBase];
   }
 }

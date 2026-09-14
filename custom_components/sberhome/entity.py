@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -110,16 +111,37 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             suggested_area=room_name,
         )
 
+    def _track_command(
+        self, states_dicts: list[dict[str, Any]], requested_at: float, error: str | None = None
+    ) -> None:
+        """Записать команду в confirmation-tracker (DevTools не должны ломать отправку)."""
+        try:
+            self.coordinator.command_tracker.record_sent(
+                self._device_id,
+                states_dicts,
+                context_id=self._context.id if self._context is not None else None,
+                requested_at=requested_at,
+                error=error,
+            )
+        except Exception:  # pragma: no cover — DevTools must never break sending
+            LOGGER.exception("CommandTracker.record_sent failed")
+
     async def _async_send_attrs(self, attrs: list[AttributeValueDto]) -> None:
         """Send list[AttributeValueDto] via aiosber + optimistic cache update."""
         states_dicts = [a.to_dict() for a in attrs]
+        requested_at = time.time()
         try:
             # DeviceService.set_state делает HTTP PUT + optimistic patch
             # state_cache (см. aiosber/service/device_service.py).
             await self.coordinator.async_send_device_state(self._device_id, attrs)
         except AuthError as err:
             LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
+            self._track_command(states_dicts, requested_at, error=f"{type(err).__name__}: {err}")
             raise ConfigEntryAuthFailed(str(err)) from err
+        except Exception as err:
+            # Облако отклонило сам PUT — видно в DevTools, дальше как раньше.
+            self._track_command(states_dicts, requested_at, error=f"{type(err).__name__}: {err}")
+            raise
 
         # Логируем исходящую команду в WS ring buffer — пользователь видит
         # свои команды рядом с входящими push'ами в панели логов.
@@ -129,10 +151,7 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         # keys подтвердились — Sber протокол не даёт correlation id, так
         # что watch-and-match это единственный способ поймать silent
         # rejection (HTTP 200, но device ничего не применил).
-        try:
-            self.coordinator.command_tracker.record_sent(self._device_id, states_dicts)
-        except Exception:  # pragma: no cover — DevTools must never break sending
-            LOGGER.exception("CommandTracker.record_sent failed")
+        self._track_command(states_dicts, requested_at)
 
         # Optimistic patch уже сделан DeviceService.set_state — нужно лишь
         # пересобрать sbermap entities и уведомить HA-подписчиков.

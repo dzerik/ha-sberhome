@@ -67,3 +67,54 @@ class TestSberBaseEntity:
         del coordinator.data["device_light_1"]
         coordinator.state_cache._devices.pop("device_light_1", None)
         assert ent.available is False
+
+
+class TestSendAttrsFeedsTheTimeline:
+    """Отправка команды из сущности пишет в трекер длительность, контекст и ошибки."""
+
+    @staticmethod
+    def _entity():
+        from unittest.mock import AsyncMock
+
+        from homeassistant.core import Context
+
+        from custom_components.sberhome.command_tracker import CommandTracker
+
+        coordinator = _make_coordinator({"device_light_1": MOCK_DEVICE_LIGHT})
+        coordinator.command_tracker = CommandTracker()
+        coordinator.async_send_device_state = AsyncMock()
+        entity = SberBaseEntity(coordinator, "device_light_1")
+        entity._context = Context(id="ctx-42")
+        return entity
+
+    @staticmethod
+    def _attrs():
+        from custom_components.sberhome.aiosber.dto.values import (
+            AttributeValueDto,
+            AttributeValueType,
+        )
+
+        return [AttributeValueDto(key="on_off", type=AttributeValueType.BOOL, bool_value=True)]
+
+    @pytest.mark.asyncio
+    async def test_successful_send(self):
+        entity = self._entity()
+        await entity._async_send_attrs(self._attrs())
+        [record] = entity.coordinator.command_tracker.snapshot()
+        assert record["status"] == "pending"
+        assert record["context_id"] == "ctx-42"
+        assert record["http_ms"] is not None and record["http_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_failed_send_is_recorded_then_raised(self):
+        from custom_components.sberhome.exceptions import SberConnectionError
+
+        entity = self._entity()
+        entity.coordinator.async_send_device_state.side_effect = SberConnectionError(
+            "gateway timeout"
+        )
+        with pytest.raises(SberConnectionError):
+            await entity._async_send_attrs(self._attrs())
+        [record] = entity.coordinator.command_tracker.snapshot()
+        assert record["status"] == "send_failed"
+        assert "gateway timeout" in record["error"]

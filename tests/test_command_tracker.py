@@ -222,4 +222,72 @@ class TestSerialization:
             "keys_confirmed",
             "status",
             "closed_at",
+            "context_id",
+            "requested_at",
+            "http_ms",
+            "confirmed_at",
+            "confirmed_via",
+            "error",
         }
+
+
+class TestTimeline:
+    """Где задержка — в HTTP-запросе, в доставке push или в устройстве.
+
+    Для облачной интеграции это ответ на вопрос, который в мосте закрывают
+    трассы: запись команды хранит длительность PUT и момент и источник
+    подтверждения каждого ключа.
+    """
+
+    def test_http_duration_and_context_are_recorded(self) -> None:
+        tracker = CommandTracker()
+        rec = tracker.record_sent(
+            "dev-1",
+            [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+            requested_at=100.0,
+            context_id="ctx-1",
+            now=100.25,
+        )
+        assert rec.sent_at == 100.25
+        assert rec.requested_at == 100.0
+        assert rec.http_ms == 250
+        assert rec.context_id == "ctx-1"
+
+    def test_each_key_remembers_when_and_how_it_was_confirmed(self) -> None:
+        tracker = CommandTracker()
+        rec = tracker.record_sent(
+            "dev-1",
+            [
+                {"key": "on_off", "type": "BOOL", "bool_value": True},
+                {"key": "light_brightness", "type": "INTEGER", "integer_value": 500},
+            ],
+        )
+        tracker.observe_reported_state(
+            "dev-1", [{"key": "on_off", "type": "BOOL", "bool_value": True}], source="ws_push"
+        )
+        tracker.observe_reported_state(
+            "dev-1",
+            [{"key": "light_brightness", "type": "INTEGER", "integer_value": 500}],
+            source="polling",
+        )
+        got = tracker.get(rec.command_id)
+        assert got["status"] == "confirmed"
+        assert got["confirmed_via"] == {"on_off": "ws_push", "light_brightness": "polling"}
+        assert set(got["confirmed_at"]) == {"on_off", "light_brightness"}
+        assert all(t >= rec.sent_at for t in got["confirmed_at"].values())
+
+    def test_failed_send_is_recorded_and_closed(self) -> None:
+        """Облако отклонило сам PUT — раньше такие команды в DevTools не попадали."""
+        tracker = CommandTracker()
+        rec = tracker.record_sent(
+            "dev-1",
+            [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+            requested_at=10.0,
+            now=10.5,
+            error="SberApiError: 400 bad value",
+        )
+        got = tracker.get(rec.command_id)
+        assert got["status"] == "send_failed"
+        assert got["error"] == "SberApiError: 400 bad value"
+        assert got["http_ms"] == 500
+        assert tracker.sweep() == []

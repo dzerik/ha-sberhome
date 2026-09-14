@@ -535,7 +535,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for dev_id, dto in self.state_cache.get_all_devices().items():
                     reported_dicts = [a.to_dict() for a in dto.reported_state]
                     self.diff_collector.update(dev_id, reported_dicts, source="polling")
-                    self.command_tracker.observe_reported_state(dev_id, reported_dicts)
+                    self.command_tracker.observe_reported_state(
+                        dev_id, reported_dicts, source="polling"
+                    )
                     self.validation_collector.observe_reported_state(dev_id, reported_dicts)
                 # Close any commands that have been pending past the timeout.
                 self.command_tracker.sweep()

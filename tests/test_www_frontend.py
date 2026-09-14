@@ -244,3 +244,15 @@ def test_wide_tables_scroll_inside_their_card(name: str, table: str) -> None:
     tag = f'<table class="{table}">'
     assert src.count(f'<div class="table-scroll">{tag}') == src.count(tag) > 0
     assert ".table-scroll { overflow-x: auto; }" in src
+
+
+def test_command_timeline_statuses_are_translated(dicts: dict[str, dict[str, str]]) -> None:
+    """Каждый статус трекера, включая send_failed, имеет подпись в панели."""
+    import typing
+
+    from custom_components.sberhome.command_tracker import CommandStatus
+
+    for status in typing.get_args(CommandStatus):
+        assert f"commands.status.{status}" in dicts["ru"], status
+    for via in ("ws_push", "polling"):
+        assert f"commands.via.{via}" in dicts["ru"]
