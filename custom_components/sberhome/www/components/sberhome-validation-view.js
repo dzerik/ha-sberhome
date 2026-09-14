@@ -13,8 +13,12 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
 
-class SberHomeValidationView extends LitElement {
+/** Уровни замечаний, для которых есть перевод ``validation.severity.*``. */
+const SEVERITIES = new Set(["warning", "info"]);
+
+class SberHomeValidationView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -94,7 +98,7 @@ class SberHomeValidationView extends LitElement {
 
   _formatTime(ts) {
     const d = new Date(ts * 1000);
-    return d.toLocaleTimeString("ru-RU", { hour12: false });
+    return d.toLocaleTimeString(this.hass?.language, { hour12: false });
   }
 
   _counts() {
@@ -109,34 +113,38 @@ class SberHomeValidationView extends LitElement {
     return { warnings, infos };
   }
 
+  _severityLabel(severity) {
+    return SEVERITIES.has(severity) ? this.t(`validation.severity.${severity}`) : severity;
+  }
+
   render() {
     const { warnings, infos } = this._counts();
     return html`
       <div class="section">
         <div class="header">
-          <h2>Schema Validation</h2>
+          <h2>${this.t("validation.title")}</h2>
           <div class="toolbar">
             <button class="btn-danger"
               ?disabled=${this._recent.length === 0}
               @click=${this._clear}>
-              Clear
+              ${this.t("validation.clear")}
             </button>
           </div>
         </div>
         <div class="summary">
-          <span class="chip chip-warning">${warnings} warnings</span>
-          <span class="chip chip-info">${infos} info</span>
-          <span class="hint">Unknown keys / malformed type/value pairs in every reported_state — early warning for API drift.</span>
+          <span class="chip chip-warning">${this.t("validation.chip_warnings", { n: warnings })}</span>
+          <span class="chip chip-info">${this.t("validation.chip_infos", { n: infos })}</span>
+          <span class="hint">${this.t("validation.hint")}</span>
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         <div class="tabs">
           <button class="tab ${this._tab === "by_device" ? "active" : ""}"
             @click=${() => { this._tab = "by_device"; }}>
-            By device
+            ${this.t("validation.tab_by_device")}
           </button>
           <button class="tab ${this._tab === "timeline" ? "active" : ""}"
             @click=${() => { this._tab = "timeline"; }}>
-            Timeline
+            ${this.t("validation.tab_timeline")}
           </button>
         </div>
         ${this._tab === "by_device" ? this._renderByDevice() : this._renderTimeline()}
@@ -147,17 +155,17 @@ class SberHomeValidationView extends LitElement {
   _renderByDevice() {
     const entries = Object.keys(this._byDevice).sort();
     if (entries.length === 0) {
-      return html`<div class="empty">No validation events yet.</div>`;
+      return html`<div class="empty">${this.t("validation.empty_by_device")}</div>`;
     }
     return html`
       <table class="issue-table">
         <thead>
           <tr>
-            <th>Device</th>
-            <th></th>
-            <th>Type</th>
-            <th>Key</th>
-            <th>Description</th>
+            <th>${this.t("validation.col_device")}</th>
+            <th><span class="visually-hidden">${this.t("validation.col_severity")}</span></th>
+            <th>${this.t("validation.col_type")}</th>
+            <th>${this.t("validation.col_key")}</th>
+            <th>${this.t("validation.col_description")}</th>
           </tr>
         </thead>
         <tbody>
@@ -167,14 +175,14 @@ class SberHomeValidationView extends LitElement {
               return [html`
                 <tr class="clean">
                   <td class="device">${did}</td>
-                  <td><span class="badge badge-clean">clean</span></td>
-                  <td colspan="3">No issues in latest snapshot</td>
+                  <td><span class="badge badge-clean">${this.t("validation.clean")}</span></td>
+                  <td colspan="3">${this.t("validation.no_issues_latest")}</td>
                 </tr>`];
             }
             return issues.map((i, idx) => html`
               <tr class="sev-${i.severity}">
                 <td class="device">${idx === 0 ? did : ""}</td>
-                <td><span class="badge badge-${i.severity}">${i.severity}</span></td>
+                <td><span class="badge badge-${i.severity}">${this._severityLabel(i.severity)}</span></td>
                 <td class="type">${i.type}</td>
                 <td class="key">${i.key || "—"}</td>
                 <td class="desc">${i.description}</td>
@@ -188,18 +196,18 @@ class SberHomeValidationView extends LitElement {
   _renderTimeline() {
     const rows = [...this._recent].reverse();
     if (rows.length === 0) {
-      return html`<div class="empty">No issues yet.</div>`;
+      return html`<div class="empty">${this.t("validation.empty_timeline")}</div>`;
     }
     return html`
       <table class="issue-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Device</th>
-            <th></th>
-            <th>Type</th>
-            <th>Key</th>
-            <th>Description</th>
+            <th>${this.t("validation.col_time")}</th>
+            <th>${this.t("validation.col_device")}</th>
+            <th><span class="visually-hidden">${this.t("validation.col_severity")}</span></th>
+            <th>${this.t("validation.col_type")}</th>
+            <th>${this.t("validation.col_key")}</th>
+            <th>${this.t("validation.col_description")}</th>
           </tr>
         </thead>
         <tbody>
@@ -207,7 +215,7 @@ class SberHomeValidationView extends LitElement {
             <tr class="sev-${i.severity}">
               <td class="t">${this._formatTime(i.ts)}</td>
               <td class="device">${i.device_id}</td>
-              <td><span class="badge badge-${i.severity}">${i.severity}</span></td>
+              <td><span class="badge badge-${i.severity}">${this._severityLabel(i.severity)}</span></td>
               <td class="type">${i.type}</td>
               <td class="key">${i.key || "—"}</td>
               <td class="desc">${i.description}</td>
@@ -298,6 +306,14 @@ class SberHomeValidationView extends LitElement {
       .badge-info { background: rgba(3, 169, 244, 0.15); color: var(--primary-color, #03a9f4); }
       .badge-clean { background: rgba(76, 175, 80, 0.15); color: var(--success-color, #4caf50); }
       .sev-warning .desc { color: var(--warning-color, #ff9800); }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
     `, mobileBase];
   }
 }

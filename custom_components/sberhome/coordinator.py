@@ -49,12 +49,13 @@ from .aiosber.transport import HttpTransport
 from .api import SberAPI
 from .command_tracker import CommandTracker
 from .const import (
+    CONF_COMMAND_TIMEOUT,
+    CONF_DEVTOOLS_BUFFER_SIZE,
     CONF_ENABLED_DEVICE_IDS,
     CONF_ENABLED_DEVICE_UIDS,
     CONF_SCAN_INTERVAL,
     CONF_SELECTION_MIRROR,
     CONF_SELECTION_SCHEMA,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
     SELECTION_SCHEMA_VERSION,
@@ -85,6 +86,7 @@ from .sbermap import (
     product_supports_equalizer,
 )
 from .schema_validator import ValidationCollector
+from .settings import read_settings
 from .state_diff import DiffCollector
 from .ttc_surrogate import TtcSurrogateService
 from .tts_surrogate import TtsSurrogateService
@@ -199,6 +201,15 @@ type SberHomeConfigEntry = ConfigEntry[SberHomeCoordinator]
 class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to manage fetching SberHome data."""
 
+    consecutive_failures: int = 0
+    """Обновлений подряд, завершившихся ошибкой; обнуляется успешным обновлением."""
+
+    last_error: dict[str, Any] | None = None
+    """Последняя ошибка обновления: ``{"kind", "message", "at"}``.
+
+    Не сбрасывается после восстановления: «что сломалось час назад» тоже
+    полезно, а свежесть видна по ``at``."""
+
     config_entry: SberHomeConfigEntry
 
     def __init__(
@@ -210,7 +221,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         auth_manager: AuthManagerProtocol,
         staros_settings_api: StarosSettingsAPI | None = None,
     ) -> None:
-        scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        settings = read_settings(entry.options)
+        scan_interval = settings[CONF_SCAN_INTERVAL]
+        buffer_size = settings[CONF_DEVTOOLS_BUFFER_SIZE]
         super().__init__(
             hass,
             LOGGER,
@@ -254,26 +267,28 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Ring buffer WS/command сообщений + panel subscribers — вынесено
         # в WsDevToolsRecorder (SOLID). Алиасы _ws_log/_ws_log_subscribers
         # шарят те же mutable-объекты для websocket_api/log.py.
-        self.ws_devtools = WsDevToolsRecorder(maxlen=100)
+        self.ws_devtools = WsDevToolsRecorder(maxlen=buffer_size)
         self._ws_log = self.ws_devtools.log
         self._ws_log_subscribers = self.ws_devtools.subscribers
         # DevTools #1: per-device state-payload diff collector.  Fed by
         # every WS DEVICE_STATE push and by polling refresh; empty deltas
         # (identical-to-prior) are dropped so the DevTools log shows only
         # real changes.
-        self.diff_collector = DiffCollector(maxlen=200)
+        self.diff_collector = DiffCollector(maxlen=buffer_size)
         # DevTools #5: schema validator — catches API drift by checking
         # every inbound reported_state against AttributeValueType enum
         # + known AttrKey list.  Unknown keys and malformed type/value
         # pairs surface as warnings instead of silently producing None
         # typed accessors.
-        self.validation_collector = ValidationCollector(maxlen=500)
+        self.validation_collector = ValidationCollector(maxlen=buffer_size)
         # DevTools #4: outbound command tracker.  Each PUT /state is
         # recorded; subsequent reported_state observations confirm (or
         # time out, "silent_rejection") the command.  Sber protocol has
         # no correlation id, so this is how we detect when a command
         # was accepted-by-HTTP but not-applied-by-device.
-        self.command_tracker = CommandTracker(maxlen=200, command_timeout=10.0)
+        self.command_tracker = CommandTracker(
+            maxlen=buffer_size, command_timeout=float(settings[CONF_COMMAND_TIMEOUT])
+        )
         # Sber scenarios + at_home variable. Поллятся раз в N tick'ов
         # (см. _SCENARIO_POLL_INTERVAL_SEC ниже) — отдельно от device tree,
         # чтобы не нагружать API: список меняется редко (CRUD руками
@@ -422,6 +437,28 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Perform initial setup on first coordinator refresh."""
         LOGGER.debug("Coordinator initial setup complete")
 
+    def apply_settings(self, options: dict[str, Any]) -> None:
+        """Применить живые настройки без перезагрузки записи.
+
+        Интервал опроса вступает в силу сразу, если WebSocket не подключён
+        (при живом WS действует свой, более редкий интервал); буферы DevTools
+        меняют ёмкость с сохранением новых записей; таймаут команд действует
+        со следующей проверки.
+
+        Args:
+            options: Параметры записи (``entry.options``).
+        """
+        settings = read_settings(options)
+        self._user_update_interval = timedelta(seconds=settings[CONF_SCAN_INTERVAL])
+        self.update_interval = self._desired_update_interval()
+        size = int(settings[CONF_DEVTOOLS_BUFFER_SIZE])
+        self.ws_devtools.resize(size)
+        self._ws_log = self.ws_devtools.log
+        self.diff_collector.resize(size)
+        self.validation_collector.resize(size)
+        self.command_tracker.resize(size)
+        self.command_tracker.set_command_timeout(float(settings[CONF_COMMAND_TIMEOUT]))
+
     def _desired_update_interval(self) -> timedelta:
         """Интервал polling в зависимости от WS connection state.
 
@@ -438,6 +475,38 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return timedelta(seconds=WS_CONNECTED_SCAN_INTERVAL)
         return self._user_update_interval
 
+    on_health_changed: Callable[[], None] | None = None
+    """Хук после каждого обновления (успешного или нет) — обновляет Repairs.
+
+    Задаётся в ``async_setup_entry``; координатор не знает про реестр
+    замечаний, а юнит-тесты, собирающие его через ``__new__``, — про хук."""
+
+    def _notify_health_changed(self) -> None:
+        if self.on_health_changed is None:
+            return
+        try:
+            self.on_health_changed()
+        except Exception:  # pragma: no cover — Repairs не должны ломать обновление
+            LOGGER.exception("Health hook failed")
+
+    def _record_update_error(self, err: Exception) -> None:
+        """Учесть неудачное обновление: счётчики и описание последней ошибки."""
+        self.error_count += 1
+        self.consecutive_failures += 1
+        self.last_error = {"kind": type(err).__name__, "message": str(err)[:500], "at": time.time()}
+        self._notify_health_changed()
+
+    def disabled_background_polls(self) -> list[str]:
+        """Имена фоновых опросов, отключившихся после ошибки до ручного обновления."""
+        polls = (
+            self._scenarios_poll,
+            self._ota_poll,
+            self._discover_poll,
+            self._indicator_poll,
+            self._staros_poll,
+        )
+        return [poll.name for poll in polls if poll.disabled]
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the SberHome API."""
         try:
@@ -450,6 +519,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self.last_polling_at = time.time()
             self.polling_count += 1
+            self.consecutive_failures = 0
             # Параллельно строим типизированные DTO + кэш sbermap-сущностей.
             self._rebuild_entities_from_state_cache()
             # DevTools #1 state-diff: record per-device deltas for this
@@ -488,6 +558,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._maybe_poll_discovery()
             await self._maybe_poll_indicator()
             await self._maybe_poll_staros()
+            self._notify_health_changed()
             # Adaptive polling: когда WS connected, ослабляем polling до
             # 10 мин — WS уже шлёт real-time `reported_state` push'ами.
             # Tree polling нужен только для discovery новых устройств,
@@ -497,17 +568,17 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.update_interval != desired_interval:
                 self.update_interval = desired_interval
         except SberAuthError as err:
-            self.error_count += 1
+            self._record_update_error(err)
             LOGGER.warning("Authentication failed during update: %s", err)
             raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
         except SberApiError as err:
-            self.error_count += 1
+            self._record_update_error(err)
             if err.retry_after:
                 LOGGER.warning("Rate limited, retry after %ds: %s", err.retry_after, err)
                 self.update_interval = timedelta(seconds=err.retry_after)
             raise UpdateFailed(f"API error: {err}") from err
         except (SberConnectionError, SberSmartHomeError) as err:
-            self.error_count += 1
+            self._record_update_error(err)
             LOGGER.warning("API communication error during update: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}") from err
         # core-слой aiosber (запросы идут через него) кидает свою иерархию
@@ -515,11 +586,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # транзиентная DNS-икота (`[Errno -3] Try again`) утекает как
         # «Unexpected error fetching data» ERROR+traceback (issue #35).
         except CoreAuthError as err:
-            self.error_count += 1
+            self._record_update_error(err)
             LOGGER.warning("Authentication failed during update: %s", err)
             raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
         except CoreSberError as err:
-            self.error_count += 1
+            self._record_update_error(err)
             LOGGER.warning("API communication error during update: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
@@ -1204,6 +1275,20 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         } & stored
 
         await self._async_persist_selection(requested | unresolvable, removed_keys=removed_keys)
+
+    async def async_import_selection(self, stored_keys: list[str]) -> None:
+        """Заменить выбор ключами из импортированного файла конфигурации.
+
+        Ключи стабильные (серийные номера), поэтому сопоставление с текущей
+        выдачей не нужно: несопоставленные сохраняются, как и при обычном
+        сохранении выбора. Всё, что было выбрано и в файл не попало, снимается.
+
+        Args:
+            stored_keys: ``enabled_device_uids`` из экспортированного файла.
+        """
+        current = set(self.enabled_device_uids or set())
+        new = set(stored_keys)
+        await self._async_persist_selection(new, removed_keys=current - new)
 
     async def _async_persist_selection(
         self, new_stored: set[str], *, removed_keys: set[str]

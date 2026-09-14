@@ -16,15 +16,12 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
 
-const STATUS_LABEL = {
-  pending: "Pending",
-  confirmed: "Confirmed",
-  partial: "Partial",
-  silent_rejection: "Silent rejection",
-};
+/** Статусы трекера; у каждого есть перевод ``commands.status.*``. */
+const STATUSES = ["pending", "confirmed", "partial", "silent_rejection"];
 
-class SberHomeCommandsView extends LitElement {
+class SberHomeCommandsView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -103,7 +100,7 @@ class SberHomeCommandsView extends LitElement {
 
   _formatTime(ts) {
     const d = new Date(ts * 1000);
-    return d.toLocaleTimeString("ru-RU", { hour12: false });
+    return d.toLocaleTimeString(this.hass?.language, { hour12: false });
   }
 
   _pendingCount(cmd) {
@@ -122,38 +119,35 @@ class SberHomeCommandsView extends LitElement {
     return html`
       <div class="section">
         <div class="header">
-          <h2>Command Confirmation</h2>
+          <h2>${this.t("commands.title")}</h2>
           <div class="toolbar">
             <label class="filter">
               <select .value=${this._statusFilter}
+                aria-label=${this.t("commands.status_label")}
                 @change=${(e) => { this._statusFilter = e.target.value; }}>
-                <option value="all">all</option>
-                <option value="pending">pending</option>
-                <option value="confirmed">confirmed</option>
-                <option value="partial">partial</option>
-                <option value="silent_rejection">silent_rejection</option>
+                <option value="all">${this.t("commands.filter_all")}</option>
+                ${STATUSES.map((st) => html`
+                  <option value=${st}>${this.t(`commands.status.${st}`)}</option>`)}
               </select>
             </label>
             <button class="btn-danger"
               ?disabled=${this._commands.length === 0}
               @click=${this._clear}>
-              Clear
+              ${this.t("commands.clear")}
             </button>
           </div>
         </div>
-        <div class="hint">
-          Sber проходит HTTP 200 и без применения команды.  Этот трекер ждёт подтверждения в reported_state — если не пришло в 10 секунд, помечает <strong>silent_rejection</strong>.
-        </div>
+        <div class="hint">${this.t("commands.silent_rejection_hint")}</div>
         <div class="chips">
-          <span class="chip chip-pending">${counts.pending} pending</span>
-          <span class="chip chip-confirmed">${counts.confirmed} confirmed</span>
-          <span class="chip chip-partial">${counts.partial} partial</span>
-          <span class="chip chip-silent_rejection">${counts.silent_rejection} silent</span>
+          <span class="chip chip-pending">${this.t("commands.chip_pending", { n: counts.pending })}</span>
+          <span class="chip chip-confirmed">${this.t("commands.chip_confirmed", { n: counts.confirmed })}</span>
+          <span class="chip chip-partial">${this.t("commands.chip_partial", { n: counts.partial })}</span>
+          <span class="chip chip-silent_rejection">${this.t("commands.chip_silent_rejection", { n: counts.silent_rejection })}</span>
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         <div class="rows">
           ${rows.length === 0
-            ? html`<div class="empty">No outbound commands yet — send a command from HA.</div>`
+            ? html`<div class="empty">${this.t("commands.empty")}</div>`
             : html`${rows.map((c) => this._renderRow(c))}`}
         </div>
       </div>
@@ -174,11 +168,11 @@ class SberHomeCommandsView extends LitElement {
     return html`
       <div class="cmd cmd-${c.status}">
         <div class="cmd-head">
-          <span class="badge badge-${c.status}">${STATUS_LABEL[c.status] || c.status}</span>
+          <span class="badge badge-${c.status}">${STATUSES.includes(c.status) ? this.t(`commands.status.${c.status}`) : c.status}</span>
           <span class="device" title="${c.device_id}">${c.device_id}</span>
           <span class="keys">${keysSent.join(", ") || "—"}</span>
           ${pending > 0 && c.status === "pending"
-            ? html`<span class="pending-count">${pending} waiting</span>`
+            ? html`<span class="pending-count">${this.t("commands.waiting", { n: pending })}</span>`
             : ""}
           <span class="time">${this._formatTime(c.sent_at)}</span>
         </div>

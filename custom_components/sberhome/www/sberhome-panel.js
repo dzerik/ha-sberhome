@@ -31,6 +31,7 @@ await Promise.all([
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
+import { Localized } from "./i18n/index.js";
 
 // Inline (вместо импорта из switcher) — иначе модуль загрузится дважды:
 // один раз через dynamic import с `?v=` querystring, второй раз через
@@ -38,7 +39,7 @@ import { LitElement, html, css } from "./lit-base.js";
 // модулями → `customElements.define` упадёт с "name already used".
 const HOME_SWITCHER_STORAGE_KEY = "sberhome.selected_home_id";
 
-class SberHomePanel extends LitElement {
+class SberHomePanel extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -177,10 +178,10 @@ class SberHomePanel extends LitElement {
       await this.hass.callWS({ type: "sberhome/force_refresh" });
       await this._fetchAll();
       const toast = this.shadowRoot.querySelector("sberhome-toast");
-      if (toast) toast.show("Обновлено", "success");
+      if (toast) toast.show(this.t("panel.refreshed"), "success");
     } catch (e) {
       const toast = this.shadowRoot.querySelector("sberhome-toast");
-      if (toast) toast.show(`Ошибка: ${e.message || e}`, "error");
+      if (toast) toast.show(this.t("common.error", { error: e.message || e }), "error");
     } finally {
       this._loading = false;
     }
@@ -342,7 +343,8 @@ class SberHomePanel extends LitElement {
   render() {
     // Настройки колонки (эквалайзер/светомузыка/LED/детские режимы) переехали
     // в модалку устройства (таб «🔊 Звук») — отдельного верхнего таба больше нет.
-    const tabs = ["Devices", "Automations", "Monitor", "Debug", "Settings"];
+    const tabs = ["devices", "automations", "monitor", "debug", "settings"]
+      .map((id) => this.t(`tab.${id}`));
     return html`
       <div class="top">
         <div class="header">
@@ -362,10 +364,10 @@ class SberHomePanel extends LitElement {
               class="refresh-btn"
               @click=${this._forceRefresh}
               ?disabled=${this._loading}
-              title="Принудительно обновить state из Sber Gateway"
+              title=${this.t("panel.force_refresh_tooltip")}
             >
               <span aria-hidden="true">${this._loading ? "⟳" : "↻"}</span>
-              <span>Обновить</span>
+              <span>${this.t("action.refresh")}</span>
             </button>
           </div>
         </div>
@@ -385,19 +387,14 @@ class SberHomePanel extends LitElement {
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       ${this._status?.conflict_integrations?.length
         ? html`<div class="warning">
-            Обнаружена параллельная интеграция Sber
-            (${this._status.conflict_integrations.join(", ")}). Одновременная
-            работа двух интеграций с одним аккаунтом Sber может вызывать
-            конфликты обновления состояния и команд. Рекомендуется оставить
-            включённой только одну.
+            ${this.t("panel.warn_parallel_integration", {
+              names: this._status.conflict_integrations.join(", "),
+            })}
           </div>`
         : ""}
       ${this._status?.speaker_present &&
       this._status?.staros_settings_available === false
-        ? html`<div class="warning">
-            Обнаружена колонка Сбер. Вход выполнен по SMS — управление
-            настройками колонки недоступно. Переавторизуйтесь через Сбер ID.
-          </div>`
+        ? html`<div class="warning">${this.t("panel.warn_speaker_sms_login")}</div>`
         : ""}
       <div class="content"
         @toast=${this._onToast}

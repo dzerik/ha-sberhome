@@ -61,6 +61,16 @@ class WsDevToolsRecorder:
                 LOGGER.debug("WS log subscriber failed", exc_info=True)
         return record
 
+    def resize(self, maxlen: int) -> None:
+        """Сменить ёмкость буфера, сохранив самые новые записи.
+
+        Буфер заменяется новым ``deque``: у кого есть ссылка на старый
+        (алиас ``coordinator._ws_log``), тот должен перечитать ``log``.
+        """
+        if maxlen == self.log.maxlen:
+            return
+        self.log = deque(list(self.log)[-maxlen:], maxlen=maxlen)
+
     def subscribe(self, callback_fn: Callable[[dict[str, Any]], None]) -> Callable[[], None]:
         """Подписаться на новые записи. Возвращает unsubscribe."""
         self.subscribers.append(callback_fn)

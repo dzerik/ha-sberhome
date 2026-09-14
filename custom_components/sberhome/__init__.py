@@ -46,7 +46,9 @@ from .intents.reconciler import reconcile_intents
 from .intents.service import IntentService
 from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
 from .listeners import LISTENERS_SCHEMA, load_listeners_from_config
+from .repairs import async_update_repair_issues
 from .selection_migration import async_migrate_selection
+from .settings import only_live_settings_changed
 from .unique_id_repair import async_repair_rotated_unique_ids
 from .websocket_api import async_setup_websocket_api
 
@@ -282,6 +284,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
 
     entry.runtime_data = coordinator
     entry.async_on_unload(coordinator.async_start_command_sweep())
+    coordinator.on_health_changed = lambda: async_update_repair_issues(hass, coordinator)
+    async_update_repair_issues(hass, coordinator)
 
     # Выбор устройств переводится на стабильный ключ здесь, а не в
     # `async_migrate_entry`: там нет ни сети, ни кэша, и сопоставить облачный id
@@ -707,6 +711,11 @@ async def _async_entry_updated(hass: HomeAssistant, entry: SberHomeConfigEntry) 
     if prev == current:
         return  # только data поменялось (токены) — не reloadим
     hass.data[key] = current
+    if prev is not None and only_live_settings_changed(prev, current):
+        # Интервал опроса, буферы DevTools, таймаут команд — без перезагрузки:
+        # перезапуск рвёт WebSocket и заново строит все сущности ради мелочи.
+        entry.runtime_data.apply_settings(current)
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

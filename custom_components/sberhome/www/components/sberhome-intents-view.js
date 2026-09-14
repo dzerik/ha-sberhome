@@ -15,6 +15,9 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 
+/** Сколько миллисекунд «взведённая» кнопка удаления ждёт второго нажатия. */
+const DELETE_CONFIRM_MS = 5000;
+
 class SberHomeIntentsView extends LitElement {
   static get properties() {
     return {
@@ -29,6 +32,7 @@ class SberHomeIntentsView extends LitElement {
       _filter: { type: String },
       _editingIntent: { type: Object },
       _isCreatingNew: { type: Boolean },
+      _pendingDeleteId: { type: String },
     };
   }
 
@@ -68,6 +72,7 @@ class SberHomeIntentsView extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearTimeout(this._pendingDeleteTimer);
     if (this._unsubIntentEvent) {
       this._unsubIntentEvent();
       this._unsubIntentEvent = null;
@@ -140,11 +145,23 @@ class SberHomeIntentsView extends LitElement {
     await this._fetchAll();
   }
 
+  /**
+   * Удаление в два нажатия вместо нативного confirm(): первое нажатие
+   * «взводит» кнопку и объясняет последствия, второе в течение
+   * DELETE_CONFIRM_MS удаляет.
+   */
   async _onDeleteIntent(intent) {
-    if (
-      !confirm(`Удалить intent «${intent.name}»? Sber-сценарий тоже удалится.`)
-    )
+    if (this._pendingDeleteId !== intent.id) {
+      this._pendingDeleteId = intent.id;
+      clearTimeout(this._pendingDeleteTimer);
+      this._pendingDeleteTimer = setTimeout(() => {
+        this._pendingDeleteId = null;
+      }, DELETE_CONFIRM_MS);
+      this._toast(`Нажмите 🗑 ещё раз, чтобы удалить «${intent.name}». Sber-сценарий тоже удалится.`, "info");
       return;
+    }
+    clearTimeout(this._pendingDeleteTimer);
+    this._pendingDeleteId = null;
     try {
       await this.hass.callWS({
         type: "sberhome/intents/delete",
@@ -276,6 +293,7 @@ class SberHomeIntentsView extends LitElement {
       .icon-btn:hover { background: var(--secondary-background-color); }
       .icon-btn.danger { color: var(--error-color); border-color: var(--error-color); }
       .icon-btn.danger:hover { background: var(--error-color); color: #fff; }
+      .icon-btn.danger.armed { background: var(--error-color); color: #fff; }
       .phrases {
         font-style: italic;
         color: var(--secondary-text-color);
@@ -399,12 +417,13 @@ class SberHomeIntentsView extends LitElement {
           ✎
         </button>
         <button
-          class="icon-btn danger"
+          class="icon-btn danger ${this._pendingDeleteId === intent.id ? "armed" : ""}"
           @click=${(e) => {
             e.stopPropagation();
             this._onDeleteIntent(intent);
           }}
-          title="Удалить"
+          title=${this._pendingDeleteId === intent.id ? "Нажмите ещё раз для удаления" : "Удалить"}
+          aria-label=${this._pendingDeleteId === intent.id ? "Нажмите ещё раз для удаления" : "Удалить"}
         >
           🗑
         </button>

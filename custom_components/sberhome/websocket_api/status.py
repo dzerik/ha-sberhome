@@ -11,6 +11,8 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from ..conflict import detect_conflicts
+from ..health import compute_health
+from ..repairs import collect_health_inputs
 from ._common import get_config_entry, get_coordinator
 
 
@@ -109,6 +111,10 @@ def ws_get_status(
                 "smart_home_expires_at": smart_home_expires,
             },
             "error_count": coord.error_count,
+            "consecutive_failures": getattr(coord, "consecutive_failures", 0),
+            "last_error": getattr(coord, "last_error", None),
+            "disabled_polls": coord.disabled_background_polls(),
+            "health": compute_health(collect_health_inputs(hass, coord)),
             # Домены параллельно установленных Sber-интеграций (issue #10).
             # Панель рисует предупреждающий баннер если список непустой.
             "conflict_integrations": detect_conflicts(hass),

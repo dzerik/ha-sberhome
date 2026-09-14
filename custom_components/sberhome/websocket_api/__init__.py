@@ -64,7 +64,13 @@ from .rooms import (
     ws_refresh_scenarios,
     ws_rename_room,
 )
-from .settings import ws_force_refresh, ws_get_settings, ws_update_settings
+from .settings import (
+    ws_export_config,
+    ws_force_refresh,
+    ws_get_settings,
+    ws_import_config,
+    ws_update_settings,
+)
 from .staros import ws_staros_list
 from .state_diffs import (
     ws_clear_state_diffs,
@@ -129,6 +135,8 @@ _COMMANDS = (
     ws_get_settings,
     ws_update_settings,
     ws_force_refresh,
+    ws_export_config,
+    ws_import_config,
     # DevTools #1 — state diffs (v3.10.0)
     ws_state_diffs,
     ws_clear_state_diffs,
@@ -189,6 +197,7 @@ __all__ = [
     "ws_device_detail",
     "ws_diagnose_device",
     "ws_ensure_tts_surrogate",
+    "ws_export_config",
     "ws_force_refresh",
     "ws_get_devices",
     "ws_get_settings",
@@ -209,6 +218,7 @@ __all__ = [
     "ws_subscribe_validation_issues",
     "ws_test_tts_surrogate",
     "ws_toggle_device",
+    "ws_import_config",
     "ws_update_settings",
     "ws_validation_issues",
 ]

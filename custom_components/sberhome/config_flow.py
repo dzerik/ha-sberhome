@@ -44,15 +44,20 @@ from .auth_state import PendingFlow, cleanup_expired, pending_auth_flows
 from .auth_view import SberAuthCallbackView, SberAuthStartView
 from .const import (
     CONF_AUTH_METHOD,
+    CONF_COMMAND_TIMEOUT,
+    CONF_DEVTOOLS_BUFFER_SIZE,
     CONF_ENABLED_DEVICE_IDS,
     CONF_SCAN_INTERVAL,
     CONF_TOKEN,
+    DEFAULT_COMMAND_TIMEOUT,
+    DEFAULT_DEVTOOLS_BUFFER_SIZE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
+from .settings import SETTINGS_LIMITS
 
 _VIEWS_REGISTERED_KEY = f"{DOMAIN}_views_registered"
 
@@ -425,6 +430,16 @@ class SberHomeOptionsFlow(OptionsFlowWithReload):
                             CONF_SCAN_INTERVAL,
                             default=DEFAULT_SCAN_INTERVAL,
                         ): vol.All(int, vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)),
+                        vol.Required(
+                            CONF_DEVTOOLS_BUFFER_SIZE,
+                            default=DEFAULT_DEVTOOLS_BUFFER_SIZE,
+                        ): vol.All(int, vol.Range(**SETTINGS_LIMITS[CONF_DEVTOOLS_BUFFER_SIZE])),
+                        vol.Required(
+                            CONF_COMMAND_TIMEOUT,
+                            default=DEFAULT_COMMAND_TIMEOUT,
+                        ): vol.All(
+                            vol.Coerce(float), vol.Range(**SETTINGS_LIMITS[CONF_COMMAND_TIMEOUT])
+                        ),
                     }
                 ),
                 self.config_entry.options,

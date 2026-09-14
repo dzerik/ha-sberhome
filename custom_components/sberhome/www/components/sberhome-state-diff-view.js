@@ -18,8 +18,9 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
 
-class SberHomeStateDiffView extends LitElement {
+class SberHomeStateDiffView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -97,7 +98,7 @@ class SberHomeStateDiffView extends LitElement {
 
   _formatTime(ts) {
     const d = new Date(ts * 1000);
-    return d.toLocaleTimeString("ru-RU", { hour12: false }) +
+    return d.toLocaleTimeString(this.hass?.language, { hour12: false }) +
       "." + String(d.getMilliseconds()).padStart(3, "0");
   }
 
@@ -150,31 +151,30 @@ class SberHomeStateDiffView extends LitElement {
     return html`
       <div class="section">
         <div class="header">
-          <h2>State Diffs</h2>
+          <h2>${this.t("diffs.title")}</h2>
           <div class="toolbar">
             <label class="filter">
               <select .value=${this._sourceFilter}
+                aria-label=${this.t("diffs.source_label")}
                 @change=${(e) => { this._sourceFilter = e.target.value; }}>
-                <option value="all">all sources</option>
-                <option value="ws_push">ws_push</option>
-                <option value="polling">polling</option>
-                <option value="inject">inject</option>
+                <option value="all">${this.t("diffs.source_all")}</option>
+                <option value="ws_push">${this.t("diffs.source_ws_push")}</option>
+                <option value="polling">${this.t("diffs.source_polling")}</option>
+                <option value="inject">${this.t("diffs.source_inject")}</option>
               </select>
             </label>
             <button class="btn-danger"
               ?disabled=${this._diffs.length === 0}
               @click=${this._clear}>
-              Clear
+              ${this.t("diffs.clear")}
             </button>
           </div>
         </div>
-        <div class="hint">
-          Дельта между двумя последовательными reported_state snapshot'ами для устройства. Идентичные snapshot'ы не записываются.
-        </div>
+        <div class="hint">${this.t("diffs.hint")}</div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         <div class="rows">
           ${sortedGroups.length === 0
-            ? html`<div class="empty">Пока ни одно устройство не меняло state после подписки.</div>`
+            ? html`<div class="empty">${this.t("diffs.empty")}</div>`
             : html`${sortedGroups.map((g) => this._renderGroup(g))}`}
         </div>
       </div>
@@ -194,7 +194,7 @@ class SberHomeStateDiffView extends LitElement {
           <span class="chevron"></span>
           <span class="device" title="${deviceId}">${deviceId}</span>
           <span class="source source-${last.source}">${last.source}</span>
-          <span class="count" title="diffs in buffer">${diffs.length}</span>
+          <span class="count" title=${this.t("diffs.count_title")}>${diffs.length}</span>
           <span class="time">${this._formatTime(last.ts)}</span>
         </summary>
         <div class="group-body">
@@ -213,7 +213,7 @@ class SberHomeStateDiffView extends LitElement {
         <div class="diff-head">
           <span class="source source-${d.source}">${d.source}</span>
           ${d.topic ? html`<span class="topic">${d.topic}</span>` : ""}
-          ${d.is_initial ? html`<span class="initial-badge">initial</span>` : ""}
+          ${d.is_initial ? html`<span class="initial-badge">${this.t("diffs.initial")}</span>` : ""}
           <span class="time">${this._formatTime(d.ts)}</span>
         </div>
         <table class="delta">

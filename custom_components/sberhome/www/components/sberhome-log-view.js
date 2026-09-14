@@ -2,12 +2,14 @@
  * SberHome — Live WS message log (last 100, real-time via subscribe).
  *
  * Каждое сообщение рендерится отдельной карточкой с коротким заголовком
- * (timestamp + topic + device_id) и развёрткой по клику — полный JSON +
- * кнопка "Copy" для копирования в буфер обмена.
+ * (timestamp + topic + device_id) и развёрткой по клику — полный JSON в
+ * sberhome-json-block (со своей кнопкой копирования).
  */
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
+import "./sberhome-json-block.js";
 
 async function copyJson(obj) {
   const text = JSON.stringify(obj, null, 2);
@@ -28,7 +30,7 @@ async function copyJson(obj) {
 /** Badge text per message direction; ``replay`` marks DevTools injections. */
 const DIRECTION_LABEL = { in: "IN", out: "OUT", replay: "REPLAY" };
 
-class SberHomeLogView extends LitElement {
+class SberHomeLogView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -99,17 +101,9 @@ class SberHomeLogView extends LitElement {
     this._expanded = { ...this._expanded, [idx]: !this._expanded[idx] };
   }
 
-  async _copy(msg) {
-    await copyJson(msg);
-    this._toast = "Сообщение скопировано";
-    setTimeout(() => {
-      this._toast = "";
-    }, 2000);
-  }
-
   async _copyAll() {
     await copyJson(this._messages);
-    this._toast = `Скопировано ${this._messages.length} сообщений`;
+    this._toast = this.t("log.copied_all", { n: this._messages.length });
     setTimeout(() => {
       this._toast = "";
     }, 2000);
@@ -161,6 +155,10 @@ class SberHomeLogView extends LitElement {
       .msg-header:hover {
         background: var(--secondary-background-color);
       }
+      .msg-header:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: -2px;
+      }
       .msg-header-text {
         flex: 1;
         overflow: hidden;
@@ -209,25 +207,8 @@ class SberHomeLogView extends LitElement {
         font-size: 12px;
       }
       .msg-body {
-        padding: 0 12px 12px 12px;
+        padding: 8px 12px 12px 12px;
         border-top: 1px solid var(--divider-color);
-      }
-      .msg-actions {
-        display: flex;
-        justify-content: flex-end;
-        padding: 8px 0;
-      }
-      pre {
-        background: var(--code-editor-background-color, #1e1e1e);
-        color: var(--code-editor-text-color, #d4d4d4);
-        padding: 12px;
-        border-radius: 6px;
-        max-height: 400px;
-        overflow: auto;
-        font-size: 11px;
-        font-family: 'Fira Code', monospace;
-        white-space: pre-wrap;
-        margin: 0;
       }
       .empty {
         text-align: center;
@@ -259,21 +240,23 @@ class SberHomeLogView extends LitElement {
     return html`
       <div class="toolbar">
         <div style="display: flex; gap: 8px; align-items: center;">
-          <span>${filtered.length}/${this._messages.length}</span>
+          <span title=${this.t("log.count_title")}>${filtered.length}/${this._messages.length}</span>
           <select
+            aria-label=${this.t("log.direction_label")}
             @change=${(e) => (this._directionFilter = e.target.value)}
             .value=${this._directionFilter}
           >
-            <option value="all">Все направления</option>
-            <option value="in">Только входящие (IN)</option>
-            <option value="out">Только исходящие (OUT)</option>
-            <option value="replay">Только replay / inject</option>
+            <option value="all">${this.t("log.direction_all")}</option>
+            <option value="in">${this.t("log.direction_in")}</option>
+            <option value="out">${this.t("log.direction_out")}</option>
+            <option value="replay">${this.t("log.direction_replay")}</option>
           </select>
           <select
+            aria-label=${this.t("log.topic_label")}
             @change=${(e) => (this._filter = e.target.value)}
             .value=${this._filter}
           >
-            <option value="">Все topics</option>
+            <option value="">${this.t("log.topic_all")}</option>
             ${topics.map((t) => html`<option value=${t}>${t}</option>`)}
           </select>
         </div>
@@ -282,16 +265,16 @@ class SberHomeLogView extends LitElement {
             @click=${this._copyAll}
             ?disabled=${this._messages.length === 0}
           >
-            Copy all
+            ${this.t("log.copy_all")}
           </button>
-          <button @click=${this._clear}>Очистить</button>
+          <button @click=${this._clear}>${this.t("log.clear")}</button>
         </div>
       </div>
       ${filtered.length === 0
         ? html`<div class="empty">
             ${this._messages.length === 0
-              ? "Пока нет WS-сообщений…"
-              : "Нет сообщений по текущему фильтру."}
+              ? this.t("log.empty")
+              : this.t("log.empty_filtered")}
           </div>`
         : filtered.map((m, idx) => {
             // Глобальный index для _expanded — находим по reference в массиве.
@@ -300,7 +283,17 @@ class SberHomeLogView extends LitElement {
             const direction = m.direction || "in";
             return html`
               <div class="msg">
-                <div class="msg-header" @click=${() => this._toggle(globalIdx)}>
+                <div class="msg-header"
+                  role="button"
+                  tabindex="0"
+                  aria-expanded=${isExpanded ? "true" : "false"}
+                  @click=${() => this._toggle(globalIdx)}
+                  @keydown=${(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      this._toggle(globalIdx);
+                    }
+                  }}>
                   <div class="msg-header-text">
                     <span class="ts">${this._formatTs(m.ts)}</span>
                     <span class="badge badge-${direction}">
@@ -309,22 +302,16 @@ class SberHomeLogView extends LitElement {
                     <span class="topic">${m.topic || "?"}</span>
                     <span class="device">${m.device_id || ""}</span>
                   </div>
-                  <span>${isExpanded ? "▾" : "▸"}</span>
+                  <span aria-hidden="true">${isExpanded ? "▾" : "▸"}</span>
                 </div>
                 ${isExpanded
                   ? html`
                       <div class="msg-body">
-                        <div class="msg-actions">
-                          <button
-                            @click=${(e) => {
-                              e.stopPropagation();
-                              this._copy(m);
-                            }}
-                          >
-                            Copy JSON
-                          </button>
-                        </div>
-                        <pre>${JSON.stringify(m, null, 2)}</pre>
+                        <sberhome-json-block
+                          .hass=${this.hass}
+                          .value=${m}
+                          label=${this.t("log.message_json")}
+                        ></sberhome-json-block>
                       </div>
                     `
                   : ""}

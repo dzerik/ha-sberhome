@@ -819,3 +819,55 @@ def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
 # Intent dispatcher тесты полностью переехали в tests/test_voice_intents.py
 # (issue #35 rearchitect v5.10.8: coalesce-flag worker + datetime cursor +
 # safety-net poller + home_id hint + dedup + saturation warning).
+
+
+@pytest.mark.asyncio
+async def test_failed_updates_are_counted_in_a_row_and_remembered(coordinator, mock_client):
+    """Панель показывает, сколько обновлений подряд упало и чем именно."""
+    mock_client.device_service.refresh.side_effect = SberConnectionError("dns: try again")
+    for _ in range(2):
+        with pytest.raises(UpdateFailed):
+            await coordinator._async_update_data()
+
+    assert coordinator.consecutive_failures == 2
+    assert coordinator.last_error["kind"] == "SberConnectionError"
+    assert "dns: try again" in coordinator.last_error["message"]
+    assert coordinator.last_error["at"] > 0
+
+    mock_client.device_service.refresh.side_effect = None
+    await coordinator._async_update_data()
+    assert coordinator.consecutive_failures == 0
+    assert coordinator.last_error["kind"] == "SberConnectionError", (
+        "the last error stays visible after recovery"
+    )
+
+
+def test_disabled_background_polls_are_listed(coordinator):
+    """Опрос, отключившийся после ошибки, раньше нигде не был виден."""
+    for poll in (
+        coordinator._scenarios_poll,
+        coordinator._ota_poll,
+        coordinator._discover_poll,
+        coordinator._indicator_poll,
+        coordinator._staros_poll,
+    ):
+        poll.disabled = False
+    assert coordinator.disabled_background_polls() == []
+    coordinator._scenarios_poll.disabled = True
+    coordinator._indicator_poll.disabled = True
+    assert coordinator.disabled_background_polls() == ["Scenario", "Indicator"]
+
+
+@pytest.mark.asyncio
+async def test_health_hook_runs_after_failed_and_successful_updates(coordinator, mock_client):
+    """Repairs обновляются и при падении, и после восстановления."""
+    calls: list[int] = []
+    coordinator.on_health_changed = lambda: calls.append(coordinator.consecutive_failures)
+
+    mock_client.device_service.refresh.side_effect = SberConnectionError("timeout")
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+    mock_client.device_service.refresh.side_effect = None
+    await coordinator._async_update_data()
+
+    assert calls == [1, 0]

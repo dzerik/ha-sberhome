@@ -56,10 +56,14 @@
       "init": {
         "title": "SberHome sozlamalari",
         "data": {
-          "scan_interval": "So'rov oralig'i (soniya)"
+          "scan_interval": "So'rov oralig'i (soniya)",
+          "devtools_buffer_size": "DevTools buferlari hajmi",
+          "command_timeout": "Buyruq tasdig'ini kutish (soniya)"
         },
         "data_description": {
-          "scan_interval": "Qurilmalar holatini yangilash uchun API so'rov chastotasi (10 dan 300 soniyagacha)"
+          "scan_interval": "WebSocket ulanmagan paytda API qanchalik tez-tez so'raladi (10 dan 3600 soniyagacha). WebSocket ulangan paytda holatlar darhol keladi, API esa har 10 daqiqada so'raladi.",
+          "devtools_buffer_size": "Paneldagi har bir DevTools jurnali nechta yozuv saqlaydi: xabarlar, holat o'zgarishlari, buyruqlar, tekshiruv izohlari (10 dan 5000 gacha).",
+          "command_timeout": "Panel buyruqni tasdiqlanmagan deb belgilashidan oldin qurilma berilgan holatni xabar qilishini qancha kutish kerak (1 dan 120 soniyagacha)."
         }
       }
     }
@@ -100,6 +104,14 @@
     "conflicting_integration": {
       "title": "Boshqa Sber integratsiyasi aniqlandi",
       "description": "Sber qurilmalari uchun ikkita integratsiya o'rnatilgan: SberHome va {domains}. Bitta Sber hisobi bilan ikkita integratsiyaning bir vaqtda ishlashi nizolarni keltirib chiqarishi mumkin — holat yangilanishlarini ushlab qolish, rejimlarni noto'g'ri ko'rsatish, buyruq poygalari. Ulardan faqat bittasini yoqilgan holda qoldirish tavsiya etiladi."
+    },
+    "update_failing": {
+      "title": "SberHome qurilmalarni yangilay olmayapti",
+      "description": "Sber bulutidan oxirgi {count} ta yangilanish xato bilan tugadi. Oxirgi xato: {error}. Qurilmalar oxirgi ma'lum holatini saqlaydi. Home Assistant internetga ulanganini tekshiring; xato avtorizatsiyaga oid bo'lsa, integratsiyani qayta avtorizatsiya qiling."
+    },
+    "background_poll_disabled": {
+      "title": "SberHome ayrim fon yangilanishlarini o'chirdi",
+      "description": "Xatodan keyin quyidagi fon yangilanishlari o'chirildi: {polls}. Qurilmalarni boshqarish ishlaydi, lekin ssenariylar, proshivkalar yoki kolonka ma'lumotlari eskirgan bo'lishi mumkin. Ularni qayta yoqish uchun SberHome panelida «Yangilash» tugmasini bosing yoki integratsiyani qayta yuklang."
     }
   },
   "entity": {

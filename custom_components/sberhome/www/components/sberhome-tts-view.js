@@ -183,6 +183,13 @@ export class SberhomeTtsView extends LitElement {
     }
   }
 
+  /** Сообщить об ошибке тостом панели (нативный alert() блокирует вкладку). */
+  _toastError(message) {
+    this.dispatchEvent(
+      new CustomEvent("toast", { detail: { message, type: "error" }, bubbles: true, composed: true })
+    );
+  }
+
   async _ensureSurrogate(homeId) {
     try {
       const r = await this.hass.callWS({
@@ -191,13 +198,13 @@ export class SberhomeTtsView extends LitElement {
       });
       if (r && r.ok === false) {
         console.error("TTS surrogate ensure rejected", r);
-        alert("Не удалось создать surrogate: " + (r.error || "unknown error"));
+        this._toastError("Не удалось создать surrogate: " + (r.error || "unknown error"));
         return;
       }
       await this._loadStatus();
     } catch (err) {
       console.error("TTS surrogate ensure failed", err);
-      alert("Не удалось создать surrogate: " + (err.message || String(err)));
+      this._toastError("Не удалось создать surrogate: " + (err.message || String(err)));
     }
   }
 

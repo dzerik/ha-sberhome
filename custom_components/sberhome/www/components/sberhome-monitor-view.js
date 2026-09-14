@@ -26,7 +26,7 @@ class SberHomeMonitorView extends LitElement {
 
   render() {
     return html`
-      <sberhome-status-card .status=${this.status}></sberhome-status-card>
+      <sberhome-status-card .hass=${this.hass} .status=${this.status}></sberhome-status-card>
       <sberhome-diagnose-view .hass=${this.hass}></sberhome-diagnose-view>
       <sberhome-state-diff-view .hass=${this.hass}></sberhome-state-diff-view>
       <sberhome-commands-view .hass=${this.hass}></sberhome-commands-view>

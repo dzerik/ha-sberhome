@@ -14,14 +14,13 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
+import "./sberhome-json-block.js";
 
-const VERDICT_LABEL = {
-  ok: "Clean",
-  warning: "Warnings",
-  broken: "Broken",
-};
+/** Вердикты, для которых есть перевод ``diagnose.verdict.*``. */
+const VERDICTS = new Set(["ok", "warning", "broken"]);
 
-class SberHomeDiagnoseView extends LitElement {
+class SberHomeDiagnoseView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -46,7 +45,7 @@ class SberHomeDiagnoseView extends LitElement {
     if (this._loading) return;
     this._error = "";
     if (!this._deviceId.trim()) {
-      this._error = "Enter a device_id to diagnose.";
+      this._error = this.t("diagnose.err_enter_device_id");
       return;
     }
     this._loading = true;
@@ -82,15 +81,14 @@ class SberHomeDiagnoseView extends LitElement {
     return html`
       <div class="section">
         <div class="header">
-          <h2>Why isn't it working?</h2>
+          <h2>${this.t("diagnose.title")}</h2>
         </div>
-        <div class="hint">
-          Runs every diagnostic rule the integration knows against one device — in tree / enabled / HA-mapped / online / fresh / WS / token / errors — and returns a verdict with actionable next steps.
-        </div>
+        <div class="hint">${this.t("diagnose.hint")}</div>
         <div class="form-row">
           <input
             type="text"
-            placeholder="device_id (paste from Devices tab)"
+            placeholder=${this.t("diagnose.device_id_placeholder")}
+            aria-label=${this.t("diagnose.device_id_label")}
             .value=${this._deviceId}
             @input=${(e) => { this._deviceId = e.target.value; }}
             @keydown=${(e) => { if (e.key === "Enter") this._run(); }}
@@ -98,10 +96,10 @@ class SberHomeDiagnoseView extends LitElement {
           <button class="btn-primary"
             ?disabled=${this._loading}
             @click=${this._run}>
-            ${this._loading ? "Running..." : "Diagnose"}
+            ${this._loading ? this.t("diagnose.running") : this.t("diagnose.run")}
           </button>
           ${this._report ? html`
-            <button class="btn-secondary" @click=${this._copyReport}>Copy report</button>
+            <button class="btn-secondary" @click=${this._copyReport}>${this.t("diagnose.copy_report")}</button>
           ` : ""}
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
@@ -114,7 +112,7 @@ class SberHomeDiagnoseView extends LitElement {
     const verdict = r.verdict;
     return html`
       <div class="verdict verdict-${verdict}">
-        <span class="badge badge-${verdict}">${VERDICT_LABEL[verdict] || verdict}</span>
+        <span class="badge badge-${verdict}">${VERDICTS.has(verdict) ? this.t(`diagnose.verdict.${verdict}`) : verdict}</span>
         <span class="device">${r.device_id}</span>
       </div>
       <div class="findings">
@@ -126,14 +124,18 @@ class SberHomeDiagnoseView extends LitElement {
               <span class="finding-code">${f.code}</span>
             </div>
             <div class="finding-detail">${f.detail}</div>
-            ${f.action ? html`<div class="finding-action"><strong>Action:</strong> ${f.action}</div>` : ""}
+            ${f.action ? html`<div class="finding-action"><strong>${this.t("diagnose.action")}</strong> ${f.action}</div>` : ""}
           </div>`)}
       </div>
-      <div class="raw-toggle" @click=${() => { this._rawOpen = !this._rawOpen; }}>
-        <span class="caret ${this._rawOpen ? "open" : ""}">&#9654;</span>
-        Raw summary
-      </div>
-      ${this._rawOpen ? html`<pre class="raw">${JSON.stringify(r.summary, null, 2)}</pre>` : ""}
+      <button class="raw-toggle" aria-expanded=${this._rawOpen ? "true" : "false"}
+        @click=${() => { this._rawOpen = !this._rawOpen; }}>
+        <span class="caret ${this._rawOpen ? "open" : ""}" aria-hidden="true">&#9654;</span>
+        ${this.t("diagnose.raw_summary")}
+      </button>
+      ${this._rawOpen ? html`
+        <sberhome-json-block class="raw" .hass=${this.hass} .value=${r.summary}
+          label=${this.t("diagnose.raw_summary")}></sberhome-json-block>
+      ` : ""}
     `;
   }
 
@@ -248,23 +250,21 @@ class SberHomeDiagnoseView extends LitElement {
         font-size: 0.85em;
       }
       .raw-toggle {
+        display: block;
         margin-top: 14px;
+        padding: 0;
+        border: none;
+        background: none;
+        font: inherit;
         color: var(--secondary-text-color);
         cursor: pointer;
         font-size: 0.85em;
         user-select: none;
       }
+      .raw-toggle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .caret { display: inline-block; transition: transform 0.15s; margin-right: 4px; }
       .caret.open { transform: rotate(90deg); }
-      .raw {
-        background: var(--secondary-background-color);
-        padding: 10px;
-        border-radius: 4px;
-        font-family: monospace;
-        font-size: 0.8em;
-        overflow: auto;
-        max-height: 300px;
-      }
+      .raw { margin-top: 6px; }
     `, mobileBase];
   }
 }

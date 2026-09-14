@@ -55,10 +55,14 @@
       "init": {
         "title": "SberHome Settings",
         "data": {
-          "scan_interval": "Scan interval (seconds)"
+          "scan_interval": "Scan interval (seconds)",
+          "devtools_buffer_size": "DevTools buffer size",
+          "command_timeout": "Command confirmation timeout (seconds)"
         },
         "data_description": {
-          "scan_interval": "How often to poll the API for device state updates (10 to 300 seconds)"
+          "scan_interval": "How often to poll the API while the WebSocket is down (10 to 3600 seconds). While it is connected, device states arrive instantly and the API is polled every 10 minutes.",
+          "devtools_buffer_size": "How many entries each DevTools log in the panel keeps: messages, state changes, commands, validation issues (10 to 5000).",
+          "command_timeout": "How long to wait for a device to report the commanded state before the panel marks the command unconfirmed (1 to 120 seconds)."
         }
       }
     }
@@ -99,6 +103,14 @@
     "conflicting_integration": {
       "title": "Detected another Sber integration",
       "description": "Two integrations for Sber devices are installed: SberHome and {domains}. Running two integrations against the same Sber account at once can cause conflicts — intercepted state updates, incorrect mode display, command races. It is recommended to keep only one of them enabled."
+    },
+    "update_failing": {
+      "title": "SberHome cannot update devices",
+      "description": "The last {count} updates from the Sber cloud failed. Last error: {error}. Devices keep their last known state. Check the internet connection of Home Assistant; if the error mentions authorization, re-authenticate the integration."
+    },
+    "background_poll_disabled": {
+      "title": "SberHome stopped some background updates",
+      "description": "These background updates were turned off after an error: {polls}. Device control still works, but scenarios, firmware or speaker data may be out of date. Press Refresh in the SberHome panel or reload the integration to turn them back on."
     }
   },
   "entity": {

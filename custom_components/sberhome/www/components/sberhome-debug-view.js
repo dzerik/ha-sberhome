@@ -2,36 +2,28 @@
  * SberHome — Debug tab (Diagnostics + Raw command combined).
  *
  * Один селектор устройства сверху, внизу — подвкладки:
- *  - Payload: parsed DTO + raw JSON от Sber (copy buttons)
+ *  - Payload: parsed DTO + raw JSON от Sber (sberhome-json-block)
  *  - Send command: presets + JSON editor + отправка через
  *    sberhome.send_raw_command + показ response
  */
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
+import "./sberhome-json-block.js";
 
 // Форма по возможностям устройства (device_write_schema) — та же, что в
 // редакторе сценариев. Генерирует desired_state из виджетов.
 const _v = new URL(import.meta.url).searchParams.get("v") || "";
 await import(`./sberhome-attr-form.js${_v ? `?v=${_v}` : ""}`);
 
-async function copyJson(obj) {
-  const text = JSON.stringify(obj, null, 2);
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    return true;
-  }
-}
+/** Подвкладки: id → ключ перевода подписи. */
+const SUBTABS = [
+  ["payload", "debug.tab_payload"],
+  ["send", "debug.tab_send"],
+];
 
-class SberHomeDebugView extends LitElement {
+class SberHomeDebugView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -85,12 +77,6 @@ class SberHomeDebugView extends LitElement {
     return parsed;
   }
 
-  async _copy(label, payload) {
-    await copyJson(payload);
-    this._toast = `${label} скопирован`;
-    setTimeout(() => (this._toast = ""), 2000);
-  }
-
   // Форма по возможностям устройства → генерируем desired_state JSON.
   // attr-form отдаёт голый список [{key,type,value}] — ровно формат
   // sberhome.send_raw_command, обёртка не нужна.
@@ -101,18 +87,18 @@ class SberHomeDebugView extends LitElement {
 
   async _send() {
     if (!this._selectedId) {
-      this._error = "Выбери устройство";
+      this._error = this.t("debug.err_select_device");
       return;
     }
     let state;
     try {
       state = JSON.parse(this._payload);
     } catch (err) {
-      this._error = `Невалидный JSON: ${err.message}`;
+      this._error = this.t("debug.err_invalid_json", { msg: err.message });
       return;
     }
     if (!Array.isArray(state)) {
-      this._error = "state должен быть массивом";
+      this._error = this.t("debug.err_state_array");
       return;
     }
     this._sending = true;
@@ -130,8 +116,8 @@ class SberHomeDebugView extends LitElement {
       this._response = resp?.response ?? resp ?? { ok: true };
       this._toast =
         this._response?.ok === false
-          ? `Ошибка: ${this._response.error || "?"}`
-          : "Отправлено";
+          ? this.t("common.error", { error: this._response.error || "?" })
+          : this.t("common.sent");
     } catch (err) {
       this._error = err?.message || String(err);
     } finally {
@@ -187,6 +173,10 @@ class SberHomeDebugView extends LitElement {
         border-color: var(--primary-color);
         opacity: 1;
       }
+      nav .tab:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: -2px;
+      }
       .section { margin-top: 12px; }
       .section-header {
         display: flex;
@@ -224,17 +214,6 @@ class SberHomeDebugView extends LitElement {
         opacity: 0.5;
         cursor: not-allowed;
       }
-      pre {
-        background: var(--code-editor-background-color, #1e1e1e);
-        color: var(--code-editor-text-color, #d4d4d4);
-        padding: 12px;
-        border-radius: 6px;
-        max-height: 500px;
-        overflow: auto;
-        font-size: 12px;
-        white-space: pre-wrap;
-        margin: 0;
-      }
       .hint {
         font-size: 12px;
         color: var(--secondary-text-color);
@@ -269,52 +248,40 @@ class SberHomeDebugView extends LitElement {
 
   _renderPayload() {
     if (!this._detail) {
-      return html`<div class="empty">Выбери устройство выше, чтобы увидеть payload.</div>`;
+      return html`<div class="empty">${this.t("debug.empty_payload")}</div>`;
     }
     const parsed = this._parsedView();
     const raw = this._detail?.raw_payload;
     return html`
       <div class="section">
         <div class="section-header">
-          <h3>Распарсенный DTO</h3>
-          <button @click=${() => this._copy("Parsed", parsed)}>Copy JSON</button>
+          <h3>${this.t("debug.section_parsed_dto")}</h3>
         </div>
-        <div class="hint">
-          Обработанное представление (category, ha_entities, reported_state).
-        </div>
-        <pre>${JSON.stringify(parsed, null, 2)}</pre>
+        <div class="hint">${this.t("debug.parsed_hint")}</div>
+        <sberhome-json-block .hass=${this.hass} .value=${parsed}
+          label=${this.t("debug.section_parsed_dto")}></sberhome-json-block>
       </div>
       <div class="section">
         <div class="section-header">
-          <h3>Raw payload от Sber Gateway</h3>
-          <button @click=${() => this._copy("Raw", raw)} ?disabled=${raw == null}>
-            Copy JSON
-          </button>
+          <h3>${this.t("debug.section_raw_payload")}</h3>
         </div>
-        <div class="hint">
-          Как приходит в ответе /device_groups/tree. Приложи к багрепорту
-          если видишь странное.
-        </div>
-        <pre>${raw != null
-          ? JSON.stringify(raw, null, 2)
-          : "(raw payload недоступен — coordinator ещё не делал polling)"}</pre>
+        <div class="hint">${this.t("debug.raw_hint")}</div>
+        ${raw != null
+          ? html`<sberhome-json-block .hass=${this.hass} .value=${raw}
+              label=${this.t("debug.section_raw_payload")}></sberhome-json-block>`
+          : html`<div class="hint">${this.t("debug.raw_unavailable")}</div>`}
       </div>
     `;
   }
 
   _renderSend() {
     if (!this._selectedId) {
-      return html`<div class="empty">Выбери устройство выше, чтобы отправить команду.</div>`;
+      return html`<div class="empty">${this.t("debug.empty_command")}</div>`;
     }
     return html`
-      <div class="hint">
-        Дебаг-инструмент: отправляем произвольный <code>desired_state</code>
-        в Sber API через <code>sberhome.send_raw_command</code>. Собери командой
-        по возможностям устройства (форма ниже генерирует JSON) или правь JSON
-        вручную.
-      </div>
+      <div class="hint">${this.t("debug.send_hint")}</div>
       <div class="section-header" style="margin-top:4px;">
-        <h3>Форма по возможностям устройства</h3>
+        <h3>${this.t("debug.section_form")}</h3>
       </div>
       <sberhome-attr-form
         .hass=${this.hass}
@@ -325,6 +292,7 @@ class SberHomeDebugView extends LitElement {
       <textarea
         .value=${this._payload}
         @input=${(e) => (this._payload = e.target.value)}
+        aria-label=${this.t("debug.payload_editor_label")}
         spellcheck="false"
       ></textarea>
       <button
@@ -332,19 +300,17 @@ class SberHomeDebugView extends LitElement {
         @click=${this._send}
         ?disabled=${this._sending}
       >
-        ${this._sending ? "Отправка…" : "Отправить"}
+        ${this._sending ? this.t("common.sending") : this.t("common.send")}
       </button>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       ${this._response
         ? html`
             <div class="section">
               <div class="section-header">
-                <h3>Response</h3>
-                <button @click=${() => this._copy("Response", this._response)}>
-                  Copy JSON
-                </button>
+                <h3>${this.t("debug.section_response")}</h3>
               </div>
-              <pre>${JSON.stringify(this._response, null, 2)}</pre>
+              <sberhome-json-block .hass=${this.hass} .value=${this._response}
+                label=${this.t("debug.section_response")}></sberhome-json-block>
             </div>
           `
         : ""}
@@ -357,8 +323,8 @@ class SberHomeDebugView extends LitElement {
     );
     return html`
       <div class="top-selector">
-        <select class="device" @change=${this._onSelect}>
-          <option value="" ?selected=${!this._selectedId}>— выберите устройство —</option>
+        <select class="device" aria-label=${this.t("debug.device_label")} @change=${this._onSelect}>
+          <option value="" ?selected=${!this._selectedId}>${this.t("common.device_select_option")}</option>
           ${sorted.map(
             (d) => html`
               <option value=${d.device_id} ?selected=${d.device_id === this._selectedId}>
@@ -369,19 +335,24 @@ class SberHomeDebugView extends LitElement {
         </select>
       </div>
 
-      <nav>
-        <div
-          class="tab ${this._subtab === "payload" ? "active" : ""}"
-          @click=${() => (this._subtab = "payload")}
-        >
-          Payload
-        </div>
-        <div
-          class="tab ${this._subtab === "send" ? "active" : ""}"
-          @click=${() => (this._subtab = "send")}
-        >
-          Send command
-        </div>
+      <nav role="tablist" aria-label=${this.t("debug.tabs_label")}>
+        ${SUBTABS.map(([id, key]) => html`
+          <div
+            class="tab ${this._subtab === id ? "active" : ""}"
+            role="tab"
+            tabindex="0"
+            aria-selected=${this._subtab === id ? "true" : "false"}
+            @click=${() => (this._subtab = id)}
+            @keydown=${(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                this._subtab = id;
+              }
+            }}
+          >
+            ${this.t(key)}
+          </div>
+        `)}
       </nav>
 
       ${this._subtab === "payload" ? this._renderPayload() : this._renderSend()}

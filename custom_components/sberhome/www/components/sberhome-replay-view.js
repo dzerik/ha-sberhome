@@ -19,6 +19,7 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
+import { Localized } from "../i18n/index.js";
 
 const DEFAULT_PAYLOAD = JSON.stringify(
   {
@@ -33,7 +34,7 @@ const DEFAULT_PAYLOAD = JSON.stringify(
   2,
 );
 
-class SberHomeReplayView extends LitElement {
+class SberHomeReplayView extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -82,7 +83,7 @@ class SberHomeReplayView extends LitElement {
         { type: "sberhome/subscribe_messages" },
       );
     } catch (e) {
-      this._setStatus(`Subscribe failed: ${e.message || e}`, "error");
+      this._setStatus(this.t("replay.subscribe_failed", { error: e.message || e }), "error");
     }
   }
 
@@ -101,12 +102,12 @@ class SberHomeReplayView extends LitElement {
   async _inject() {
     if (this._busy) return;
     this._busy = true;
-    this._setStatus("Injecting...", "info");
+    this._setStatus(this.t("replay.injecting"), "info");
     let payload;
     try {
       payload = JSON.parse(this._payload);
     } catch (e) {
-      this._setStatus(`Invalid JSON: ${e.message || e}`, "error");
+      this._setStatus(this.t("replay.invalid_json", { error: e.message || e }), "error");
       this._busy = false;
       return;
     }
@@ -118,12 +119,12 @@ class SberHomeReplayView extends LitElement {
       });
       this._setStatus(
         result.handled
-          ? `Injected → ${result.topic} (device=${result.device_id || "—"})`
-          : "Unrecognised payload shape — no topic resolved.",
+          ? this.t("replay.injected", { topic: result.topic, device: result.device_id || "—" })
+          : this.t("replay.unrecognised_inject"),
         result.handled ? "success" : "warning",
       );
     } catch (e) {
-      this._setStatus(`Inject failed: ${e.message || e}`, "error");
+      this._setStatus(this.t("replay.inject_failed", { error: e.message || e }), "error");
     } finally {
       this._busy = false;
     }
@@ -132,7 +133,7 @@ class SberHomeReplayView extends LitElement {
   async _replayOne(payload) {
     if (this._busy) return;
     this._busy = true;
-    this._setStatus("Replaying...", "info");
+    this._setStatus(this.t("replay.replaying"), "info");
     try {
       const result = await this.hass.callWS({
         type: "sberhome/replay_ws_message",
@@ -140,12 +141,12 @@ class SberHomeReplayView extends LitElement {
       });
       this._setStatus(
         result.handled
-          ? `Replayed → ${result.topic} (device=${result.device_id || "—"})`
-          : "Unrecognised payload.",
+          ? this.t("replay.replayed", { topic: result.topic, device: result.device_id || "—" })
+          : this.t("replay.unrecognised_replay"),
         result.handled ? "success" : "warning",
       );
     } catch (e) {
-      this._setStatus(`Replay failed: ${e.message || e}`, "error");
+      this._setStatus(this.t("replay.replay_failed", { error: e.message || e }), "error");
     } finally {
       this._busy = false;
     }
@@ -153,7 +154,7 @@ class SberHomeReplayView extends LitElement {
 
   _formatTime(ts) {
     const d = new Date(ts * 1000);
-    return d.toLocaleTimeString("ru-RU", { hour12: false });
+    return d.toLocaleTimeString(this.hass?.language, { hour12: false });
   }
 
   _truncate(s, n = 80) {
@@ -172,44 +173,43 @@ class SberHomeReplayView extends LitElement {
 
     return html`
       <div class="section">
-        <div class="header"><h2>Replay &amp; Inject</h2></div>
-        <div class="hint">
-          Feed a synthetic WS message into the coordinator without touching the broker.  Works offline; state_cache, entities and state-diff all see it.
-        </div>
+        <div class="header"><h2>${this.t("replay.title")}</h2></div>
+        <div class="hint">${this.t("replay.hint")}</div>
         ${this._status ? html`<div class="status status-${this._statusKind}">${this._status}</div>` : ""}
 
         <div class="subsection">
-          <h4>Manual inject</h4>
+          <h4>${this.t("replay.manual_title")}</h4>
         <textarea class="json-editor"
           .value=${this._payload}
           spellcheck="false"
           @input=${(e) => { this._payload = e.target.value; }}
-          placeholder="Paste a SocketMessageDto-shaped JSON..."></textarea>
+          aria-label=${this.t("replay.payload_label")}
+          placeholder=${this.t("replay.payload_placeholder")}></textarea>
         <div class="btn-bar">
           <button class="btn-primary"
             ?disabled=${this._busy || !this._payload.trim()}
             @click=${this._inject}>
-            ${this._busy ? "Working..." : "Inject"}
+            ${this._busy ? this.t("replay.working") : this.t("replay.inject")}
           </button>
           <button class="btn-secondary"
             @click=${() => { this._payload = DEFAULT_PAYLOAD; }}>
-            Reset template
+            ${this.t("replay.reset_template")}
           </button>
         </div>
       </div>
 
       <div class="subsection">
-        <h4>Replay from log</h4>
+        <h4>${this.t("replay.from_log_title")}</h4>
         ${replayable.length === 0
-          ? html`<div class="empty">No inbound WS messages yet.</div>`
+          ? html`<div class="empty">${this.t("replay.empty")}</div>`
           : html`
             <table class="replay-table">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Topic</th>
-                  <th>Device</th>
-                  <th>Payload preview</th>
+                  <th>${this.t("replay.col_time")}</th>
+                  <th>${this.t("replay.col_topic")}</th>
+                  <th>${this.t("replay.col_device")}</th>
+                  <th>${this.t("replay.col_preview")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -226,7 +226,7 @@ class SberHomeReplayView extends LitElement {
                       <button class="btn-secondary small"
                         ?disabled=${this._busy}
                         @click=${() => this._replayOne(m.payload)}>
-                        Replay
+                        ${this.t("replay.replay")}
                       </button>
                     </td>
                   </tr>`)}

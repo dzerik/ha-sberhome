@@ -18,7 +18,7 @@ from custom_components.sberhome.const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
-from custom_components.sberhome.websocket_api.settings import ws_update_settings
+from custom_components.sberhome.settings import SETTINGS_SCHEMA
 
 
 async def _options_schema() -> vol.Schema:
@@ -37,13 +37,14 @@ async def _options_schema() -> vol.Schema:
 
 
 def _ws_schema() -> vol.Schema:
-    return vol.Schema(ws_update_settings._ws_schema, extra=vol.ALLOW_EXTRA)
+    """The schema ``sberhome/update_settings`` validates ``settings`` with."""
+    return SETTINGS_SCHEMA
 
 
 @pytest.mark.parametrize("value", [MIN_SCAN_INTERVAL, 900, MAX_SCAN_INTERVAL])
 async def test_both_forms_accept_the_same_values(value: int) -> None:
     (await _options_schema())({CONF_SCAN_INTERVAL: value})
-    _ws_schema()({"type": "sberhome/update_settings", "id": 1, "scan_interval": value})
+    _ws_schema()({"scan_interval": value})
 
 
 @pytest.mark.parametrize("value", [MIN_SCAN_INTERVAL - 1, MAX_SCAN_INTERVAL + 1])
@@ -51,4 +52,4 @@ async def test_both_forms_reject_the_same_values(value: int) -> None:
     with pytest.raises(vol.Invalid):
         (await _options_schema())({CONF_SCAN_INTERVAL: value})
     with pytest.raises(vol.Invalid):
-        _ws_schema()({"type": "sberhome/update_settings", "id": 1, "scan_interval": value})
+        _ws_schema()({"scan_interval": value})

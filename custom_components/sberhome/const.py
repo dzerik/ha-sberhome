@@ -15,6 +15,12 @@ DEFAULT_SCAN_INTERVAL = 30  # seconds (user-настраиваемый, fallback
 MIN_SCAN_INTERVAL = 10  # seconds — общий диапазон для формы параметров и панели
 MAX_SCAN_INTERVAL = 3600
 
+# Настройки DevTools, применяемые без перезагрузки интеграции.
+CONF_DEVTOOLS_BUFFER_SIZE = "devtools_buffer_size"
+DEFAULT_DEVTOOLS_BUFFER_SIZE = 200  # записей в каждом буфере DevTools
+CONF_COMMAND_TIMEOUT = "command_timeout"
+DEFAULT_COMMAND_TIMEOUT = 10.0  # секунд до «молчаливого отказа» команды
+
 # Когда WS connected, polling ослабляется — state приходит push'ами, tree
 # нужен только для discovery новых устройств / rename / group changes.
 WS_CONNECTED_SCAN_INTERVAL = 600  # seconds (10 минут)
