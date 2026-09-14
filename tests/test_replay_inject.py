@@ -126,6 +126,54 @@ class TestMessageLogMarking:
         assert "replay" not in directions
 
 
+class TestInjectIsOneMessage:
+    """An injected payload is one message in DevTools, marked as synthetic.
+
+    Every topic handler records its own log row, so the extra row the
+    inject path wrote made each injection appear twice — once as
+    ``replay`` and once as a genuine ``in`` message.  The state diff was
+    tagged ``ws_push``, so the panel's "inject" source filter never matched.
+    """
+
+    async def test_one_log_row_marked_replay(self, coordinator):
+        _seed_device(coordinator, 200)
+        await coordinator.async_inject_ws_message(_device_state_payload(200), mark_replay=True)
+        assert [m["direction"] for m in coordinator._ws_log] == ["replay"]
+
+    async def test_unmarked_inject_is_one_ordinary_row(self, coordinator):
+        _seed_device(coordinator, 200)
+        await coordinator.async_inject_ws_message(_device_state_payload(200), mark_replay=False)
+        assert [m["direction"] for m in coordinator._ws_log] == ["in"]
+
+    async def test_marked_inject_diff_has_inject_source(self, coordinator):
+        _seed_device(coordinator, 200)
+        await coordinator.async_inject_ws_message(_device_state_payload(200))
+        await coordinator.async_inject_ws_message(_device_state_payload(225))
+        sources = {d["source"] for d in coordinator.diff_collector.snapshot()}
+        assert sources == {"inject"}
+
+    async def test_unmarked_inject_diff_looks_like_ws_push(self, coordinator):
+        _seed_device(coordinator, 200)
+        await coordinator.async_inject_ws_message(_device_state_payload(200), mark_replay=False)
+        await coordinator.async_inject_ws_message(_device_state_payload(225), mark_replay=False)
+        sources = {d["source"] for d in coordinator.diff_collector.snapshot()}
+        assert sources == {"ws_push"}
+
+    async def test_real_push_after_inject_is_not_marked(self, coordinator):
+        from custom_components.sberhome.aiosber import SocketMessageDto
+
+        _seed_device(coordinator, 200)
+        await coordinator.async_inject_ws_message(_device_state_payload(200))
+        await coordinator._on_ws_device_state(
+            SocketMessageDto.from_dict(_device_state_payload(230))
+        )
+        assert [m["direction"] for m in coordinator._ws_log] == ["replay", "in"]
+
+    async def test_unhandled_payload_is_still_logged(self, coordinator):
+        await coordinator.async_inject_ws_message({"unknown_field": 1})
+        assert [m["direction"] for m in coordinator._ws_log] == ["replay"]
+
+
 class TestErrorPaths:
     async def test_empty_payload_returns_handled_false(self, coordinator):
         # A malformed payload (all fields None) must not raise — the user
@@ -195,3 +243,27 @@ class TestWsHandlers:
         # instead of a generic timeout.
         err = conn.send_error.call_args
         assert err[0][1] == "not_loaded"
+
+
+async def test_concurrent_real_push_is_not_marked_replay(coordinator):
+    """A real push handled while an inject is awaiting stays an ordinary row."""
+    import asyncio
+
+    from custom_components.sberhome.aiosber import SocketMessageDto
+
+    _seed_device(coordinator, 200)
+    release = asyncio.Event()
+    real_handler = coordinator._on_ws_device_state
+
+    async def gated_handler(msg):
+        await release.wait()
+        await real_handler(msg)
+
+    coordinator._on_ws_device_state = gated_handler
+    inject = asyncio.create_task(coordinator.async_inject_ws_message(_device_state_payload(210)))
+    await asyncio.sleep(0)
+    await real_handler(SocketMessageDto.from_dict(_device_state_payload(220)))
+    release.set()
+    await inject
+
+    assert [m["direction"] for m in coordinator._ws_log] == ["in", "replay"]

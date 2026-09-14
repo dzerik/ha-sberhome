@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import dataclasses
 import time
 from collections.abc import Callable
@@ -21,10 +22,11 @@ from typing import Any
 import httpx
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -96,6 +98,18 @@ SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
 # transient network glitches gateway'я без раздражающего пользователя
 # задержкой реакции.
 COMMAND_RETRY_DELAY = 1.0
+
+# Как часто закрываются команды, не подтверждённые за command_timeout.
+# Раньше sweep шёл только на тике опроса, а при живом WS опрос раз в 600 с:
+# молчаливый отказ облака показывался «pending» до десяти минут.
+COMMAND_SWEEP_INTERVAL = timedelta(seconds=5)
+
+# Направление строки лога для сообщения, которое сейчас инжектится из DevTools;
+# None — настоящий трафик. ContextVar, а не атрибут: настоящий WS-push,
+# обработанный параллельно в другой задаче, не должен получить метку replay.
+_INJECT_DIRECTION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "sberhome_inject_direction", default=None
+)
 
 # Интервал между poll'ами /scenario/v2/scenario + /scenario/v2/home/variable/at_home.
 # 5 минут — список сценариев меняется редко (CRUD руками пользователя),
@@ -1328,6 +1342,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         direction: str = "in",
     ) -> None:
         """Delegate → WsDevToolsRecorder.record (SOLID-вынос)."""
+        if direction == "in" and (injected := _INJECT_DIRECTION.get()) is not None:
+            # The topic handler logs an injected message itself — tint it.
+            direction = injected
         self.ws_devtools.record(
             topic=topic,
             device_id=device_id,
@@ -1372,16 +1389,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"topic": None, "handled": False, "device_id": None}
         topic = msg.topic
         device_id = msg.target_device_id
-
-        # DevTools message log: tint synthetic rows differently.
-        self._record_ws_message(
-            topic=topic.value if topic else "INJECT",
-            device_id=device_id,
-            payload=payload,
-            direction="replay" if mark_replay else "in",
-        )
+        direction = "replay" if mark_replay else "in"
 
         if topic is None:
+            # No handler will log it — record here so the user sees the attempt.
+            self._record_ws_message(
+                topic="INJECT", device_id=device_id, payload=payload, direction=direction
+            )
             return {"topic": None, "handled": False, "device_id": device_id}
 
         # Dispatch to the same handlers the real WS pipeline uses. Single
@@ -1394,13 +1408,38 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             Topic.SCENARIO_WIDGETS: self._on_ws_scenario_widgets,
         }
         handler = topic_handlers.get(topic, self._on_ws_other_topic)
-        await handler(msg)
+        # The handler logs the message itself; tint that row as synthetic.
+        token = _INJECT_DIRECTION.set(direction)
+        try:
+            await handler(msg)
+        finally:
+            _INJECT_DIRECTION.reset(token)
 
         return {
             "topic": topic.value,
             "handled": True,
             "device_id": device_id,
         }
+
+    @callback
+    def async_start_command_sweep(self) -> CALLBACK_TYPE:
+        """Start closing timed-out DevTools commands on a timer.
+
+        Returns:
+            Callback that stops the timer; pass it to ``entry.async_on_unload``.
+        """
+        return async_track_time_interval(
+            self.hass,
+            self._sweep_commands,
+            COMMAND_SWEEP_INTERVAL,
+            name="sberhome command sweep",
+            cancel_on_shutdown=True,
+        )
+
+    @callback
+    def _sweep_commands(self, _now: Any) -> None:
+        """Timer tick: close commands pending beyond the tracker timeout."""
+        self.command_tracker.sweep()
 
     def record_command(self, device_id: str, state: list[dict[str, Any]]) -> None:
         """Записать исходящую команду в ring buffer.
@@ -1452,7 +1491,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.diff_collector.update(
                     device_id,
                     reported_dicts,
-                    source="ws_push",
+                    source="inject" if _INJECT_DIRECTION.get() == "replay" else "ws_push",
                     topic="DEVICE_STATE",
                 )
                 # DevTools #4 command tracker: close out any pending

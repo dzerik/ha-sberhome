@@ -50,6 +50,8 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
 )
 
 _VIEWS_REGISTERED_KEY = f"{DOMAIN}_views_registered"
@@ -196,7 +198,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._csafront_pkce = PkceParams.generate()
         self._csafront_phone = phone
         self._csafront_ouid = await send_otp(self._csafront_http, phone, self._csafront_pkce)
-        LOGGER.debug("CSAFront SMS sent for phone=%s", phone)
+        LOGGER.debug("CSAFront SMS sent for phone=***%s", phone[-4:])
 
     async def _csafront_verify_and_exchange(self, otp: str) -> CsafrontTokens:
         """Verify OTP → exchange authcode → fetch SmartHomeToken → CsafrontTokens."""
@@ -249,7 +251,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         self._abort_if_unique_id_configured()
 
-        LOGGER.info("CSAFront authorization successful, creating entry phone=%s", phone)
+        LOGGER.info("CSAFront authorization successful, creating entry phone=***%s", phone[-4:])
         return self.async_create_entry(
             title=f"SberHome (SMS · {phone})",
             data={
@@ -422,7 +424,7 @@ class SberHomeOptionsFlow(OptionsFlowWithReload):
                         vol.Required(
                             CONF_SCAN_INTERVAL,
                             default=DEFAULT_SCAN_INTERVAL,
-                        ): vol.All(int, vol.Range(min=10, max=300)),
+                        ): vol.All(int, vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)),
                     }
                 ),
                 self.config_entry.options,

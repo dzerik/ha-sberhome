@@ -281,6 +281,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         raise ConfigEntryNotReady(str(err)) from err
 
     entry.runtime_data = coordinator
+    entry.async_on_unload(coordinator.async_start_command_sweep())
 
     # Выбор устройств переводится на стабильный ключ здесь, а не в
     # `async_migrate_entry`: там нет ни сети, ни кэша, и сопоставить облачный id
@@ -848,6 +849,6 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
                 "module_url": f"{_PANEL_STATIC_PATH}/sberhome-panel.js?v={version}",
             }
         },
-        require_admin=False,
+        require_admin=True,
     )
     hass.data[marker] = True

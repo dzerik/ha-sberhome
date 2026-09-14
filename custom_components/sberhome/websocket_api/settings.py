@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from ..const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+from ..const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, MAX_SCAN_INTERVAL, MIN_SCAN_INTERVAL
 from ._common import get_config_entry, get_coordinator
 
 
@@ -36,7 +36,9 @@ def ws_get_settings(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "sberhome/update_settings",
-        vol.Optional("scan_interval"): vol.All(int, vol.Range(min=10, max=3600)),
+        vol.Optional("scan_interval"): vol.All(
+            int, vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)
+        ),
     }
 )
 @websocket_api.async_response

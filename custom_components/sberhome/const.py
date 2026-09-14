@@ -12,6 +12,8 @@ SPEAKER_MERGE_DOMAIN = "sber_speaker"
 LOGGER = logging.getLogger(__package__)
 
 DEFAULT_SCAN_INTERVAL = 30  # seconds (user-настраиваемый, fallback когда WS offline)
+MIN_SCAN_INTERVAL = 10  # seconds — общий диапазон для формы параметров и панели
+MAX_SCAN_INTERVAL = 3600
 
 # Когда WS connected, polling ослабляется — state приходит push'ами, tree
 # нужен только для discovery новых устройств / rename / group changes.

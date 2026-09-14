@@ -25,6 +25,9 @@ async function copyJson(obj) {
   }
 }
 
+/** Badge text per message direction; ``replay`` marks DevTools injections. */
+const DIRECTION_LABEL = { in: "IN", out: "OUT", replay: "REPLAY" };
+
 class SberHomeLogView extends LitElement {
   static get properties() {
     return {
@@ -44,7 +47,7 @@ class SberHomeLogView extends LitElement {
     this._expanded = {}; // index → bool
     this._toast = "";
     this._filter = ""; // topic filter (DEVICE_STATE / COMMAND / …)
-    this._directionFilter = "all"; // all / in / out
+    this._directionFilter = "all"; // all / in / out / replay
   }
 
   _filtered() {
@@ -193,6 +196,10 @@ class SberHomeLogView extends LitElement {
         background: rgba(255, 152, 0, 0.2);
         color: #ff9800;
       }
+      .badge-replay {
+        background: rgba(156, 39, 176, 0.2);
+        color: #ab47bc;
+      }
       select, input[type="text"] {
         padding: 4px 8px;
         border-radius: 4px;
@@ -260,6 +267,7 @@ class SberHomeLogView extends LitElement {
             <option value="all">Все направления</option>
             <option value="in">Только входящие (IN)</option>
             <option value="out">Только исходящие (OUT)</option>
+            <option value="replay">Только replay / inject</option>
           </select>
           <select
             @change=${(e) => (this._filter = e.target.value)}
@@ -296,7 +304,7 @@ class SberHomeLogView extends LitElement {
                   <div class="msg-header-text">
                     <span class="ts">${this._formatTs(m.ts)}</span>
                     <span class="badge badge-${direction}">
-                      ${direction === "in" ? "IN" : "OUT"}
+                      ${DIRECTION_LABEL[direction] || direction.toUpperCase()}
                     </span>
                     <span class="topic">${m.topic || "?"}</span>
                     <span class="device">${m.device_id || ""}</span>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -19,7 +20,22 @@ TO_REDACT = {
     "token",
     "companion_tokens",
     "X-AUTH-jwt",
+    # SMS login (CSAFront) stores its tokens under names of its own.
+    "csafront_access_token",
+    "csafront_refresh_token",
+    "smart_home_token",
+    "client_uuid",
+    "phone",
 }
+"""Keys whose values never leave the host in a diagnostics download."""
+
+_PHONE_RE = re.compile(r"\+?\d[\d\s()-]{8,}\d")
+"""A phone number as it appears in an SMS-login entry title."""
+
+
+def _redact_title(title: str) -> str:
+    """Hide the phone number the SMS login puts into the entry title."""
+    return _PHONE_RE.sub("**REDACTED**", title)
 
 
 async def async_get_config_entry_diagnostics(
@@ -105,7 +121,7 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry": {
-            "title": entry.title,
+            "title": _redact_title(entry.title),
             "version": entry.version,
             "minor_version": entry.minor_version,
             "source": entry.source,
@@ -116,5 +132,5 @@ async def async_get_config_entry_diagnostics(
         "coordinator": coord_stats,
         "devices_count": len(devices_summary),
         "devices": devices_summary,
-        "scenarios": scenarios_dump,
+        "scenarios": async_redact_data(scenarios_dump, TO_REDACT),
     }

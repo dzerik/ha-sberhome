@@ -161,14 +161,22 @@ _COMMANDS = (
 
 @callback
 def async_setup_websocket_api(hass: HomeAssistant) -> None:
-    """Idempotent registration of all SberHome panel WS commands."""
+    """Idempotent registration of all SberHome panel WS commands.
+
+    Every command is wrapped in :func:`websocket_api.require_admin` here,
+    at the single registration point, so a command added to
+    :data:`_COMMANDS` later is admin-only by construction.  The panel is
+    administrative: its commands change the device selection and rooms,
+    push raw messages through the handlers, reveal the temporary Wi-Fi
+    password used for pairing and the whole cloud traffic log.
+    """
     marker = f"{DOMAIN}_ws_registered"
     if hass.data.get(marker):
         return
     hass.data[marker] = True
     for command in _COMMANDS:
-        websocket_api.async_register_command(hass, command)
-    _LOGGER.debug("SberHome WebSocket API registered")
+        websocket_api.async_register_command(hass, websocket_api.require_admin(command))
+    _LOGGER.debug("SberHome WebSocket API registered (admin-only)")
 
 
 __all__ = [
