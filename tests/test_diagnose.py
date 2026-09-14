@@ -35,6 +35,7 @@ def _coord(
     error_count: int = 0,
     companion_expires_at: float | None = None,
     sberid_expires_at: float | None = None,
+    has_sberid_refresh: bool = True,
 ) -> MagicMock:
     coord = MagicMock()
     reported: list[AttributeValueDto] = []
@@ -73,6 +74,7 @@ def _coord(
     auth = MagicMock()
     auth.companion_expires_at = companion_expires_at
     auth.sberid_expires_at = sberid_expires_at
+    auth.has_sberid_refresh = has_sberid_refresh
     coord.auth_manager = auth
     return coord
 
@@ -137,13 +139,20 @@ class TestIntegrationWideRules:
         assert finding.severity == "info"
 
     def test_token_expiring_soon_is_warning(self) -> None:
-        # Expires in 12 hours → warning (threshold is 24h).
+        # Expires in 12 hours and cannot be refreshed → warning (threshold is 24h).
         soon = time.time() + 12 * 3600
-        report = diagnose_device(_coord(companion_expires_at=soon), "dev-1")
+        report = diagnose_device(
+            _coord(companion_expires_at=soon, has_sberid_refresh=False), "dev-1"
+        )
         assert any(
             f.code == "companion_token_expiring" and f.severity == "warning"
             for f in report.findings
         )
+
+    def test_short_lived_token_that_refreshes_itself_is_not_a_warning(self) -> None:
+        """Companion lives about an hour and is renewed from the Sber ID refresh token."""
+        report = diagnose_device(_coord(companion_expires_at=time.time() + 3600), "dev-1")
+        assert not any("token_expiring" in f.code for f in report.findings)
 
     def test_token_far_in_future_no_warning(self) -> None:
         far = time.time() + 30 * 24 * 3600

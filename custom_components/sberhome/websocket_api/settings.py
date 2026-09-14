@@ -156,6 +156,9 @@ async def ws_force_refresh(
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
+    # «Обновить» снимает и отключение фоновых опросов — иначе совет «нажмите
+    # Обновить» в состоянии интеграции ничего бы не делал.
+    coord.reset_background_polls()
     await coord.async_request_refresh()
     # Настройки колонок опрашиваются отдельным (часовым) троттлом — форсируем
     # их тоже, иначе правки из приложения Сбера не подтянутся по «Обновить».

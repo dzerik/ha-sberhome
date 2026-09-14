@@ -114,6 +114,7 @@ def ws_get_status(
             "consecutive_failures": getattr(coord, "consecutive_failures", 0),
             "last_error": getattr(coord, "last_error", None),
             "disabled_polls": coord.disabled_background_polls(),
+            "background_polls": coord.background_poll_states(),
             "health": compute_health(collect_health_inputs(hass, coord)),
             # Домены параллельно установленных Sber-интеграций (issue #10).
             # Панель рисует предупреждающий баннер если список непустой.

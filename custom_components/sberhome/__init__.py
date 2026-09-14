@@ -510,6 +510,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         refreshed = 0
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             coord: SberHomeCoordinator = entry.runtime_data
+            coord.reset_background_polls()
             await coord.async_request_refresh()
             # Форсируем и настройки колонок (/v18) — они на отдельном опросе,
             # обычный refresh их не тянет. Так action «Обновить» подтягивает

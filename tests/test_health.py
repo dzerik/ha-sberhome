@@ -56,8 +56,16 @@ def test_ws_down_while_polling_works_is_degraded() -> None:
     assert _codes(result) == ["ws_disconnected"]
 
 
+def test_token_that_refreshes_itself_is_not_a_problem() -> None:
+    """Companion живёт около часа и сам обновляется — это не повод для тревоги."""
+    result = compute_health(_inputs(token_expiries={"companion": NOW + 3600, "sberid": NOW + 60}))
+    assert result == {"score": "healthy", "issues": []}
+
+
 def test_token_expiring_within_a_day_is_degraded() -> None:
-    result = compute_health(_inputs(token_expiries={"companion": NOW + 3600, "sberid": None}))
+    result = compute_health(
+        _inputs(token_expiries={"companion": NOW + 3600, "sberid": None}, tokens_refreshable=False)
+    )
     assert result["score"] == "degraded"
     assert result["issues"] == [
         {
@@ -69,7 +77,7 @@ def test_token_expiring_within_a_day_is_degraded() -> None:
 
 
 def test_already_expired_token_reads_zero_hours() -> None:
-    result = compute_health(_inputs(token_expiries={"sberid": NOW - 10}))
+    result = compute_health(_inputs(token_expiries={"sberid": NOW - 10}, tokens_refreshable=False))
     assert result["issues"][0]["params"] == {"token": "sberid", "hours": 0}
 
 

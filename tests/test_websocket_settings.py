@@ -145,3 +145,19 @@ async def test_import_config_rejects_invalid_files_without_changes(
     hass.config_entries.async_update_entry.assert_not_called()
     coord.async_import_selection.assert_not_called()
     assert connection.send_error.call_args[0][1] == "invalid_config"
+
+
+@pytest.mark.asyncio
+async def test_force_refresh_restarts_stopped_background_polls(connection: MagicMock) -> None:
+    """Совет «нажмите Обновить» в состоянии интеграции должен действительно работать."""
+    coord = MagicMock()
+    coord.async_request_refresh = AsyncMock()
+    coord.async_refresh_staros = AsyncMock()
+    order: list[str] = []
+    coord.reset_background_polls.side_effect = lambda: order.append("reset")
+    coord.async_request_refresh.side_effect = lambda: order.append("refresh")
+    with patch(f"{MODULE}.get_coordinator", return_value=coord):
+        await ws_settings.ws_force_refresh.__wrapped__(_hass(), connection, {"id": 1})
+    assert order == ["reset", "refresh"], (
+        "polls must be re-enabled before the refresh that runs them"
+    )

@@ -23,6 +23,11 @@ class HealthInputs:
     ws_connected: bool
     consecutive_failures: int
     token_expiries: dict[str, float | None]
+    tokens_refreshable: bool = True
+    """Можно ли обновить токены без пользователя (есть refresh-токен).
+
+    Пока можно, скорое истечение — норма: companion живёт около часа и
+    обновляется сам при следующем запросе."""
     disabled_polls: list[str] = field(default_factory=list)
     unresolved_selection: int = 0
     conflicts: list[str] = field(default_factory=list)
@@ -50,7 +55,7 @@ def compute_health(inputs: HealthInputs) -> dict[str, Any]:
     if not inputs.ws_connected:
         issues.append(_issue("ws_disconnected", "warning"))
     for token, expires_at in inputs.token_expiries.items():
-        if expires_at is None:
+        if expires_at is None or inputs.tokens_refreshable:
             continue
         left = expires_at - inputs.now
         if left < TOKEN_EXPIRY_WARNING_SEC:

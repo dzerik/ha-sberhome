@@ -46,6 +46,9 @@ def collect_health_inputs(
         ws_connected=bool(coord.ws_connected),
         consecutive_failures=int(getattr(coord, "consecutive_failures", 0)),
         token_expiries={name: getattr(auth, f"{name}_expires_at", None) for name in _TOKENS},
+        # SMS-вход (CSAFront) обновляет токены своим refresh-токеном и такого
+        # свойства не имеет; у входа через Сбер ID без refresh-токена — False.
+        tokens_refreshable=getattr(auth, "has_sberid_refresh", True) is not False,
         disabled_polls=list(coord.disabled_background_polls()),
         unresolved_selection=max(len(stored) - len(resolved), 0) if stored is not None else 0,
         conflicts=detect_conflicts(hass),

@@ -25,6 +25,7 @@ def _coord(**overrides) -> MagicMock:
     coord.registry_maintenance_failures = 0
     coord.auth_manager = SimpleNamespace(companion_expires_at=None)
     coord.disabled_background_polls = MagicMock(return_value=[])
+    coord.background_poll_states = MagicMock(return_value=[])
     for key, value in overrides.items():
         setattr(coord, key, value)
     return coord
@@ -71,3 +72,4 @@ async def test_failing_status_reports_the_error(hass: HomeAssistant) -> None:
     assert result["last_error"] == error
     assert result["consecutive_failures"] == 4
     assert result["disabled_polls"] == ["OTA"]
+    assert "background_polls" in result

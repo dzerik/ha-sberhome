@@ -151,10 +151,16 @@ export class SberHomeStatusCard extends Localized(LitElement) {
               ${s.polling?.last_success ? this.t("status.ok") : this.t("status.failing")}
             </span>
           </div>
-          ${s.disabled_polls?.length
+          ${(s.background_polls || []).filter((p) => p.state === "failed").map((p) => html`
+            <div class="row">
+              <span class="label">${this.t("status.poll_failed", { name: p.name })}</span>
+              <span class="value warn">${this.t("status.poll_stopped")}</span>
+            </div>
+            ${p.error ? html`<div class="error-text">${p.error}</div>` : ""}`)}
+          ${(s.background_polls || []).some((p) => p.state === "unsupported")
             ? html`<div class="row">
-                <span class="label">${this.t("status.disabled_polls")}</span>
-                <span class="value warn">${s.disabled_polls.join(", ")}</span>
+                <span class="label">${this.t("status.polls_unsupported")}</span>
+                <span class="value">${s.background_polls.filter((p) => p.state === "unsupported").map((p) => p.name).join(", ")}</span>
               </div>`
             : ""}
         </div>

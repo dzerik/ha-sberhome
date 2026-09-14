@@ -137,6 +137,10 @@ INDICATOR_POLL_INTERVAL_SEC = 3600
 # Категории, которые рассматриваются как «хабы» — для них дёргается
 # /devices/{id}/discovery. Sber-speaker (SberBoom Home) выступает как
 # Zigbee+Matter hub, intercom иногда несёт sub-streams.
+# Ответы, означающие «аккаунту этот эндпоинт недоступен»: опрос отключается
+# молча, это не сбой и не повод беспокоить пользователя.
+UNSUPPORTED_STATUS_CODES = frozenset({403, 404, 405, 501})
+
 HUB_CATEGORIES: frozenset[str] = frozenset({"hub", "sber_speaker", "intercom"})
 
 # Минимальный интервал между перечитками /v18-настроек, форсированными
@@ -159,13 +163,18 @@ class ThrottledPoll:
     if/try/except/finally в coordinator (~80 строк) — см. SOLID-аудит.
     """
 
-    __slots__ = ("disabled", "interval", "last_poll_at", "name")
+    __slots__ = ("disabled", "interval", "last_error", "last_poll_at", "name", "unsupported")
 
     def __init__(self, interval: float, name: str) -> None:
         self.interval = interval
         self.name = name
         self.disabled: bool = False
         self.last_poll_at: float | None = None
+        # Почему отключён: «не поддерживается» (ответ 403/404/405/501 —
+        # аккаунту этот эндпоинт недоступен) — ожидаемо и не требует действий;
+        # любой другой сбой — повод показать пользователю.
+        self.unsupported: bool = False
+        self.last_error: str | None = None
 
     def due(self, now: float) -> bool:
         """True если пора поллить (не disabled и интервал прошёл)."""
@@ -176,6 +185,8 @@ class ThrottledPoll:
     def reset(self) -> None:
         """Manual refresh — снять disable-флаг."""
         self.disabled = False
+        self.unsupported = False
+        self.last_error = None
 
 
 def _optimistic_staros_state(platform: Platform, value: Any) -> Any:
@@ -496,8 +507,35 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_error = {"kind": type(err).__name__, "message": str(err)[:500], "at": time.time()}
         self._notify_health_changed()
 
+    def _background_polls(self) -> tuple[ThrottledPoll, ...]:
+        return (
+            self._scenarios_poll,
+            self._ota_poll,
+            self._discover_poll,
+            self._indicator_poll,
+            self._staros_poll,
+        )
+
+    def background_poll_states(self) -> list[dict[str, Any]]:
+        """Отключённые фоновые опросы с причиной: ``failed`` или ``unsupported``."""
+        return [
+            {
+                "name": poll.name,
+                "state": "unsupported" if poll.unsupported else "failed",
+                "error": poll.last_error,
+            }
+            for poll in self._background_polls()
+            if poll.disabled
+        ]
+
+    def reset_background_polls(self) -> None:
+        """Снять отключение со всех фоновых опросов и выполнить их при следующем обновлении."""
+        for poll in self._background_polls():
+            poll.reset()
+            poll.last_poll_at = None
+
     def disabled_background_polls(self) -> list[str]:
-        """Имена фоновых опросов, отключившихся после ошибки до ручного обновления."""
+        """Имена фоновых опросов, отключившихся после сбоя (не «не поддерживается»)."""
         polls = (
             self._scenarios_poll,
             self._ota_poll,
@@ -505,7 +543,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._indicator_poll,
             self._staros_poll,
         )
-        return [poll.name for poll in polls if poll.disabled]
+        return [poll.name for poll in polls if poll.disabled and not poll.unsupported]
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the SberHome API."""
@@ -723,13 +761,18 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         try:
             await action()
-        except Exception:
+        except Exception as err:
             LOGGER.debug(
                 "%s polling failed — disabling until manual refresh",
                 poll.name,
                 exc_info=True,
             )
             poll.disabled = True
+            poll.unsupported = (
+                isinstance(err, CoreApiError)
+                and getattr(err, "status_code", None) in UNSUPPORTED_STATUS_CODES
+            )
+            poll.last_error = f"{type(err).__name__}: {err}"[:300]
         finally:
             poll.last_poll_at = now
 

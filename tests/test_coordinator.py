@@ -871,3 +871,69 @@ async def test_health_hook_runs_after_failed_and_successful_updates(coordinator,
     await coordinator._async_update_data()
 
     assert calls == [1, 0]
+
+
+@pytest.mark.asyncio
+async def test_unsupported_endpoint_is_not_reported_as_a_failure(coordinator):
+    """405/404/403 — аккаунт не поддерживает опрос; это не сбой и не повод чинить."""
+    from custom_components.sberhome.aiosber.exceptions import ApiError as CoreApiError
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
+    poll = ThrottledPoll(3600, "Discovery")
+
+    async def unsupported():
+        raise CoreApiError(405, "Method Not Allowed")
+
+    await coordinator._throttled_poll(poll, unsupported)
+    assert poll.disabled is True
+    assert poll.unsupported is True
+    assert "405" in poll.last_error
+
+
+@pytest.mark.asyncio
+async def test_real_failure_is_reported_with_its_reason(coordinator):
+    from custom_components.sberhome.coordinator import ThrottledPoll
+
+    poll = ThrottledPoll(3600, "Indicator")
+
+    async def broken():
+        raise ValueError("unexpected payload")
+
+    await coordinator._throttled_poll(poll, broken)
+    assert poll.disabled is True
+    assert poll.unsupported is False
+    assert poll.last_error == "ValueError: unexpected payload"
+
+
+def test_only_failed_polls_count_as_disabled(coordinator):
+    for poll in (
+        coordinator._scenarios_poll,
+        coordinator._ota_poll,
+        coordinator._discover_poll,
+        coordinator._indicator_poll,
+        coordinator._staros_poll,
+    ):
+        poll.disabled = False
+    coordinator._discover_poll.disabled = True
+    coordinator._discover_poll.unsupported = True
+    coordinator._indicator_poll.disabled = True
+    coordinator._indicator_poll.last_error = "ValueError: x"
+
+    assert coordinator.disabled_background_polls() == ["Indicator"]
+    assert coordinator.background_poll_states() == [
+        {"name": "Discovery", "state": "unsupported", "error": None},
+        {"name": "Indicator", "state": "failed", "error": "ValueError: x"},
+    ]
+
+
+def test_reset_background_polls_makes_them_run_again(coordinator):
+    """«Обновить» в панели снимает отключение со всех фоновых опросов."""
+    coordinator._indicator_poll.disabled = True
+    coordinator._indicator_poll.last_error = "ValueError: x"
+    coordinator._indicator_poll.last_poll_at = 123.0
+
+    coordinator.reset_background_polls()
+
+    assert coordinator._indicator_poll.disabled is False
+    assert coordinator._indicator_poll.last_error is None
+    assert coordinator._indicator_poll.due(124.0) is True

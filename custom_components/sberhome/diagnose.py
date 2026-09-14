@@ -148,6 +148,7 @@ def _collect_summary(coord: SberHomeCoordinator, device_id: str) -> dict[str, An
         "error_count": coord.error_count,
         "companion_expires_at": getattr(coord.auth_manager, "companion_expires_at", None),
         "sberid_expires_at": getattr(coord.auth_manager, "sberid_expires_at", None),
+        "tokens_refreshable": getattr(coord.auth_manager, "has_sberid_refresh", True) is not False,
     }
 
 
@@ -280,6 +281,10 @@ def _rule_ws_disconnected(summary: dict[str, Any]) -> Finding | None:
 
 
 def _rule_token_expiring(summary: dict[str, Any]) -> Finding | None:
+    # Short-lived tokens renew themselves from the refresh token; expiry is
+    # only a problem when there is nothing to renew them with.
+    if summary.get("tokens_refreshable", True):
+        return None
     for kind in ("companion", "sberid"):
         exp = summary.get(f"{kind}_expires_at")
         if exp is None:
@@ -292,11 +297,10 @@ def _rule_token_expiring(summary: dict[str, Any]) -> Finding | None:
                 severity="warning",
                 title=f"{kind.capitalize()} token expires in ~{hours}h",
                 detail=(
-                    f"The {kind} token will soon need a refresh.  HA "
-                    "normally handles this automatically, but a failing "
-                    "refresh will take the integration offline."
+                    f"The {kind} token expires soon and there is no refresh "
+                    "token to renew it — the integration will need to sign in again."
                 ),
-                action="Check the Diagnostics tab for recent auth errors.",
+                action="Re-authenticate the integration before the token expires.",
             )
     return None
 
