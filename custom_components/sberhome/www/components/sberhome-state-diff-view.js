@@ -216,7 +216,7 @@ class SberHomeStateDiffView extends Localized(LitElement) {
           ${d.is_initial ? html`<span class="initial-badge">${this.t("diffs.initial")}</span>` : ""}
           <span class="time">${this._formatTime(d.ts)}</span>
         </div>
-        <table class="delta">
+        <div class="table-scroll"><table class="delta">
           <tbody>
             ${changedKeys.map((k) => html`
               <tr class="row-changed">
@@ -243,7 +243,7 @@ class SberHomeStateDiffView extends Localized(LitElement) {
                 <td class="to"></td>
               </tr>`)}
           </tbody>
-        </table>
+        </table></div>
       </div>
     `;
   }
@@ -426,6 +426,8 @@ class SberHomeStateDiffView extends Localized(LitElement) {
         font-family: monospace;
         font-size: 0.75em;
       }
+      /* Длинные значения прокручиваются внутри карточки, а не расширяют страницу. */
+      .table-scroll { overflow-x: auto; }
       .delta {
         width: 100%;
         /* fixed layout — без этого колонки каждой таблицы подстраиваются
@@ -442,6 +444,7 @@ class SberHomeStateDiffView extends Localized(LitElement) {
         vertical-align: top;
         overflow: hidden;
         text-overflow: ellipsis;
+        overflow-wrap: anywhere;
       }
       .op {
         width: 22px;
@@ -467,6 +470,11 @@ class SberHomeStateDiffView extends Localized(LitElement) {
         /* remaining space — auto-computed */
         color: var(--primary-text-color);
         word-break: break-all;
+      }
+      /* На телефоне фиксированные 240 + 160 px не оставляли места значению. */
+      @media (max-width: 768px) {
+        .key { width: 34%; white-space: normal; overflow-wrap: anywhere; }
+        .from { width: 26%; }
       }
       .row-changed .op { color: var(--warning-color, #ff9800); }
       .row-added .op { color: var(--success-color, #4caf50); }

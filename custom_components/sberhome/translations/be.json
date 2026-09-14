@@ -348,5 +348,17 @@
         "name": "Колькасць прылад"
       }
     }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_gateway": "Шлюз Сбера даступны",
+      "state": "Стан",
+      "problems": "Праблемы",
+      "websocket": "WebSocket",
+      "last_poll": "Апошняе апытанне",
+      "failed_updates_in_a_row": "Памылак абнаўлення запар",
+      "devices_total": "Прылад у воблаку",
+      "devices_enabled": "Прылад імпартавана"
+    }
   }
 }

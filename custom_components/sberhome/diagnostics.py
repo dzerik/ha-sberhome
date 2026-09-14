@@ -33,6 +33,45 @@ _PHONE_RE = re.compile(r"\+?\d[\d\s()-]{8,}\d")
 """A phone number as it appears in an SMS-login entry title."""
 
 
+DEVTOOLS_REDACT = TO_REDACT | {"mac_address", "ip_address", "ssid", "bssid", "password"}
+"""Ключи, скрываемые в данных DevTools: адреса в локальной сети вдобавок к токенам."""
+
+DEVTOOLS_MESSAGES = 100
+"""Сколько последних WS-сообщений попадает в файл."""
+
+DEVTOOLS_RECORDS = 50
+"""Сколько последних изменений, команд и замечаний проверки попадает в файл."""
+
+STRING_MAX_CHARS = 2000
+"""Длинные строки обрезаются, чтобы файл оставался пригодным для вложения."""
+
+
+def _truncate_strings(value: Any) -> Any:
+    """Обрезать длинные строки на любой глубине вложенности."""
+    if isinstance(value, str) and len(value) > STRING_MAX_CHARS:
+        return value[:STRING_MAX_CHARS] + "…[truncated]"
+    if isinstance(value, dict):
+        return {k: _truncate_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_truncate_strings(v) for v in value]
+    return value
+
+
+def _devtools_diagnostics(coordinator: Any) -> dict[str, Any]:
+    """Недавние данные DevTools для баг-репорта: журнал, изменения, команды, проверка."""
+    validation = coordinator.validation_collector.snapshot()
+    data = {
+        "message_log": list(coordinator.ws_devtools.log)[-DEVTOOLS_MESSAGES:],
+        "state_diffs": coordinator.diff_collector.snapshot()[-DEVTOOLS_RECORDS:],
+        "commands": coordinator.command_tracker.snapshot()[-DEVTOOLS_RECORDS:],
+        "validation": {
+            "recent": validation.get("recent", [])[-DEVTOOLS_RECORDS:],
+            "by_device": validation.get("by_device", {}),
+        },
+    }
+    return async_redact_data(_truncate_strings(data), DEVTOOLS_REDACT)
+
+
 def _redact_title(title: str) -> str:
     """Hide the phone number the SMS login puts into the entry title."""
     return _PHONE_RE.sub("**REDACTED**", title)
@@ -133,4 +172,5 @@ async def async_get_config_entry_diagnostics(
         "devices_count": len(devices_summary),
         "devices": devices_summary,
         "scenarios": async_redact_data(scenarios_dump, TO_REDACT),
+        "devtools": _devtools_diagnostics(coordinator) if coordinator is not None else {},
     }

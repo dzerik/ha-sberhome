@@ -203,7 +203,7 @@ class SberHomeReplayView extends Localized(LitElement) {
         ${replayable.length === 0
           ? html`<div class="empty">${this.t("replay.empty")}</div>`
           : html`
-            <table class="replay-table">
+            <div class="table-scroll"><table class="replay-table">
               <thead>
                 <tr>
                   <th>${this.t("replay.col_time")}</th>
@@ -231,7 +231,7 @@ class SberHomeReplayView extends Localized(LitElement) {
                     </td>
                   </tr>`)}
               </tbody>
-            </table>
+            </table></div>
           `}
         </div>
       </div>
@@ -298,6 +298,8 @@ class SberHomeReplayView extends Localized(LitElement) {
       .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
       .btn-secondary.small { padding: 2px 8px; font-size: 0.8em; }
       .empty { color: var(--secondary-text-color); font-style: italic; padding: 12px; text-align: center; }
+      /* Длинные payload прокручиваются внутри карточки, а не расширяют страницу. */
+      .table-scroll { overflow-x: auto; }
       .replay-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
       .replay-table th {
         text-align: left;
@@ -306,7 +308,7 @@ class SberHomeReplayView extends Localized(LitElement) {
         color: var(--secondary-text-color);
         font-weight: 500;
       }
-      .replay-table td { padding: 4px 8px; vertical-align: middle; }
+      .replay-table td { padding: 4px 8px; vertical-align: middle; overflow-wrap: anywhere; min-width: 6em; }
       .t { font-family: monospace; color: var(--secondary-text-color); width: 80px; }
       .topic { font-family: monospace; width: 130px; }
       .device { font-family: monospace; width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

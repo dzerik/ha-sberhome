@@ -220,3 +220,27 @@ def test_settings_form_fields_match_the_backend(dicts: dict[str, dict[str, str]]
     for key in fields:
         assert f"settings.field.{key}" in dicts["ru"]
         assert f"settings.hint.{key}" in dicts["ru"]
+
+
+def test_diagnose_suggests_devices() -> None:
+    """Выбор устройства из подсказки вместо вставки device_id вручную."""
+    src = (WWW / "components" / "sberhome-diagnose-view.js").read_text(encoding="utf-8")
+    assert 'list="diagnose-devices"' in src
+    assert '<datalist id="diagnose-devices">' in src
+    assert '"sberhome/get_devices"' in src
+
+
+@pytest.mark.parametrize(
+    ("name", "table"),
+    [
+        ("sberhome-validation-view.js", "issue-table"),
+        ("sberhome-replay-view.js", "replay-table"),
+        ("sberhome-state-diff-view.js", "delta"),
+    ],
+)
+def test_wide_tables_scroll_inside_their_card(name: str, table: str) -> None:
+    """На телефоне таблицы прокручиваются внутри карточки, а не расширяют страницу."""
+    src = (WWW / "components" / name).read_text(encoding="utf-8")
+    tag = f'<table class="{table}">'
+    assert src.count(f'<div class="table-scroll">{tag}') == src.count(tag) > 0
+    assert ".table-scroll { overflow-x: auto; }" in src

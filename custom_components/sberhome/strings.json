@@ -347,5 +347,17 @@
         "name": "Sub-device count"
       }
     }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_gateway": "Sber gateway reachable",
+      "state": "State",
+      "problems": "Problems",
+      "websocket": "WebSocket",
+      "last_poll": "Last poll",
+      "failed_updates_in_a_row": "Failed updates in a row",
+      "devices_total": "Devices in the cloud",
+      "devices_enabled": "Devices imported"
+    }
   }
 }

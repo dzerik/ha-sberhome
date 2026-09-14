@@ -348,5 +348,17 @@
         "name": "Ichki qurilmalar soni"
       }
     }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_gateway": "Sber shlyuzi mavjud",
+      "state": "Holat",
+      "problems": "Muammolar",
+      "websocket": "WebSocket",
+      "last_poll": "Oxirgi so'rov",
+      "failed_updates_in_a_row": "Ketma-ket muvaffaqiyatsiz yangilanishlar",
+      "devices_total": "Bulutdagi qurilmalar",
+      "devices_enabled": "Import qilingan qurilmalar"
+    }
   }
 }

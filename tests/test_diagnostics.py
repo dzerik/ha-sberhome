@@ -139,3 +139,54 @@ async def test_diagnostics_redacts_tokens_inside_scenarios():
 
     assert "hook-secret" not in repr(result)
     assert result["scenarios"]["user_scenarios"][0]["name"] == "Утро"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_carries_recent_devtools_data():
+    """Файл диагностики пригоден для баг-репорта без скриншотов DevTools."""
+    from custom_components.sberhome.command_tracker import CommandTracker
+    from custom_components.sberhome.schema_validator import ValidationCollector
+    from custom_components.sberhome.state_diff import DiffCollector
+    from custom_components.sberhome.ws_devtools import WsDevToolsRecorder
+
+    recorder = WsDevToolsRecorder(maxlen=500)
+    for i in range(150):
+        recorder.record(
+            topic="DEVICE_STATE",
+            device_id="dev-1",
+            payload={
+                "n": i,
+                "mac_address": "aa:bb:cc:dd:ee:ff",
+                "ip_address": "192.168.1.50",
+                "pad": "x" * 3000,
+            },
+        )
+    tracker = CommandTracker()
+    tracker.record_sent("dev-1", [{"key": "on_off", "type": "BOOL", "bool_value": True}])
+
+    coord = MagicMock()
+    coord.devices = {}
+    coord.entities = {}
+    coord.client = None
+    coord.ws_devtools = recorder
+    coord.diff_collector = DiffCollector()
+    coord.command_tracker = tracker
+    coord.validation_collector = ValidationCollector()
+
+    entry = MagicMock()
+    entry.title = "SberHome"
+    entry.data = {}
+    entry.options = {}
+    entry.runtime_data = coord
+
+    result = await async_get_config_entry_diagnostics(None, entry)
+
+    devtools = result["devtools"]
+    assert len(devtools["message_log"]) == 100
+    assert devtools["message_log"][-1]["payload"]["n"] == 149
+    assert devtools["message_log"][-1]["payload"]["pad"].endswith("…[truncated]")
+    assert devtools["commands"][0]["device_id"] == "dev-1"
+    assert "state_diffs" in devtools and "validation" in devtools
+    dumped = repr(result)
+    assert "aa:bb:cc:dd:ee:ff" not in dumped
+    assert "192.168.1.50" not in dumped

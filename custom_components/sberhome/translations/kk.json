@@ -348,5 +348,17 @@
         "name": "Ішкі құрылғылар саны"
       }
     }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_gateway": "Сбер шлюзі қолжетімді",
+      "state": "Күйі",
+      "problems": "Мәселелер",
+      "websocket": "WebSocket",
+      "last_poll": "Соңғы сұрау",
+      "failed_updates_in_a_row": "Қатарынан сәтсіз жаңартулар",
+      "devices_total": "Бұлттағы құрылғылар",
+      "devices_enabled": "Импортталған құрылғылар"
+    }
   }
 }

@@ -158,7 +158,7 @@ class SberHomeValidationView extends Localized(LitElement) {
       return html`<div class="empty">${this.t("validation.empty_by_device")}</div>`;
     }
     return html`
-      <table class="issue-table">
+      <div class="table-scroll"><table class="issue-table">
         <thead>
           <tr>
             <th>${this.t("validation.col_device")}</th>
@@ -189,7 +189,7 @@ class SberHomeValidationView extends Localized(LitElement) {
               </tr>`);
           })}
         </tbody>
-      </table>
+      </table></div>
     `;
   }
 
@@ -199,7 +199,7 @@ class SberHomeValidationView extends Localized(LitElement) {
       return html`<div class="empty">${this.t("validation.empty_timeline")}</div>`;
     }
     return html`
-      <table class="issue-table">
+      <div class="table-scroll"><table class="issue-table">
         <thead>
           <tr>
             <th>${this.t("validation.col_time")}</th>
@@ -221,7 +221,7 @@ class SberHomeValidationView extends Localized(LitElement) {
               <td class="desc">${i.description}</td>
             </tr>`)}
         </tbody>
-      </table>
+      </table></div>
     `;
   }
 
@@ -279,6 +279,8 @@ class SberHomeValidationView extends Localized(LitElement) {
         cursor: pointer;
       }
       .tab.active { color: var(--primary-text-color); border-bottom-color: var(--primary-color, #03a9f4); }
+      /* Длинные ключи и id прокручиваются внутри карточки, а не расширяют страницу. */
+      .table-scroll { overflow-x: auto; }
       .issue-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
       .issue-table th {
         text-align: left;
@@ -287,7 +289,7 @@ class SberHomeValidationView extends Localized(LitElement) {
         color: var(--secondary-text-color);
         font-weight: 500;
       }
-      .issue-table td { padding: 4px 8px; vertical-align: top; }
+      .issue-table td { padding: 4px 8px; vertical-align: top; overflow-wrap: anywhere; min-width: 6em; }
       .t { font-family: monospace; color: var(--secondary-text-color); width: 80px; }
       .device { font-family: monospace; font-weight: 500; color: var(--primary-text-color); }
       .type { font-family: monospace; color: var(--secondary-text-color); }

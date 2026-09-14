@@ -348,5 +348,17 @@
         "name": "Число подустройств"
       }
     }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_gateway": "Шлюз Сбера доступен",
+      "state": "Состояние",
+      "problems": "Проблемы",
+      "websocket": "WebSocket",
+      "last_poll": "Последний опрос",
+      "failed_updates_in_a_row": "Ошибок обновления подряд",
+      "devices_total": "Устройств в облаке",
+      "devices_enabled": "Устройств импортировано"
+    }
   }
 }

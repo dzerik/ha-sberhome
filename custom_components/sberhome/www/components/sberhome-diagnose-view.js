@@ -25,6 +25,7 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
     return {
       hass: { type: Object },
       _deviceId: { type: String },
+      _devices: { state: true },
       _report: { type: Object },
       _loading: { type: Boolean },
       _error: { type: String },
@@ -35,10 +36,25 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
   constructor() {
     super();
     this._deviceId = "";
+    /** ``[{device_id, name}]`` для подсказки в поле; грузится при первом фокусе. */
+    this._devices = null;
     this._report = null;
     this._loading = false;
     this._error = "";
     this._rawOpen = false;
+  }
+
+  async _ensureDevices() {
+    if (this._devices !== null || !this.hass) return;
+    this._devices = [];
+    try {
+      const res = await this.hass.callWS({ type: "sberhome/get_devices" });
+      this._devices = (res.devices || [])
+        .map((d) => ({ device_id: d.device_id, name: d.name }))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    } catch {
+      /* Подсказка необязательна: без неё id по-прежнему можно вставить. */
+    }
   }
 
   async _run() {
@@ -87,12 +103,18 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
         <div class="form-row">
           <input
             type="text"
+            list="diagnose-devices"
+            autocomplete="off"
+            @focus=${this._ensureDevices}
             placeholder=${this.t("diagnose.device_id_placeholder")}
             aria-label=${this.t("diagnose.device_id_label")}
             .value=${this._deviceId}
             @input=${(e) => { this._deviceId = e.target.value; }}
             @keydown=${(e) => { if (e.key === "Enter") this._run(); }}
           />
+          <datalist id="diagnose-devices">
+            ${(this._devices || []).map((d) => html`<option value=${d.device_id}>${d.name}</option>`)}
+          </datalist>
           <button class="btn-primary"
             ?disabled=${this._loading}
             @click=${this._run}>

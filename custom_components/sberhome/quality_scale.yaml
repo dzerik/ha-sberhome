@@ -73,8 +73,9 @@ rules:
   devices: done
   diagnostics:
     status: done
-    comment: diagnostics.py (3.6.1) включает entry (redacted), auth state,
-      coordinator stats, devices summary с entities.
+    comment: diagnostics.py включает entry (redacted, в т.ч. токены SMS-входа),
+      auth state, coordinator stats, devices summary с entities и недавние
+      данные DevTools (журнал, изменения, команды, проверка) с маскировкой.
   discovery:
     status: exempt
     comment: Sber Smart Home — cloud-only, device discovery не применима.
@@ -103,12 +104,13 @@ rules:
       из sbermap — кастомные SVG не нужны.
   reconfiguration-flow: todo
   repair-issues:
-    status: exempt
-    comment: Нет известных issue-workflows.
+    status: done
+    comment: conflicting_integration, update_failing, background_poll_disabled
+      (conflict.py, repairs.py).
   stale-devices:
-    status: todo
-    comment: Coordinator пока не удаляет устройства из device_registry когда
-      они пропадают из Sber API. Планируется после завершения Phase 3.
+    status: done
+    comment: registry_maintenance.prune_stale_devices удаляет устройства после
+      PRUNE_MIN_CONSECUTIVE_MISSES пропусков в выдаче Sber API.
 
   # ---------------------------------------------------------------------------
   # Platinum — самые высокие требования
