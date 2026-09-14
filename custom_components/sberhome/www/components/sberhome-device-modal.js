@@ -9,6 +9,7 @@
  */
 
 import { LitElement, html, css } from "../lit-base.js";
+import "./sberhome-json-block.js";
 
 // Настройки колонки (таб «🔊 Звук») — грузим с тем же cache-buster `?v=`.
 const _v = new URL(import.meta.url).searchParams.get("v") || "";
@@ -277,20 +278,6 @@ class SberHomeDeviceModal extends LitElement {
     if (e.target === e.currentTarget) this._close();
   }
 
-  async _copyRaw() {
-    try {
-      await navigator.clipboard.writeText(
-        JSON.stringify(this._detail?.raw_payload ?? this._detail, null, 2)
-      );
-      this._toast = "JSON скопирован";
-    } catch {
-      this._toast = "Не удалось скопировать";
-    }
-    setTimeout(() => {
-      this._toast = "";
-    }, 2000);
-  }
-
   async _refetchIndividual() {
     if (!this.hass || !this.deviceId) return;
     this._toast = "GET /devices/{id}…";
@@ -538,8 +525,10 @@ class SberHomeDeviceModal extends LitElement {
   }
 
   _renderRaw(raw) {
+    /* Сворачиваемый блок с копированием в начале вместо <pre> и кнопки
+     * «Copy JSON» в подвале окна. */
     return html`
-      <pre>${JSON.stringify(raw, null, 2)}</pre>
+      <sberhome-json-block .hass=${this.hass} .value=${raw} label="Raw JSON"></sberhome-json-block>
     `;
   }
 
@@ -1089,7 +1078,6 @@ class SberHomeDeviceModal extends LitElement {
             >
               Refetch single
             </button>
-            <button @click=${this._copyRaw}>Copy JSON</button>
             <button @click=${this._close}>Закрыть</button>
           </div>
         </div>

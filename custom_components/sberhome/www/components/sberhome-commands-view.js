@@ -17,6 +17,7 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 import { Localized } from "../i18n/index.js";
+import "./sberhome-copy-button.js";
 
 /**
  * Короткое значение атрибута Sber: ``true``, ``500``, ``h=120 s=80 v=100``.
@@ -223,7 +224,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
                 <tr class="key-row ${k in (c.keys_confirmed || {}) ? "confirmed" : "missing"}">
                   <td class="mark">${k in (c.keys_confirmed || {}) ? "✓" : "…"}</td>
                   <td class="k">${k}</td>
-                  <td class="v" title=${JSON.stringify(c.keys_sent[k])}>${formatValue(c.keys_sent[k])}</td>
+                  <td class="v" title=${JSON.stringify(c.keys_sent[k])}><sberhome-copy-button .hass=${this.hass} .value=${c.keys_sent[k]}></sberhome-copy-button>${formatValue(c.keys_sent[k])}</td>
                   <td class="when">${this._confirmedText(c, k)}</td>
                 </tr>`)}
             </tbody>
@@ -338,7 +339,7 @@ class SberHomeCommandsView extends Localized(LitElement) {
       .key-row.confirmed .mark { color: var(--success-color, #4caf50); }
       .key-row.missing .mark { color: var(--secondary-text-color); }
       .k { width: 40%; color: var(--primary-text-color); overflow-wrap: anywhere; }
-      .v { color: var(--secondary-text-color); overflow-wrap: anywhere; min-width: 3em; }
+      .v { color: var(--secondary-text-color); overflow-wrap: anywhere; min-width: 6.5em; }
     `, mobileBase];
   }
 }

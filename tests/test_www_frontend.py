@@ -256,3 +256,43 @@ def test_command_timeline_statuses_are_translated(dicts: dict[str, dict[str, str
         assert f"commands.status.{status}" in dicts["ru"], status
     for via in ("ws_push", "polling"):
         assert f"commands.via.{via}" in dicts["ru"]
+
+
+def _component(name: str) -> str:
+    return (WWW / "components" / name).read_text(encoding="utf-8")
+
+
+def test_json_block_copy_precedes_the_code() -> None:
+    src = _component("sberhome-json-block.js")
+    render = src[src.index("  render() {") :]
+    assert render.index('this.t("json.copy")') < render.index("<pre")
+
+
+@pytest.mark.parametrize(
+    ("name", "shown"),
+    [
+        ("sberhome-replay-view.js", "${this._truncate(m.payload)}"),
+        ("sberhome-commands-view.js", "${formatValue(c.keys_sent[k])}"),
+    ],
+)
+def test_cut_json_has_a_copy_button_in_front(name: str, shown: str) -> None:
+    """Сокращённый JSON копируется целиком кнопкой, стоящей перед ним."""
+    src = _component(name)
+    cut = src.index(shown)
+    button = src.rfind("<sberhome-copy-button", 0, cut)
+    assert button != -1 and src.count("\n", button, cut) <= 1, name
+    assert 'import "./sberhome-copy-button.js";' in src
+
+
+def test_report_copy_opens_the_report() -> None:
+    src = _component("sberhome-diagnose-view.js")
+    report = src[src.index("  _renderReport(r) {") :]
+    assert report.index("diagnose.copy_report") < report.index('class="verdict')
+    assert src.count("diagnose.copy_report") == 1
+
+
+def test_device_raw_json_is_a_block_with_copy_on_top() -> None:
+    src = _component("sberhome-device-modal.js")
+    raw = src[src.index("  _renderRaw(raw) {") :]
+    assert "<sberhome-json-block" in raw.split("\n  }\n")[0]
+    assert "Copy JSON</button>" not in src

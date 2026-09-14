@@ -120,9 +120,6 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
             @click=${this._run}>
             ${this._loading ? this.t("diagnose.running") : this.t("diagnose.run")}
           </button>
-          ${this._report ? html`
-            <button class="btn-secondary" @click=${this._copyReport}>${this.t("diagnose.copy_report")}</button>
-          ` : ""}
         </div>
         ${this._error ? html`<div class="error">${this._error}</div>` : ""}
         ${this._report ? this._renderReport(this._report) : ""}
@@ -133,6 +130,9 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
   _renderReport(r) {
     const verdict = r.verdict;
     return html`
+      <div class="report-actions">
+        <button class="btn-secondary" @click=${this._copyReport}>${this.t("diagnose.copy_report")}</button>
+      </div>
       <div class="verdict verdict-${verdict}">
         <span class="badge badge-${verdict}">${VERDICTS.has(verdict) ? this.t(`diagnose.verdict.${verdict}`) : verdict}</span>
         <span class="device">${r.device_id}</span>
@@ -163,6 +163,7 @@ class SberHomeDiagnoseView extends Localized(LitElement) {
 
   static get styles() {
     return [css`
+      .report-actions { margin: 4px 0 8px; }
       :host { display: block; }
       .section {
         background: var(--card-background-color, #fff);

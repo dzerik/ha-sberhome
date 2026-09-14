@@ -20,6 +20,7 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
 import { Localized } from "../i18n/index.js";
+import "./sberhome-copy-button.js";
 
 const DEFAULT_PAYLOAD = JSON.stringify(
   {
@@ -220,7 +221,7 @@ class SberHomeReplayView extends Localized(LitElement) {
                     <td class="topic">${m.topic}</td>
                     <td class="device">${m.device_id || "—"}</td>
                     <td class="preview" title="${JSON.stringify(m.payload)}">
-                      ${this._truncate(m.payload)}
+                      <sberhome-copy-button .hass=${this.hass} .value=${m.payload}></sberhome-copy-button>${this._truncate(m.payload)}
                     </td>
                     <td>
                       <button class="btn-secondary small"
