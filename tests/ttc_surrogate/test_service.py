@@ -122,3 +122,23 @@ async def test_send_no_device_ids_raises():
     svc = TtcSurrogateService(coord)
     with pytest.raises(HomeAssistantError, match="No speakers"):
         await svc.send("home-1", "hi", [])
+
+
+@pytest.mark.parametrize("status", [403, 404])
+async def test_send_transport_api_error_on_update_triggers_recreate(status):
+    """403/404 от транспорта aiosber (`ApiError`) — сценарий удалён: пересоздать и повторить."""
+    from custom_components.sberhome.aiosber.exceptions import ApiError
+
+    coord = _make_coord_with_home("home-1")
+    coord.ttc_surrogates["home-1"] = "stale-sc-id"
+    coord.state_cache.get_all_devices.return_value = {"spk-1": _speaker()}
+    coord.state_cache.device_home_id = MagicMock(return_value="home-1")
+    coord.client.scenarios.update = AsyncMock(side_effect=[ApiError(status, "gone"), {"ok": True}])
+    coord.client.scenarios.create = AsyncMock(return_value={"id": "new-sc"})
+
+    svc = TtcSurrogateService(coord)
+    await svc.send("home-1", "Который час", ["spk-1"])
+
+    assert coord.client.scenarios.update.await_count == 2
+    assert coord.ttc_surrogates["home-1"] == "new-sc"
+    coord.client.scenarios.run.assert_awaited_once_with("new-sc")

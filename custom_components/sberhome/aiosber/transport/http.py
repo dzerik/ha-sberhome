@@ -6,7 +6,9 @@ gateway. Никакой бизнес-логики, только транспор
 Ответственности:
 - Подписать запрос актуальным companion-токеном (через `AuthManager`).
 - Прокинуть обязательные headers (RqUID, x-trace-id, User-Agent, ...).
-- На 401/403 — вызвать `auth.force_refresh()` и сделать ОДИН retry.
+- На 401 — вызвать `auth.force_refresh()` и сделать ОДИН retry. 403 токен
+  не обновляет: у Sber это «эндпоинт недоступен этому аккаунту», а не
+  истёкший токен — отдаётся как `ApiError(403)`.
 - Замаппить httpx-ошибки и HTTP-статусы в типизированные `aiosber.exceptions`.
 - Закрыть httpx.AsyncClient при `aclose()`.
 
@@ -94,7 +96,9 @@ class HttpTransport:
         """Сделать запрос с подписью companion-токеном.
 
         Retries:
-        - **HTTP 401/403** — force refresh token + повторить запрос.
+        - **HTTP 401** — force refresh token + повторить запрос. Параллельные
+          401 с одним токеном дают один refresh (single-flight в auth).
+        - **HTTP 403** — без refresh и retry: `ApiError(403)`.
         - **In-band code 16** (token expired в body 200 OK, без честного 401) —
           force refresh + повторить. Compat-strategy для случаев, когда
           gateway отдаёт code-16 inline.
@@ -104,7 +108,7 @@ class HttpTransport:
         """
         url = self._url(path)
 
-        resp = await self._send_with_auth_retry(
+        resp, used_token = await self._send_with_auth_retry(
             method, url, json=json, params=params, headers=headers, timeout=timeout
         )
 
@@ -116,13 +120,8 @@ class HttpTransport:
                 method,
                 url,
             )
-            try:
-                await self._auth.force_refresh()
-            except InvalidGrant:
-                raise
-            except AuthError as err:
-                raise AuthError(f"Token refresh failed: {err}") from err
-            resp = await self._send_with_auth_retry(
+            await self._force_refresh(used_token)
+            resp, _ = await self._send_with_auth_retry(
                 method,
                 url,
                 json=json,
@@ -146,11 +145,16 @@ class HttpTransport:
         headers: dict[str, str] | None,
         timeout: float | None,  # noqa: ASYNC109 — httpx per-request timeout, не asyncio
         skip_auth_retry: bool = False,
-    ) -> httpx.Response:
-        """Один send с опциональным 401/403 retry. Вынесено чтобы code-16
+    ) -> tuple[httpx.Response, str]:
+        """Один send с опциональным 401 retry. Вынесено чтобы code-16
         path мог дёрнуть refresh+send без повторного auth-retry-цикла.
+
+        Returns:
+            Ответ и токен, с которым он получен (нужен code-16 path'у, чтобы
+            не обновлять токен, уже заменённый соседним запросом).
         """
-        attempt_headers = await self._build_headers(extra=headers)
+        token = await self._auth.access_token()
+        attempt_headers = self._build_headers(token, extra=headers)
         try:
             resp = await self._http.request(
                 method,
@@ -167,21 +171,19 @@ class HttpTransport:
         except httpx.HTTPError as err:
             raise NetworkError(f"HTTP error {method} {url}: {err}") from err
 
-        if not skip_auth_retry and resp.status_code in (401, 403):
+        # Только 401: 403 у Sber — «эндпоинт недоступен аккаунту», refresh
+        # его не лечит, а лишь гоняет обмен токенов и запись config entry.
+        if not skip_auth_retry and resp.status_code == 401:
             _LOGGER.debug(
                 "%s %s → %s; refreshing token and retrying once",
                 method,
                 url,
                 resp.status_code,
             )
-            try:
-                await self._auth.force_refresh()
-            except InvalidGrant:
-                raise
-            except AuthError as err:
-                raise AuthError(f"Token refresh failed: {err}") from err
+            await self._force_refresh(token)
 
-            retry_headers = await self._build_headers(extra=headers)
+            token = await self._auth.access_token()
+            retry_headers = self._build_headers(token, extra=headers)
             try:
                 resp = await self._http.request(
                     method,
@@ -194,7 +196,21 @@ class HttpTransport:
             except httpx.HTTPError as err:
                 raise NetworkError(f"Retry failed {method} {url}: {err}") from err
 
-        return resp
+        return resp, token
+
+    async def _force_refresh(self, stale_token: str) -> None:
+        """Обновить токен, отвергнутый сервером (single-flight в auth).
+
+        Raises:
+            InvalidGrant: refresh невозможен — нужен reauth.
+            AuthError: прочие ошибки refresh (с префиксом «Token refresh failed»).
+        """
+        try:
+            await self._auth.force_refresh(stale_token)
+        except InvalidGrant:
+            raise
+        except AuthError as err:
+            raise AuthError(f"Token refresh failed: {err}") from err
 
     # ----- Lifecycle -----
     async def aclose(self) -> None:
@@ -215,8 +231,7 @@ class HttpTransport:
             path = "/" + path
         return self._base_url + path
 
-    async def _build_headers(self, *, extra: dict[str, str] | None = None) -> dict[str, str]:
-        token = await self._auth.access_token()
+    def _build_headers(self, token: str, *, extra: dict[str, str] | None = None) -> dict[str, str]:
         # Gateway требует X-AUTH-jwt (без префикса Bearer). Это отличие от
         # стандартного OAuth2 — Sber использует custom-header для companion-токена.
         # Companion settings-канал переопределяет имя на Authorization + "Bearer ".
@@ -237,9 +252,11 @@ class HttpTransport:
 
         payload = _safe_json(resp)
 
-        if resp.status_code == 401 or resp.status_code == 403:
+        if resp.status_code == 401:
             # Сюда попадаем если retry тоже отдал 401 — значит токен реально невалиден
             raise AuthError(f"Unauthorized after refresh: {method} {url}")
+        # 403 (доступ к эндпоинту запрещён) — обычный ApiError ниже: вызывающие
+        # (опросы coordinator'а) считают его «не поддерживается», а не reauth.
 
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After")

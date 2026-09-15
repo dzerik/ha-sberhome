@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers.template import Template
 
+from ..aiosber.exceptions import ApiError as _AiosberApiError
 from ..aiosber.exceptions import AuthError as _AiosberAuthError
 from ..exceptions import SberApiError
 from ..intents.encoder import encode_scenario
@@ -119,7 +120,7 @@ class TtcSurrogateService:
 
             try:
                 await self._coord.client.scenarios.update(scenario_id, body)
-            except (SberApiError, _AiosberAuthError) as err:
+            except (SberApiError, _AiosberApiError, _AiosberAuthError) as err:
                 if not self._is_scenario_gone(err):
                     raise
                 _LOGGER.warning(

@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import httpx
 import pytest
 
 from custom_components.sberhome.aiosber.auth import (
     AuthManager,
     CompanionTokens,
+    CsafrontAuthManager,
+    CsafrontTokens,
+    InMemoryCsafrontTokenStore,
     InMemoryTokenStore,
+    SberIdBearerAuth,
     SberIdTokens,
 )
 from custom_components.sberhome.aiosber.exceptions import (
     ApiError,
     AuthError,
+    InvalidGrant,
     NetworkError,
     RateLimitError,
 )
@@ -179,6 +187,261 @@ async def test_401_after_retry_raises_auth_error():
     async with transport:
         with pytest.raises(AuthError, match="Unauthorized after refresh"):
             await transport.get("/devices/")
+
+
+# ---- Single-flight refresh on concurrent 401 ----
+_PARALLEL = 4
+
+
+class _CountingTokenStore(InMemoryTokenStore):
+    """InMemoryTokenStore, считающий записи (аналог записи в config entry)."""
+
+    def __init__(self, initial: CompanionTokens | None = None) -> None:
+        super().__init__(initial)
+        self.saves = 0
+
+    async def save(self, tokens: CompanionTokens) -> None:
+        self.saves += 1
+        await super().save(tokens)
+
+
+def _expired_sberid() -> SberIdTokens:
+    return SberIdTokens(
+        access_token="SID_OLD",
+        refresh_token="RT1",
+        expires_in=10,
+        obtained_at=time.time() - 1000,
+    )
+
+
+class _Gateway:
+    """Gateway, отвечающий 401 на старый токен только когда ВСЕ запросы его увидели.
+
+    Барьер гарантирует, что N запросов действительно получили 401 с одним и
+    тем же токеном до первого refresh, — иначе гонку не воспроизвести.
+    """
+
+    def __init__(self, *, header: str, bad: str, good: str) -> None:
+        self.header = header
+        self.bad = bad
+        self.good = good
+        self.hits: list[str] = []
+        self._bad_seen = 0
+        self._all_bad = asyncio.Event()
+
+    async def __call__(self, req: httpx.Request) -> httpx.Response:
+        token = req.headers.get(self.header, "")
+        self.hits.append(token)
+        if token.endswith(self.bad):
+            self._bad_seen += 1
+            if self._bad_seen >= _PARALLEL:
+                self._all_bad.set()
+            await self._all_bad.wait()
+            return httpx.Response(401, json={"error": "expired"})
+        assert token.endswith(self.good)
+        return httpx.Response(200, json={"ok": True})
+
+
+async def test_concurrent_401_share_one_refresh_and_one_persist():
+    """N параллельных 401 → один refresh SberID, один обмен, одна запись токенов.
+
+    Раньше каждый запрос под lock'ом заново делал обмен companion-токена и
+    писал токены — шторм из N обменов и N записей config entry.
+    """
+    gateway = _Gateway(header="x-auth-jwt", bad="OLD", good="NEW")
+    calls = {"sberid": 0, "companion": 0}
+
+    async def router(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/oidc/v3/token"):
+            calls["sberid"] += 1
+            # refresh_token одноразовый: повторное использование RT1 — отказ.
+            if b"RT1" not in req.content:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(
+                200,
+                json={"access_token": "SID_NEW", "refresh_token": "RT2", "expires_in": 3600},
+            )
+        if req.url.path.endswith("/smarthome/token"):
+            calls["companion"] += 1
+            return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+        return await gateway(req)
+
+    persisted: list[SberIdTokens] = []
+
+    async def on_sberid_refreshed(tokens: SberIdTokens) -> None:
+        persisted.append(tokens)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = _CountingTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    auth = AuthManager(
+        http=http,
+        store=store,
+        sberid_tokens=_expired_sberid(),
+        on_sberid_refreshed=on_sberid_refreshed,
+    )
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        responses = await asyncio.gather(*(transport.get("/devices/") for _ in range(_PARALLEL)))
+
+    assert [r.status_code for r in responses] == [200] * _PARALLEL
+    assert calls == {"sberid": 1, "companion": 1}
+    assert store.saves == 1
+    assert [t.refresh_token for t in persisted] == ["RT2"]
+    # Каждый запрос: одна попытка со старым токеном + retry с новым.
+    assert sorted(gateway.hits) == ["NEW"] * _PARALLEL + ["OLD"] * _PARALLEL
+
+
+async def test_concurrent_401_refresh_failure_propagates_once():
+    """Refresh упал (refresh_token отозван) → одна попытка, все запросы получают InvalidGrant.
+
+    InvalidGrant — подкласс AuthError: coordinator переводит его в reauth,
+    как и раньше. Ждавшие lock запросы не повторяют заведомо неудачный refresh.
+    """
+    gateway = _Gateway(header="x-auth-jwt", bad="OLD", good="NEW")
+    calls = {"sberid": 0, "companion": 0}
+
+    async def router(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/oidc/v3/token"):
+            calls["sberid"] += 1
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        if req.url.path.endswith("/smarthome/token"):
+            calls["companion"] += 1
+            return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+        return await gateway(req)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = _CountingTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    auth = AuthManager(http=http, store=store, sberid_tokens=_expired_sberid())
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        results = await asyncio.gather(
+            *(transport.get("/devices/") for _ in range(_PARALLEL)), return_exceptions=True
+        )
+
+    assert all(isinstance(r, InvalidGrant) for r in results), results
+    assert calls == {"sberid": 1, "companion": 0}
+    assert store.saves == 0
+    assert gateway.hits == ["OLD"] * _PARALLEL
+
+
+async def test_concurrent_401_sberid_bearer_rotates_refresh_token_once():
+    """Канал настроек (сырой SberID): N параллельных 401 → одна ротация и одна запись."""
+    gateway = _Gateway(header="authorization", bad="SID_OLD", good="SID_NEW")
+    calls = {"sberid": 0}
+
+    async def router(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/oidc/v3/token"):
+            calls["sberid"] += 1
+            return httpx.Response(
+                200,
+                json={"access_token": "SID_NEW", "refresh_token": "RT2", "expires_in": 3600},
+            )
+        return await gateway(req)
+
+    persisted: list[SberIdTokens] = []
+
+    async def on_refreshed(tokens: SberIdTokens) -> None:
+        persisted.append(tokens)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    auth = SberIdBearerAuth(
+        http,
+        SberIdTokens(access_token="SID_OLD", refresh_token="RT1", expires_in=3600),
+        on_refreshed=on_refreshed,
+    )
+    transport = HttpTransport(
+        http=http, auth=auth, auth_header_name="Authorization", auth_header_prefix="Bearer "
+    )
+
+    async with transport:
+        responses = await asyncio.gather(*(transport.get("/x") for _ in range(_PARALLEL)))
+
+    assert [r.status_code for r in responses] == [200] * _PARALLEL
+    assert calls == {"sberid": 1}
+    assert [t.refresh_token for t in persisted] == ["RT2"]
+
+
+async def test_concurrent_401_csafront_rotates_refresh_token_once():
+    """SMS-вход: N параллельных 401 → одна ротация CSAFront-пары и одна запись."""
+    gateway = _Gateway(header="x-auth-jwt", bad="sht-old", good="sht-new")
+    calls = {"refresh": 0, "smart": 0}
+
+    async def router(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/oidc/v3/token"):
+            calls["refresh"] += 1
+            return httpx.Response(
+                200,
+                json={"access_token": "ax-new", "refresh_token": "rx-new", "expires_in": 1800},
+            )
+        if req.url.path.endswith("/smarthome/token"):
+            calls["smart"] += 1
+            return httpx.Response(200, json={"token": "sht-new"})
+        return await gateway(req)
+
+    now = time.time()
+    initial = CsafrontTokens(
+        csafront_access_token="ax-old",
+        csafront_refresh_token="rx-old",
+        smart_home_token="sht-old",
+        client_uuid="cu-1",
+        csafront_expires_in=1800,
+        csafront_obtained_at=now,
+        smart_home_obtained_at=now,
+    )
+    persisted: list[CsafrontTokens] = []
+
+    async def on_refreshed(tokens: CsafrontTokens) -> None:
+        persisted.append(tokens)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    auth = CsafrontAuthManager(
+        http=http,
+        store=InMemoryCsafrontTokenStore(),
+        initial=initial,
+        on_tokens_refreshed=on_refreshed,
+    )
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        responses = await asyncio.gather(*(transport.get("/devices/") for _ in range(_PARALLEL)))
+
+    assert [r.status_code for r in responses] == [200] * _PARALLEL
+    assert calls == {"refresh": 1, "smart": 1}
+    assert [t.csafront_refresh_token for t in persisted] == ["rx-new"]
+
+
+# ---- 403: доступ запрещён, токен не обновляется ----
+async def test_403_does_not_refresh_and_raises_api_error():
+    """403 у Sber — «эндпоинт недоступен аккаунту»: без refresh и retry, ApiError(403).
+
+    Coordinator считает ApiError(403) «не поддерживается» и молча гасит опрос;
+    AuthError отправил бы пользователя на повторный вход.
+    """
+    calls = {"gateway": 0, "auth": 0}
+
+    def router(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith(("/smarthome/token", "/oidc/v3/token")):
+            calls["auth"] += 1
+            return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+        calls["gateway"] += 1
+        return httpx.Response(403, json={"message": "forbidden"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    store = _CountingTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    auth = AuthManager(http=http, store=store, sberid_tokens=sberid)
+    transport = HttpTransport(http=http, auth=auth)
+
+    async with transport:
+        with pytest.raises(ApiError) as exc:
+            await transport.get("/devices/indicator/values")
+
+    assert not isinstance(exc.value, AuthError)
+    assert exc.value.status_code == 403
+    assert calls == {"gateway": 1, "auth": 0}
+    assert store.saves == 0
 
 
 # ---- In-band code 16 retry (token expired в JSON-body 200 OK) ----

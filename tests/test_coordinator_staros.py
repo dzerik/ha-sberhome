@@ -11,7 +11,7 @@ from custom_components.sberhome.aiosber.dto.settings import (
     SettingScreenDto,
     StarosDeviceDto,
 )
-from custom_components.sberhome.aiosber.exceptions import AuthError
+from custom_components.sberhome.aiosber.exceptions import ApiError, AuthError
 from custom_components.sberhome.coordinator import SberHomeCoordinator, ThrottledPoll
 from custom_components.sberhome.sbermap import StarosSettingEntity
 
@@ -261,6 +261,38 @@ async def test_maybe_poll_staros_auth_error_disables_domain():
     # AuthError гасит домен целиком.
     assert coord._staros_api is None
     assert coord.has_staros_settings() is False
+
+
+@pytest.mark.asyncio
+async def test_maybe_poll_staros_forbidden_disables_domain():
+    """403 канала настроек (транспорт больше не превращает его в AuthError) гасит домен."""
+    api = AsyncMock()
+    api.list_devices = AsyncMock(side_effect=ApiError(403, "forbidden"))
+    coord = _coord(api)
+
+    await coord._maybe_poll_staros()
+
+    assert coord._staros_api is None
+
+
+@pytest.mark.asyncio
+async def test_force_refresh_staros_forbidden_disables_domain():
+    api = AsyncMock()
+    api.list_devices = AsyncMock(side_effect=ApiError(403, "forbidden"))
+    coord = _coord(api)
+
+    assert await coord.async_refresh_staros() is False
+    assert coord._staros_api is None
+
+
+@pytest.mark.asyncio
+async def test_force_refresh_staros_other_api_error_kept():
+    api = AsyncMock()
+    api.list_devices = AsyncMock(side_effect=ApiError(500, "boom"))
+    coord = _coord(api)
+
+    assert await coord.async_refresh_staros() is False
+    assert coord._staros_api is api
 
 
 @pytest.mark.asyncio

@@ -285,6 +285,49 @@ async def test_send_auth_error_on_update_triggers_recreate_and_retry():
     coord.client.scenarios.run.assert_awaited_once_with("new-sc")
 
 
+@pytest.mark.parametrize("status", [403, 404])
+async def test_send_transport_api_error_on_update_triggers_recreate(status):
+    """Транспорт aiosber отдаёт 403/404 как `aiosber.ApiError` — это тоже «сценарий удалён».
+
+    403 больше не превращается в AuthError после refresh токена, поэтому
+    сервис должен распознавать сам ApiError, иначе пересоздание не сработает.
+    """
+    from custom_components.sberhome.aiosber.exceptions import ApiError
+
+    coord = _make_coord_with_home("home-1")
+    coord.tts_surrogates["home-1"] = "stale-sc-id"
+    spk = MagicMock()
+    spk.id = "spk-1"
+    spk.image_set_type = "dt_boom"
+    spk.full_categories = None
+    coord.state_cache.get_all_devices.return_value = {"spk-1": spk}
+    coord.state_cache.device_home_id = MagicMock(return_value="home-1")
+
+    coord.client.scenarios.update = AsyncMock(side_effect=[ApiError(status, "gone"), {"ok": True}])
+    coord.client.scenarios.create = AsyncMock(return_value={"id": "new-sc"})
+
+    svc = TtsSurrogateService(coord)
+    await svc.send("home-1", "hello", ["spk-1"])
+
+    assert coord.client.scenarios.update.await_count == 2
+    assert coord.tts_surrogates["home-1"] == "new-sc"
+    coord.client.scenarios.run.assert_awaited_once_with("new-sc")
+
+
+async def test_send_transport_api_error_other_status_propagates():
+    """ApiError с другим статусом (500) — не «сценарий удалён», пробрасывается."""
+    from custom_components.sberhome.aiosber.exceptions import ApiError
+
+    coord = _make_coord_with_home("home-1")
+    coord.tts_surrogates["home-1"] = "cached-sc"
+    coord.client.scenarios.update = AsyncMock(side_effect=ApiError(500, "boom"))
+
+    svc = TtsSurrogateService(coord)
+    with pytest.raises(ApiError):
+        await svc.send("home-1", "hello", ["spk-1"])
+    coord.client.scenarios.create.assert_not_awaited()
+
+
 async def test_send_renders_jinja_template_before_dispatch(hass):
     """Шаблон в message рендерится HA до отправки в Sber.
 

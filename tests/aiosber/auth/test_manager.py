@@ -335,3 +335,90 @@ async def test_on_sberid_refreshed_callback_errors_do_not_break_auth():
         token = await mgr.access_token()
 
     assert token == "COMP"
+
+
+# ---- single-flight force_refresh ----
+async def test_force_refresh_skips_when_token_already_replaced():
+    """force_refresh(stale) после чужого refresh не делает второй обмен."""
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    exchanges = 0
+
+    def companion_handler(req: httpx.Request) -> httpx.Response:
+        nonlocal exchanges
+        exchanges += 1
+        return httpx.Response(200, json={"access_token": f"NEW{exchanges}", "expires_in": 3600})
+
+    client, _ = _client_recording({"/smarthome/token": companion_handler})
+    async with client as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=sberid)
+        await mgr.force_refresh("OLD")
+        await mgr.force_refresh("OLD")  # токен уже NEW1 — пропуск
+        assert exchanges == 1
+        assert (await mgr.access_token()) == "NEW1"
+        # Отказ с актуальным токеном — обновляем снова.
+        await mgr.force_refresh("NEW1")
+        assert exchanges == 2
+        # Без stale_token — безусловно, как раньше.
+        await mgr.force_refresh()
+        assert exchanges == 3
+
+
+async def test_transient_refresh_failure_shared_with_waiters_only():
+    """Ошибка refresh уходит всем, кто ждал lock; следующий вызов пробует снова."""
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    exchanges = 0
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal exchanges
+        exchanges += 1
+        await asyncio.sleep(0.01)  # сетевая задержка: остальные ждут lock
+        return httpx.Response(503, text="unavailable")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=sberid)
+        results = await asyncio.gather(
+            *(mgr.force_refresh("OLD") for _ in range(4)), return_exceptions=True
+        )
+        assert all(isinstance(r, Exception) for r in results), results
+        assert len({type(r) for r in results}) == 1
+        assert exchanges == 1
+
+        # Временный сбой не «залипает»: новый вызов делает новую попытку.
+        with pytest.raises(type(results[0])):
+            await mgr.force_refresh("OLD")
+        assert exchanges == 2
+
+
+async def test_invalid_grant_is_sticky_until_new_credentials():
+    """InvalidGrant не повторяется запросами в Sber до смены учётных данных."""
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    expired = SberIdTokens(
+        access_token="SID", refresh_token="RT", expires_in=10, obtained_at=time.time() - 1000
+    )
+    token_calls = 0
+
+    def token_handler(req: httpx.Request) -> httpx.Response:
+        nonlocal token_calls
+        token_calls += 1
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    def companion_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+
+    client, _ = _client_recording(
+        {"/v3/token": token_handler, "/smarthome/token": companion_handler}
+    )
+    async with client as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=expired)
+        with pytest.raises(InvalidGrant):
+            await mgr.force_refresh("OLD")
+        with pytest.raises(InvalidGrant):
+            await mgr.force_refresh("OLD")
+        assert token_calls == 1
+
+        # Новые SberID-токены (после reauth) снимают блокировку.
+        mgr.set_sberid_tokens(SberIdTokens(access_token="SID2", expires_in=3600))
+        await mgr.force_refresh("OLD")
+        assert (await mgr.access_token()) == "NEW"

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers.template import Template
 
+from ..aiosber.exceptions import ApiError as _AiosberApiError
 from ..aiosber.exceptions import AuthError as _AiosberAuthError
 from ..exceptions import SberApiError
 from ..intents.encoder import encode_scenario
@@ -158,7 +159,7 @@ class TtsSurrogateService:
 
             try:
                 await self._coord.client.scenarios.update(scenario_id, body)
-            except (SberApiError, _AiosberAuthError) as err:
+            except (SberApiError, _AiosberApiError, _AiosberAuthError) as err:
                 if not self._is_scenario_gone(err):
                     raise
                 _LOGGER.warning(
@@ -178,10 +179,11 @@ class TtsSurrogateService:
 
         Sber-specific: для удалённого/чужого scenario_id Sber отдаёт
         - 404 (Not Found) — typical REST behavior
-        - 401/403 после auth refresh-retry (`AuthError "Unauthorized
+        - 401 после auth refresh-retry (`AuthError "Unauthorized
           after refresh"` в transport/http.py) — наблюдалось когда юзер
           вручную удалил surrogate в приложении «Салют!».
-        Оба случая → invalidate cache + recreate.
+        - 403 — транспорт отдаёт его как `ApiError(403)` без refresh.
+        Все случаи → invalidate cache + recreate.
         """
         if isinstance(err, _AiosberAuthError):
             return True

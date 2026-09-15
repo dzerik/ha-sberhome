@@ -202,6 +202,18 @@ def _optimistic_staros_state(platform: Platform, value: Any) -> Any:
     return value
 
 
+def _staros_access_denied(err: Exception) -> bool:
+    """True, если канал настроек колонок недоступен этому входу.
+
+    `AuthError` — токен не принят и после refresh; `ApiError(403)` — доступ
+    запрещён (транспорт не обновляет токен на 403). В обоих случаях
+    повторять опрос бессмысленно.
+    """
+    if isinstance(err, CoreAuthError):
+        return True
+    return isinstance(err, CoreApiError) and err.status_code == 403
+
+
 def _as_float(value: Any) -> float:
     """Best-effort приведение к float (для полос эквалайзера)."""
     try:
@@ -987,7 +999,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _maybe_poll_staros(self) -> None:
         """Throttled best-effort poll настроек колонок.
 
-        В отличие от прочих доменов, `AuthError` не просто отключает
+        В отличие от прочих доменов, `AuthError` (и 403) не просто отключает
         throttle до ручного refresh, а насовсем гасит домен
         (``_staros_api = None``): для SMS-входа нужного токена нет, и
         повторные попытки бессмысленны. Основной refresh при этом не падает.
@@ -1002,14 +1014,15 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         try:
             await self._refresh_staros()
-        except CoreAuthError as err:
-            LOGGER.warning(
-                "Настройки колонок недоступны для этого входа — отключаю домен: %s",
-                err,
-            )
-            self._staros_api = None
-        except Exception:
-            LOGGER.debug("Staros settings polling failed", exc_info=True)
+        except Exception as err:
+            if _staros_access_denied(err):
+                LOGGER.warning(
+                    "Настройки колонок недоступны для этого входа — отключаю домен: %s",
+                    err,
+                )
+                self._staros_api = None
+            else:
+                LOGGER.debug("Staros settings polling failed", exc_info=True)
         finally:
             self._staros_poll.last_poll_at = now
 
@@ -1028,15 +1041,15 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         try:
             await self._refresh_staros()
-        except CoreAuthError as err:
-            LOGGER.warning(
-                "Настройки колонок недоступны для этого входа — отключаю домен: %s",
-                err,
-            )
-            self._staros_api = None
-            return False
-        except Exception:
-            LOGGER.debug("Staros settings force-refresh failed", exc_info=True)
+        except Exception as err:
+            if _staros_access_denied(err):
+                LOGGER.warning(
+                    "Настройки колонок недоступны для этого входа — отключаю домен: %s",
+                    err,
+                )
+                self._staros_api = None
+            else:
+                LOGGER.debug("Staros settings force-refresh failed", exc_info=True)
             return False
         else:
             self._staros_poll.last_poll_at = time.time()
