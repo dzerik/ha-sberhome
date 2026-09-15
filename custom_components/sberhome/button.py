@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
@@ -111,4 +112,5 @@ class SberScenarioButton(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
         return any(s.id == self._scenario_id for s in self.coordinator.scenarios)
 
     async def async_press(self) -> None:
-        await self.coordinator.async_execute_scenario(self._scenario_id)
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            await self.coordinator.async_execute_scenario(self._scenario_id)

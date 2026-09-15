@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .aiosber.dto import AttributeValueDto, AttrKey
 from .const import DOMAIN
 
@@ -96,10 +97,11 @@ class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
         await self._send_bulk(False)
 
     async def _send_bulk(self, on: bool) -> None:
-        await self.coordinator.client.groups.set_state(
-            self._group_id,
-            [AttributeValueDto.of_bool(AttrKey.ON_OFF, on)],
-        )
+        async with async_translate_cloud_errors(self.coordinator):
+            await self.coordinator.client.groups.set_state(
+                self._group_id,
+                [AttributeValueDto.of_bool(AttrKey.ON_OFF, on)],
+            )
         # Optimistic patch: каждому device группы патчим desired on_off,
         # чтобы UI не дергался ON→OFF→ON во время WS push'ей.
         cache = self.coordinator.state_cache

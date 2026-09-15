@@ -35,6 +35,7 @@ from ..exceptions import (
     InvalidGrant,
     NetworkError,
     RateLimitError,
+    RequestUnauthorized,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,8 +258,10 @@ class HttpTransport:
         payload = _safe_json(resp)
 
         if resp.status_code == 401:
-            # Сюда попадаем если retry тоже отдал 401 — значит токен реально невалиден
-            raise AuthError(f"Unauthorized after refresh: {method} {url}")
+            # Сюда попадаем если retry тоже отдал 401. Refresh при этом прошёл
+            # (иначе вылетел бы InvalidGrant/«Token refresh failed»), так что
+            # отказ относится к запросу: например, удалённый scenario_id.
+            raise RequestUnauthorized(f"Unauthorized after refresh: {method} {url}")
         # 403 (доступ к эндпоинту запрещён) — обычный ApiError ниже: вызывающие
         # (опросы coordinator'а) считают его «не поддерживается», а не reauth.
 

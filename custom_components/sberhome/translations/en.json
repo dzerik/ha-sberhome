@@ -364,5 +364,28 @@
       "devices_total": "Devices in the cloud",
       "devices_enabled": "Devices imported"
     }
+  },
+  "exceptions": {
+    "access_denied": {
+      "message": "Sber cloud denied access to this object: it may have been deleted in the Salute app. The integration will re-check the account data."
+    },
+    "auth_failed": {
+      "message": "Sber cloud rejected the SberHome credentials. Sign in again: a reauthentication request has been added to Settings → Devices & services."
+    },
+    "rate_limited": {
+      "message": "Sber cloud is limiting the request rate. Try again in a minute."
+    },
+    "command_rejected": {
+      "message": "Sber cloud rejected the command as invalid (HTTP {status}). Check the value you are trying to set."
+    },
+    "api_error": {
+      "message": "Sber cloud returned an error (HTTP {status}). Try again later."
+    },
+    "cloud_unreachable": {
+      "message": "Sber cloud is unreachable. Check the Home Assistant internet connection and try again."
+    },
+    "cloud_error": {
+      "message": "Sber cloud returned an unexpected response. Try again later."
+    }
   }
 }

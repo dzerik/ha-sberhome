@@ -364,5 +364,28 @@
       "devices_total": "Bulutdagi qurilmalar",
       "devices_enabled": "Import qilingan qurilmalar"
     }
+  },
+  "exceptions": {
+    "access_denied": {
+      "message": "Sber buluti obyektga kirishni rad etdi: u «Salyut!» ilovasida o'chirilgan bo'lishi mumkin. Integratsiya akkaunt ma'lumotlarini qayta tekshiradi."
+    },
+    "auth_failed": {
+      "message": "Sber buluti SberHome kirish ma'lumotlarini qabul qilmadi. Qayta kiring: qayta kirish so'rovi «Sozlamalar → Qurilmalar va xizmatlar» bo'limiga qo'shildi."
+    },
+    "rate_limited": {
+      "message": "Sber buluti so'rovlar chastotasini chekladi. Bir daqiqadan so'ng qayta urinib ko'ring."
+    },
+    "command_rejected": {
+      "message": "Sber buluti buyruqni noto'g'ri deb rad etdi (HTTP {status}). O'rnatmoqchi bo'lgan qiymatni tekshiring."
+    },
+    "api_error": {
+      "message": "Sber buluti xato qaytardi (HTTP {status}). Keyinroq qayta urinib ko'ring."
+    },
+    "cloud_unreachable": {
+      "message": "Sber buluti mavjud emas. Home Assistant internetga ulanganini tekshirib, qayta urinib ko'ring."
+    },
+    "cloud_error": {
+      "message": "Sber buluti kutilmagan javob qaytardi. Keyinroq qayta urinib ko'ring."
+    }
   }
 }

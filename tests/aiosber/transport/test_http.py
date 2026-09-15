@@ -24,6 +24,7 @@ from custom_components.sberhome.aiosber.exceptions import (
     InvalidGrant,
     NetworkError,
     RateLimitError,
+    RequestUnauthorized,
 )
 from custom_components.sberhome.aiosber.transport import HttpTransport
 
@@ -171,7 +172,11 @@ async def test_401_triggers_refresh_and_retry():
 
 
 async def test_401_after_retry_raises_auth_error():
-    """Если и после refresh токен снова 401 — AuthError."""
+    """Если и после успешного refresh снова 401 — `RequestUnauthorized`.
+
+    Это подкласс `AuthError`, но отдельный: refresh прошёл, так что отказ
+    относится к запросу (удалённый scenario_id), а не к данным входа.
+    """
 
     def router(req: httpx.Request) -> httpx.Response:
         if "smarthome/token" in req.url.path:
@@ -185,8 +190,9 @@ async def test_401_after_retry_raises_auth_error():
     transport = HttpTransport(http=http, auth=auth)
 
     async with transport:
-        with pytest.raises(AuthError, match="Unauthorized after refresh"):
+        with pytest.raises(RequestUnauthorized, match="Unauthorized after refresh") as exc_info:
             await transport.get("/devices/")
+    assert isinstance(exc_info.value, AuthError)
 
 
 # ---- Single-flight refresh on concurrent 401 ----

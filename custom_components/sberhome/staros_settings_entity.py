@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .const import DOMAIN, SPEAKER_MERGE_DOMAIN
 from .coordinator import SberHomeCoordinator
 from .sbermap import StarosSettingEntity
@@ -83,10 +84,11 @@ class SberStarosSettingBase(CoordinatorEntity[SberHomeCoordinator]):
         return self.coordinator.last_update_success and self._current() is not None
 
     async def _async_write(self, value: Any) -> None:
-        await self.coordinator.async_set_staros_setting(
-            self._serial,
-            self._product,
-            self._node_id,
-            self._node_type,
-            value,
-        )
+        async with async_translate_cloud_errors(self.coordinator):
+            await self.coordinator.async_set_staros_setting(
+                self._serial,
+                self._product,
+                self._node_id,
+                self._node_type,
+                value,
+            )

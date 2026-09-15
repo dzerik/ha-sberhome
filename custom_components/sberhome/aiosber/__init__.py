@@ -53,6 +53,7 @@ from .exceptions import (
     PkceError,
     ProtocolError,
     RateLimitError,
+    RequestUnauthorized,
     SberError,
 )
 from .service import DeviceService, GroupService, ScenarioService, StateCache
@@ -80,6 +81,7 @@ __all__ = [
     "PkceError",
     "ProtocolError",
     "RateLimitError",
+    "RequestUnauthorized",
     "SberClient",
     "ScenarioAPI",
     "ScenarioService",

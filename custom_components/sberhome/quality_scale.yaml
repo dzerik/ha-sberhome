@@ -96,10 +96,11 @@ rules:
   # ---------------------------------------------------------------------------
   action-exceptions:
     status: todo
-    comment: При ошибке send_raw_command, reload_intents, tts_send и ttc_send не
-      поднимают исключение, а возвращают {"ok" false, "error" ...} в ответе
-      (__init__.py, _async_register_services). Без запроса ответа пользователь
-      ошибку не видит.
+    comment: Действия сущностей переводят ошибки облака в HomeAssistantError
+      (action_errors.py). Но при ошибке send_raw_command, reload_intents,
+      tts_send и ttc_send не поднимают исключение, а возвращают {"ok" false,
+      "error" ...} в ответе (__init__.py, _async_register_services). Без
+      запроса ответа пользователь ошибку не видит.
   config-entry-unloading:
     status: done
     comment: async_unload_entry выгружает платформы и останавливает координатор
@@ -208,9 +209,10 @@ rules:
       в sbermap/transform/staros_settings.py.
   exception-translations:
     status: todo
-    comment: HomeAssistantError поднимается с текстом из кода
-      (tts_surrogate/service.py, ttc_surrogate/service.py, intents/service.py)
-      без translation_key; секции exceptions в strings.json нет.
+    comment: Ошибки облака в действиях сущностей переведены (action_errors.py,
+      секция exceptions в strings.json). Но HomeAssistantError в
+      tts_surrogate/service.py, ttc_surrogate/service.py и intents/service.py
+      по-прежнему поднимается с текстом из кода без translation_key.
   icon-translations:
     status: todo
     comment: icons.json нет. Иконки заданы в коде через _attr_icon (button.py,

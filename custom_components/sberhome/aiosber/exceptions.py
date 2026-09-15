@@ -8,6 +8,7 @@
     SberError
     ├── AuthError          — OAuth/PKCE/refresh provoblems
     │   ├── InvalidGrant   — refresh token истёк или невалиден → reauth
+    │   ├── RequestUnauthorized — 401 на запрос и после успешного refresh
     │   └── PkceError      — невалидный verifier/challenge или authorization code
     ├── NetworkError       — connect timeout, TLS, DNS, transient
     ├── ApiError           — server returned 4xx/5xx с ошибкой
@@ -31,6 +32,15 @@ class AuthError(SberError):
 
 class InvalidGrant(AuthError):
     """Refresh token истёк/отозван — нужен полный re-auth."""
+
+
+class RequestUnauthorized(AuthError):
+    """Сервер отверг запрос (HTTP 401), хотя токен только что обновлён.
+
+    Refresh прошёл, значит данные входа приняты; 401 относится к самому
+    запросу. Sber так отвечает, например, на удалённый или чужой
+    ``scenario_id``. Повторный вход такую ошибку не лечит.
+    """
 
 
 class PkceError(AuthError):

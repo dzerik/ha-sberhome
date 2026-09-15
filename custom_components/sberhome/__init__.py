@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import pathlib
+import re
+from typing import Any
 
 import httpx
 import voluptuous as vol
@@ -15,6 +18,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.loader import async_get_integration
 
 from ._ha_token_store import HACsafrontTokenStore, HATokenStore
@@ -102,6 +106,71 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
     Platform.VACUUM,
 ]
+
+RAW_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+"""Формат device_id для `send_raw_command`: он подставляется в путь запроса.
+
+Идентификаторы Сбера — hex/UUID-подобные строки; `/`, `.`, `?`, `%` и
+пробелы запрещены, чтобы запрос не ушёл на другой путь облака.
+"""
+
+RAW_STATE_MAX_ITEMS = 64
+"""Максимум атрибутов в одном `desired_state` сырой команды."""
+
+RAW_STATE_MAX_BYTES = 16 * 1024
+"""Максимальный размер `desired_state` сырой команды в JSON (байт)."""
+
+
+def _validate_raw_state(value: Any) -> list[dict[str, Any]]:
+    """Проверить `desired_state` для `sberhome.send_raw_command`.
+
+    Принимает список объектов AttributeValueDto или ту же структуру строкой
+    JSON (удобно вставлять из журнала). Типы значений внутри атрибутов не
+    проверяются — сервис отладочный и должен уметь отправить и заведомо
+    неверное значение, — но форма запроса и его размер ограничены.
+
+    Args:
+        value: Значение поля `state` из вызова сервиса.
+
+    Returns:
+        Список атрибутов, готовый к отправке.
+
+    Raises:
+        vol.Invalid: Не JSON, не список объектов с непустым строковым `key`,
+            пустой список, больше `RAW_STATE_MAX_ITEMS` атрибутов или больше
+            `RAW_STATE_MAX_BYTES` байт.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as err:
+            raise vol.Invalid("state is not valid JSON") from err
+    if not isinstance(value, list) or not value:
+        raise vol.Invalid("state must be a non-empty list of attribute objects")
+    if len(value) > RAW_STATE_MAX_ITEMS:
+        raise vol.Invalid(f"state has more than {RAW_STATE_MAX_ITEMS} attributes")
+    for item in value:
+        if not isinstance(item, dict):
+            raise vol.Invalid("every state item must be an object")
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            raise vol.Invalid("every state item needs a non-empty string 'key'")
+    try:
+        encoded = json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as err:
+        raise vol.Invalid("state is not JSON-serializable") from err
+    if len(encoded.encode("utf-8")) > RAW_STATE_MAX_BYTES:
+        raise vol.Invalid(f"state is larger than {RAW_STATE_MAX_BYTES} bytes")
+    return value
+
+
+SEND_RAW_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): vol.All(str, vol.Match(RAW_DEVICE_ID_RE)),
+        vol.Required("state"): _validate_raw_state,
+    }
+)
+"""Схема `sberhome.send_raw_command`: безопасный device_id и ограниченный payload."""
 
 _PANEL_URL_PATH = "sberhome"
 _PANEL_STATIC_PATH = "/sberhome_panel"
@@ -525,7 +594,22 @@ def _async_apply_yaml_listeners(hass: HomeAssistant, coordinator: SberHomeCoordi
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
-    """Регистрация debug service `sberhome.send_raw_command`.
+    """Регистрация сервисов интеграции.
+
+    Права доступа:
+
+    - `send_raw_command` и `reload_intents` — только для администраторов
+      (`async_register_admin_service`). Первый шлёт в облако произвольное
+      состояние любого устройства аккаунта в обход сущностей, второй читает
+      `configuration.yaml` и создаёт/меняет облачные сценарии Сбера.
+    - `refresh`, `tts_send`, `ttc_send` — для всех пользователей. `refresh`
+      ничего не меняет, а только опрашивает облако (аналог
+      `homeassistant.update_entity`). `tts_send`/`ttc_send` делают то же, что
+      notify-сущности «Sber TTS/TTC», которые любой пользователь HA и так
+      может вызвать через `notify.send_message`; закрытие только сервиса
+      защиты не добавило бы.
+
+    Debug service `sberhome.send_raw_command`:
 
     Позволяет из Developer Tools → Services отправить произвольный
     `desired_state` list в Sber API — для экспериментов с serialized format
@@ -540,18 +624,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if hass.data.get(marker):
         return
 
-    schema = vol.Schema(
-        {
-            vol.Required("device_id"): str,
-            vol.Required("state"): list,  # list[dict] — каждый dict AttributeValueDto JSON
-        }
-    )
-
     async def _send_raw(call: ServiceCall) -> dict[str, object]:
         from datetime import UTC, datetime
 
         device_id: str = call.data["device_id"]
-        state: list[dict] = call.data["state"]
+        state: list[dict[str, Any]] = call.data["state"]
 
         # Находим любой loaded coordinator (обычно один entry).
         coord: SberHomeCoordinator | None = None
@@ -586,11 +663,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
         LOGGER.info("send_raw_command to %s: %s", device_id, state)
         return {"ok": True, "device_id": device_id, "state": state}
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "send_raw_command",
         _send_raw,
-        schema=schema,
+        schema=SEND_RAW_COMMAND_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
 
@@ -701,7 +779,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
             "results": results,
         }
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "reload_intents",
         _reload_intents,

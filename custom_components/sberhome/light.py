@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .aiosber.dto import AttributeValueDto, AttrKey, IndicatorColor
 from .const import DOMAIN, LOGGER
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
@@ -337,7 +338,8 @@ class SberIndicatorLight(CoordinatorEntity[SberHomeCoordinator], LightEntity):
                 else (current.brightness or 100)
             ),
         )
-        await self.coordinator.async_set_indicator_color(new)
+        async with async_translate_cloud_errors(self.coordinator):
+            await self.coordinator.async_set_indicator_color(new)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         current = self._primary_color()
@@ -349,4 +351,5 @@ class SberIndicatorLight(CoordinatorEntity[SberHomeCoordinator], LightEntity):
             saturation=current.saturation,
             brightness=0,
         )
-        await self.coordinator.async_set_indicator_color(new)
+        async with async_translate_cloud_errors(self.coordinator):
+            await self.coordinator.async_set_indicator_color(new)

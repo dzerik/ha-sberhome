@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .aiosber.dto.union import UnionType
 from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
@@ -132,10 +133,12 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
         return self.coordinator.at_home.get(self._home_id)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_at_home(True, self._home_id)
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            await self.coordinator.async_set_at_home(True, self._home_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_at_home(False, self._home_id)
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            await self.coordinator.async_set_at_home(False, self._home_id)
 
 
 class SberScenarioActiveSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
@@ -181,10 +184,12 @@ class SberScenarioActiveSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEnt
         return scenario.is_active if scenario else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_scenario_active(self._scenario_id, True)
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            await self.coordinator.async_set_scenario_active(self._scenario_id, True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_scenario_active(self._scenario_id, False)
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            await self.coordinator.async_set_scenario_active(self._scenario_id, False)
 
 
 class SberStarosSettingSwitch(SberStarosSettingBase, SwitchEntity):

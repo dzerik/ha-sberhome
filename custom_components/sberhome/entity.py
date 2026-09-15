@@ -5,12 +5,11 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .action_errors import async_translate_cloud_errors
 from .aiosber.dto import AttributeValueDto
-from .aiosber.exceptions import AuthError
 from .const import DOMAIN, LOGGER, SPEAKER_MERGE_DOMAIN
 from .coordinator import SberHomeCoordinator
 from .identity import device_uid
@@ -127,21 +126,26 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
             LOGGER.exception("CommandTracker.record_sent failed")
 
     async def _async_send_attrs(self, attrs: list[AttributeValueDto]) -> None:
-        """Send list[AttributeValueDto] via aiosber + optimistic cache update."""
+        """Send list[AttributeValueDto] via aiosber + optimistic cache update.
+
+        Raises:
+            HomeAssistantError: Облако отвергло команду; при ошибке авторизации
+                дополнительно запускается повторный вход (см. action_errors).
+        """
         states_dicts = [a.to_dict() for a in attrs]
         requested_at = time.time()
-        try:
-            # DeviceService.set_state делает HTTP PUT + optimistic patch
-            # state_cache (см. aiosber/service/device_service.py).
-            await self.coordinator.async_send_device_state(self._device_id, attrs)
-        except AuthError as err:
-            LOGGER.warning("Auth failed on command, triggering reauth: %s", err)
-            self._track_command(states_dicts, requested_at, error=f"{type(err).__name__}: {err}")
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except Exception as err:
-            # Облако отклонило сам PUT — видно в DevTools, дальше как раньше.
-            self._track_command(states_dicts, requested_at, error=f"{type(err).__name__}: {err}")
-            raise
+        async with async_translate_cloud_errors(self.coordinator):
+            try:
+                # DeviceService.set_state делает HTTP PUT + optimistic patch
+                # state_cache (см. aiosber/service/device_service.py).
+                await self.coordinator.async_send_device_state(self._device_id, attrs)
+            except Exception as err:
+                # Облако отклонило сам PUT — видно в DevTools; наружу уходит
+                # переведённая HomeAssistantError.
+                self._track_command(
+                    states_dicts, requested_at, error=f"{type(err).__name__}: {err}"
+                )
+                raise
 
         # Логируем исходящую команду в WS ring buffer — пользователь видит
         # свои команды рядом с входящими push'ами в панели логов.

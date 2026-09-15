@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .action_errors import async_translate_cloud_errors
 from .const import DOMAIN
 
 if TYPE_CHECKING:
@@ -103,7 +104,8 @@ class SberHomeTtsNotify(NotifyEntity):
             )
 
         device_ids: list[str] | None = list(explicit_ids) if explicit_ids else None
-        await self._tts.send(self._home.id, message, device_ids)
+        async with async_translate_cloud_errors(self._coordinator):
+            await self._tts.send(self._home.id, message, device_ids)
 
 
 class SberHomeTtcNotify(NotifyEntity):
@@ -159,4 +161,5 @@ class SberHomeTtcNotify(NotifyEntity):
                 "'data.device_ids' с raw Sber UUID. Fallback на все колонки дома."
             )
         device_ids: list[str] | None = list(explicit_ids) if explicit_ids else None
-        await self._ttc.send(self._home.id, message, device_ids)
+        async with async_translate_cloud_errors(self._coordinator):
+            await self._ttc.send(self._home.id, message, device_ids)

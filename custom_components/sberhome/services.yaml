@@ -11,6 +11,7 @@ send_raw_command:
   description: >
     Отправить произвольный `desired_state` list в Sber API. Debug-инструмент
     для экспериментов с serialized format. Возвращает sent payload в response.
+    Только для администраторов.
   fields:
     device_id:
       name: Device ID
@@ -21,7 +22,8 @@ send_raw_command:
     state:
       name: Desired state
       description: >
-        Список AttributeValueDto в serialized format.
+        Список AttributeValueDto в serialized format (у каждого обязателен
+        `key`; не больше 64 атрибутов и 16 КБ).
         Пример: [{"key":"on_off","type":"BOOL","bool_value":true},
         {"key":"light_colour","type":"COLOR","color_value":{"hue":120,"saturation":100,"brightness":50}}]
       required: true

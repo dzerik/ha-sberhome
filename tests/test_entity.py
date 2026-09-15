@@ -107,11 +107,14 @@ class TestSendAttrsFeedsTheTimeline:
 
     @pytest.mark.asyncio
     async def test_failed_send_is_recorded_then_raised(self):
+        from homeassistant.exceptions import HomeAssistantError
+
         from custom_components.sberhome.aiosber.exceptions import NetworkError
 
         entity = self._entity()
         entity.coordinator.async_send_device_state.side_effect = NetworkError("gateway timeout")
-        with pytest.raises(NetworkError):
+        entity.coordinator.config_entry = None
+        with pytest.raises(HomeAssistantError):
             await entity._async_send_attrs(self._attrs())
         [record] = entity.coordinator.command_tracker.snapshot()
         assert record["status"] == "send_failed"
