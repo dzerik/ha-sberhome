@@ -104,7 +104,7 @@
         },
         "state": {
           "name": "Kerakli holat",
-          "description": "serialized formatidagi AttributeValueDto roʻyxati (har birida key majburiy; 64 ta atribut va 16 KB dan oshmasin). Misol: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+          "description": "serialized formatidagi AttributeValueDto roʻyxati (har birida key majburiy; 64 ta atribut va 16 KB dan oshmasin)."
         }
       }
     },

@@ -104,7 +104,7 @@
         },
         "state": {
           "name": "Желаемое состояние",
-          "description": "Список AttributeValueDto в serialized-формате (у каждого обязателен key; не больше 64 атрибутов и 16 КБ). Пример: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+          "description": "Список AttributeValueDto в serialized-формате (у каждого обязателен key; не больше 64 атрибутов и 16 КБ)."
         }
       }
     },

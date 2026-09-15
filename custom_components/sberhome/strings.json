@@ -104,7 +104,7 @@
         },
         "state": {
           "name": "Desired state",
-          "description": "List of AttributeValueDto objects in serialized format (each needs a key; at most 64 attributes and 16 KB). Example: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+          "description": "List of AttributeValueDto objects in serialized format (each needs a key; at most 64 attributes and 16 KB)."
         }
       }
     },

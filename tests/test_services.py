@@ -590,6 +590,26 @@ def test_every_service_and_field_is_translated(path: Path) -> None:
             assert services[service]["fields"][field]["description"], (path.name, service, field)
 
 
+@pytest.mark.parametrize("path", _translation_files(), ids=lambda p: p.name)
+def test_translation_placeholders_are_identifiers(path: Path) -> None:
+    """Фигурные скобки в переводах — только плейсхолдеры с именем-идентификатором.
+
+    Так проверяет hassfest (``validate_placeholders``): JSON-пример вида
+    ``[{"key": ...}]`` в описании поля он принимает за плейсхолдер ``"key"`` и
+    отклоняет весь файл переводов.
+    """
+    import string
+
+    def _strings(node: Any, where: str) -> list[tuple[str, str]]:
+        if isinstance(node, dict):
+            return [s for key, value in node.items() for s in _strings(value, f"{where}.{key}")]
+        return [(where, node)] if isinstance(node, str) else []
+
+    for where, value in _strings(json.loads(path.read_text(encoding="utf-8")), path.name):
+        names = [name for _, name, _, _ in string.Formatter().parse(value) if name]
+        assert all(name.isidentifier() for name in names), (where, names)
+
+
 async def test_panel_error_message_uses_ha_language(hass: HomeAssistant) -> None:
     """WS-команды панели отдают ошибку текстом на языке Home Assistant, а не ключом."""
     hass.config.language = "ru"

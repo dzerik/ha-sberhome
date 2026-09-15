@@ -22,6 +22,9 @@ send_raw_command:
         text:
     state:
       required: true
+      # Пример — здесь, а не в описании поля: фигурные скобки JSON в
+      # strings.json hassfest принимает за плейсхолдеры перевода.
+      example: '[{"key": "on_off", "type": "BOOL", "bool_value": true}]'
       selector:
         object:
 

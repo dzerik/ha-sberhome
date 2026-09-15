@@ -104,7 +104,7 @@
         },
         "state": {
           "name": "Қажетті күй",
-          "description": "serialized пішіміндегі AttributeValueDto тізімі (әрқайсысында key міндетті; 64 атрибуттан және 16 КБ-тан аспауы керек). Мысал: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+          "description": "serialized пішіміндегі AttributeValueDto тізімі (әрқайсысында key міндетті; 64 атрибуттан және 16 КБ-тан аспауы керек)."
         }
       }
     },

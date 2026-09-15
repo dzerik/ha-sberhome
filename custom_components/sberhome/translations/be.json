@@ -104,7 +104,7 @@
         },
         "state": {
           "name": "Жаданы стан",
-          "description": "Спіс AttributeValueDto у serialized-фармаце (у кожнага абавязковы key; не больш за 64 атрыбуты і 16 КБ). Прыклад: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+          "description": "Спіс AttributeValueDto у serialized-фармаце (у кожнага абавязковы key; не больш за 64 атрыбуты і 16 КБ)."
         }
       }
     },
