@@ -104,3 +104,28 @@ D9EUUn4YaeLaS8AjSF/h7UkjOibNc4qVDiPP+rkehFWM66PVnP1Msh93tc+taIfC
 EYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqSVIC/AzplM/Jxw7buXFeGP1qVCBEHq
 391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9i1p4GO0YSNuczzEm4=
 -----END CERTIFICATE-----"""
+
+
+# Состояние записи в `hass.data` хранится под ключом `sberhome_<вид>_<entry_id>`.
+# Все виды перечислены здесь, чтобы выгрузка записи убирала их полностью.
+ENTRY_DATA_OPTIONS = "options"
+"""Снимок options — отличает смену options от ротации токенов в entry.data."""
+ENTRY_DATA_PLATFORMS_FORWARDED = "platforms_forwarded"
+"""Подняты ли платформы при настройке — выгрузка снимает только поднятые."""
+ENTRY_DATA_PRUNE_MISSES = "prune_misses"
+"""Счётчики промахов устройств в выдаче для обслуживания реестра."""
+ENTRY_DATA_KINDS = (ENTRY_DATA_OPTIONS, ENTRY_DATA_PLATFORMS_FORWARDED, ENTRY_DATA_PRUNE_MISSES)
+"""Все виды данных записи в `hass.data`."""
+
+
+def entry_data_key(kind: str, entry_id: str) -> str:
+    """Ключ `hass.data` для данных записи.
+
+    Args:
+        kind: Вид данных — одна из констант ``ENTRY_DATA_*``.
+        entry_id: Идентификатор записи.
+
+    Returns:
+        Ключ вида ``sberhome_<kind>_<entry_id>``.
+    """
+    return f"{DOMAIN}_{kind}_{entry_id}"

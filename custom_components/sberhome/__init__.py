@@ -13,7 +13,7 @@ from homeassistant.components.frontend import (
 )
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 
@@ -38,7 +38,11 @@ from .const import (
     CONF_ENABLED_DEVICE_UIDS,
     CONF_TOKEN,
     DOMAIN,
+    ENTRY_DATA_KINDS,
+    ENTRY_DATA_OPTIONS,
+    ENTRY_DATA_PLATFORMS_FORWARDED,
     LOGGER,
+    entry_data_key,
 )
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .exceptions import SberSmartHomeError
@@ -183,13 +187,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     из `UpdateFailed` первого refresh сам делает `ConfigEntryNotReady` и
     планирует retry. Дополнительно ловим голые SberSmartHomeError на
     случай ошибок до полноценного `_async_update_data`.
+
+    Настройка безопасна к исключениям: при ЛЮБОЙ ошибке после создания
+    httpx-клиента (`ConfigEntryNotReady`, `ConfigEntryAuthFailed`, отмена
+    задачи, неожиданное исключение) клиент закрывается, WebSocket и фоновые
+    задачи останавливаются, записи в `hass.data` удаляются — и только потом
+    исключение пробрасывается дальше. Иначе каждая повторная попытка
+    настройки при недоступном облаке оставляла бы висящий пул соединений.
     """
     # Shared SSL + один httpx.AsyncClient на entry (используется SberAPI и
     # HttpTransport через DI). Без этого раньше создавались два независимых
     # httpx клиента с отдельными connection pool'ами и дубль SSL ручки.
     ssl_ctx = await async_init_ssl(hass)
     http = httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
+    try:
+        coordinator = _create_coordinator(hass, entry, http)
+    except BaseException:
+        # Координатора ещё нет — закрыть клиент больше некому.
+        await http.aclose()
+        raise
 
+    try:
+        await _async_start_entry(hass, entry, coordinator)
+    except BaseException:
+        await _async_abort_setup(hass, entry, coordinator)
+        raise
+    return True
+
+
+def _create_coordinator(
+    hass: HomeAssistant, entry: SberHomeConfigEntry, http: httpx.AsyncClient
+) -> SberHomeCoordinator:
+    """Собрать auth-менеджеры, транспорты и координатор поверх общего клиента.
+
+    Args:
+        hass: Экземпляр Home Assistant.
+        entry: Настраиваемая запись.
+        http: Общий httpx-клиент записи; владение переходит координатору.
+
+    Returns:
+        Координатор, который закроет ``http`` в ``async_shutdown``.
+
+    Raises:
+        ConfigEntryAuthFailed: У SMS-входа нет сохранённых токенов.
+    """
     # SberAPI инстанс нужен для config_flow PKCE-обновления (reauth) и
     # для legacy SberID flow. Для CSAFront flow SberID-токенов нет —
     # передаём пустой dict.
@@ -203,7 +244,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         csaf_store = HACsafrontTokenStore(hass, entry)
         csaf_data = entry.data.get("csafront_tokens")
         if not csaf_data:
-            await http.aclose()
             raise ConfigEntryAuthFailed("CSAFront tokens missing — reauth required")
         initial = CsafrontTokens.from_dict(csaf_data)
         auth = CsafrontAuthManager(
@@ -262,13 +302,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
         )
         staros_settings_api = StarosSettingsAPI(settings_transport)
 
-    coordinator = SberHomeCoordinator(
-        hass, entry, sber, transport, auth, staros_settings_api=staros_settings_api
+    # Shared http закрывает coordinator.async_shutdown() — один раз (aclose у
+    # sber при DI no-op, transport клиентом не владеет).
+    return SberHomeCoordinator(
+        hass,
+        entry,
+        sber,
+        transport,
+        auth,
+        staros_settings_api=staros_settings_api,
+        shared_http=http,
     )
-    # Shared http нужен coordinator.async_shutdown() чтобы закрыть его
-    # один раз (aclose у sber теперь no-op при DI, transport не владеет http).
-    coordinator._shared_http = http
 
+
+async def _async_start_entry(
+    hass: HomeAssistant, entry: SberHomeConfigEntry, coordinator: SberHomeCoordinator
+) -> None:
+    """Первый опрос, платформы, сервисы и YAML-настройки записи.
+
+    Args:
+        hass: Экземпляр Home Assistant.
+        entry: Настраиваемая запись.
+        coordinator: Созданный для записи координатор.
+
+    Raises:
+        ConfigEntryAuthFailed: Облако отвергло токены — HA запустит reauth.
+        ConfigEntryNotReady: Облако недоступно — HA повторит настройку.
+    """
     # Panel + WS API не зависят от devices — регистрируем до refresh,
     # чтобы при ConfigEntryNotReady (retry) панель и WS не перерегистрировались.
     async_setup_websocket_api(hass)
@@ -276,16 +336,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryAuthFailed:
-        # Bubble up — HA запустит reauth flow. Клиент закрываем здесь,
-        # так как coordinator.async_shutdown() не вызовется (entry не LOADED).
-        await http.aclose()
-        raise
     except SberSmartHomeError as err:
         # Сырые aiosber/Sber ошибки в обход coordinator mapping
         # (SberConnectionError/SberApiError тоже сюда попадают — они subclass'ы)
         # — превращаем в ConfigEntryNotReady для HA retry.
-        await http.aclose()
         raise ConfigEntryNotReady(str(err)) from err
 
     entry.runtime_data = coordinator
@@ -322,22 +376,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # entities в HA до выбора. Legacy установки (без ключа options) считаются
     # backward-compat passthrough — все устройства импортируются как раньше.
     forwarded = _should_forward_platforms(entry)
-    if forwarded:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Запоминаем факт форварда на случай reload'а: unload должен снимать
     # платформы только если они были подняты (иначе `async_unload_platforms`
     # бросает "Config entry was never loaded!"). На reload после
     # первого toggle enabled это и происходило — options уже изменились,
     # так что `_should_forward_platforms(entry)` возвращал True, хотя в
     # предыдущем setup платформы были пустыми и не форвардились.
-    hass.data[f"{DOMAIN}_platforms_forwarded_{entry.entry_id}"] = forwarded
+    # Флаг ставится ДО форварда: если форвард прервётся на полпути, откат
+    # настройки должен знать, что платформы могли успеть подняться.
+    hass.data[entry_data_key(ENTRY_DATA_PLATFORMS_FORWARDED, entry.entry_id)] = forwarded
+    if forwarded:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Reload на смену options из panel WS (enabled_device_ids).
     # Снэпшотим options, чтобы отличать update_entry(data=…) от
     # update_entry(options=…) — первое бывает часто (token rotation в
     # HATokenStore), и reload-каждый-раз привёл бы к перезапуску каждые
     # 24 часа без надобности.
-    hass.data[f"{DOMAIN}_options_{entry.entry_id}"] = dict(entry.options)
+    hass.data[entry_data_key(ENTRY_DATA_OPTIONS, entry.entry_id)] = dict(entry.options)
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
 
     # Debug service для ручной отправки raw desired_state. Регистрируется
@@ -357,7 +413,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     # Детектор конфликта с альтернативными Sber-интеграциями (issue #10).
     async_update_conflict_issue(hass)
 
-    return True
+
+async def _async_abort_setup(
+    hass: HomeAssistant, entry: SberHomeConfigEntry, coordinator: SberHomeCoordinator
+) -> None:
+    """Откатить прерванную настройку: освободить всё, что успело появиться.
+
+    Вызывается из `async_setup_entry` перед тем, как исключение уйдёт в HA.
+    Сбой самой уборки только логируется — он не должен подменить исходную
+    ошибку, по которой HA решает, повторять ли настройку или просить reauth.
+    Обратные вызовы из `entry.async_on_unload` (таймер команд, update
+    listener) HA снимает сам после неудачной настройки.
+
+    Args:
+        hass: Экземпляр Home Assistant.
+        entry: Запись, настройка которой прервалась.
+        coordinator: Координатор записи; его ``async_shutdown`` идемпотентен.
+    """
+    if hass.data.get(entry_data_key(ENTRY_DATA_PLATFORMS_FORWARDED, entry.entry_id)):
+        try:
+            await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        except Exception:  # noqa: BLE001 — часть платформ могла не подняться
+            LOGGER.debug("Откат настройки: платформы выгружены не полностью", exc_info=True)
+    try:
+        await coordinator.async_shutdown()
+    except Exception:  # noqa: BLE001 — не подменяем исходную ошибку настройки
+        LOGGER.warning("Откат настройки: координатор остановлен с ошибкой", exc_info=True)
+    _async_remove_entry_data(hass, entry)
+
+
+@callback
+def _async_remove_entry_data(hass: HomeAssistant, entry: SberHomeConfigEntry) -> None:
+    """Удалить из `hass.data` всё, что хранилось под ``entry_id`` записи.
+
+    Общие для интеграции маркеры (панель, WS-команды, сервисы, YAML) не
+    трогаются — они живут, пока загружена хоть одна запись или сам HA.
+    """
+    for kind in ENTRY_DATA_KINDS:
+        hass.data.pop(entry_data_key(kind, entry.entry_id), None)
 
 
 async def _async_reconcile_yaml_intents(
@@ -712,13 +805,18 @@ async def _async_entry_updated(hass: HomeAssistant, entry: SberHomeConfigEntry) 
     вручную. HA не даёт прямого сравнения "что именно изменилось", так что
     сохраняем snapshot в hass.data и сравниваем.
     """
-    key = f"{DOMAIN}_options_{entry.entry_id}"
+    key = entry_data_key(ENTRY_DATA_OPTIONS, entry.entry_id)
     prev = hass.data.get(key)
+    if prev is None:
+        # Снимка нет только пока запись выгружается или перезагружается: unload
+        # его удаляет, а новая настройка сама прочитает актуальные options.
+        # Reload отсюда был бы вторым подряд.
+        return
     current = dict(entry.options)
     if prev == current:
         return  # только data поменялось (токены) — не reloadим
     hass.data[key] = current
-    if prev is not None and only_live_settings_changed(prev, current):
+    if only_live_settings_changed(prev, current):
         # Интервал опроса, буферы DevTools, таймаут команд — без перезагрузки:
         # перезапуск рвёт WebSocket и заново строит все сущности ради мелочи.
         entry.runtime_data.apply_settings(current)
@@ -789,17 +887,18 @@ def _should_forward_platforms(entry: SberHomeConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> bool:
     """Unload a config entry.
 
-    DataUpdateCoordinator.async_shutdown() вызывается HA-фреймворком только
-    на `hass.stop`, НЕ на unload/reload. Поэтому явно вызываем его здесь,
-    чтобы закрыть httpx клиенты и остановить WS task — иначе каждый reload
-    интеграции оставлял бы живые connection pool'ы и background task'и.
+    Координатор останавливается здесь явно, до выгрузки остального: закрыть
+    httpx-клиент и остановить WS task нужно раньше, чем HA обойдёт
+    обратные вызовы `entry.async_on_unload` (там повторный вызов
+    `async_shutdown` — no-op). После успешной выгрузки в `hass.data` не
+    остаётся ничего, что хранилось под ``entry_id`` записи.
     """
     # ВАЖНО: проверяем по snapshot факта форварда, а не по текущим
     # options — иначе после первого toggle enabled на реальной установке
     # (options изменились → `_should_forward_platforms` = True, но при
     # прошлом setup платформы не форвардились → `async_unload_platforms`
     # бросает "Config entry was never loaded!").
-    was_forwarded = hass.data.pop(f"{DOMAIN}_platforms_forwarded_{entry.entry_id}", None)
+    was_forwarded = hass.data.get(entry_data_key(ENTRY_DATA_PLATFORMS_FORWARDED, entry.entry_id))
     if was_forwarded is None:
         # Fallback для legacy setup'ов без флага (не должно срабатывать
         # после 3.8.1, но на всякий).
@@ -813,6 +912,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) ->
         coordinator = entry.runtime_data
         if coordinator is not None:
             await coordinator.async_shutdown()
+        _async_remove_entry_data(hass, entry)
 
     # Если последняя SberHome-запись уходит — снимаем panel и очищаем
     # marker в hass.data, иначе повторное добавление integration не

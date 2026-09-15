@@ -58,9 +58,12 @@ from .const import (
     CONF_SELECTION_MIRROR,
     CONF_SELECTION_SCHEMA,
     DOMAIN,
+    ENTRY_DATA_OPTIONS,
+    ENTRY_DATA_PRUNE_MISSES,
     LOGGER,
     SELECTION_SCHEMA_VERSION,
     WS_CONNECTED_SCAN_INTERVAL,
+    entry_data_key,
 )
 from .exceptions import (
     SberApiError,
@@ -232,7 +235,22 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         transport: HttpTransport,
         auth_manager: AuthManagerProtocol,
         staros_settings_api: StarosSettingsAPI | None = None,
+        *,
+        shared_http: httpx.AsyncClient | None = None,
     ) -> None:
+        """Create the coordinator for one config entry.
+
+        Args:
+            hass: Home Assistant instance.
+            entry: Config entry the coordinator serves.
+            sber_api: SberID API wrapper (PKCE refresh, legacy flow).
+            transport: Gateway HTTP transport.
+            auth_manager: Token provider for the gateway and WebSocket.
+            staros_settings_api: Smart speaker settings API, if a token exists.
+            shared_http: httpx client shared by ``sber_api`` and the transports.
+                The coordinator takes ownership and closes it in
+                :meth:`async_shutdown`.
+        """
         settings = read_settings(entry.options)
         scan_interval = settings[CONF_SCAN_INTERVAL]
         buffer_size = settings[CONF_DEVTOOLS_BUFFER_SIZE]
@@ -255,7 +273,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ws_task: asyncio.Task | None = None
         # Shared httpx.AsyncClient injected by `async_setup_entry` — один
         # pool на SberAPI/AuthManager/HttpTransport. Закрывается в async_shutdown.
-        self._shared_http: httpx.AsyncClient | None = None
+        self._shared_http: httpx.AsyncClient | None = shared_http
         # SberClient — eager-built фасад поверх transport.
         # Все Sber-API вызовы идут через client, state_cache — shared
         # инстанс из client.state (refresh() пишет именно в неё).
@@ -728,9 +746,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _prune_stale_devices(self) -> None:
         """Обслуживание реестра устройств после успешного опроса.
 
-        Счётчики промахов живут в ``hass.data``, а не на инстансе: перезагрузка
-        интеграции пересоздаёт координатор, и накопленная отсрочка иначе
-        обнулялась бы, а устройство висело бы в реестре бесконечно.
+        Счётчики промахов живут в ``hass.data`` под ключом записи. Выгрузка
+        записи (в том числе перезагрузка) их удаляет, как и остальные данные
+        записи, — отсрочка удаления начинается заново, как после рестарта HA.
+        Удаление при этом только откладывается, а не происходит раньше.
 
         Сбои считаются отдельно: тихая уборка, которая может годами не работать
         и молчать об этом, — ровно то, из-за чего причину искали вслепую.
@@ -738,7 +757,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.config_entry is None:
             return
 
-        counters_key = f"{DOMAIN}_prune_misses_{self.config_entry.entry_id}"
+        counters_key = entry_data_key(ENTRY_DATA_PRUNE_MISSES, self.config_entry.entry_id)
         store = self.hass.data if isinstance(self.hass.data, dict) else None
         if store is not None:
             counters = store.setdefault(counters_key, {})
@@ -1393,7 +1412,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # модалка увидит актуальное состояние (раньше между ответом WS и
         # завершением listener-reload был race → get_devices бросал
         # "Integration not loaded").
-        self.hass.data[f"{DOMAIN}_options_{self.config_entry.entry_id}"] = dict(new_options)
+        self.hass.data[entry_data_key(ENTRY_DATA_OPTIONS, self.config_entry.entry_id)] = dict(
+            new_options
+        )
         self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
 
         # Cleanup device_registry для отвязанных устройств — HA каскадно
@@ -1805,15 +1826,22 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Lifecycle
     # ------------------------------------------------------------------
     async def async_shutdown(self) -> None:
-        """Close API clients and stop WS task on shutdown."""
+        """Close API clients and stop WS task on shutdown.
+
+        Idempotent: HA calls it again from ``entry.async_on_unload`` after
+        ``async_unload_entry`` or an aborted setup has already stopped
+        everything.
+        """
         await super().async_shutdown()
-        if self._ws_client is not None:
+        ws_client, self._ws_client = self._ws_client, None
+        if ws_client is not None:
             with contextlib.suppress(Exception):
-                await self._ws_client.stop()
-        if self._ws_task is not None:
-            self._ws_task.cancel()
+                await ws_client.stop()
+        ws_task, self._ws_task = self._ws_task, None
+        if ws_task is not None:
+            ws_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._ws_task
+                await ws_task
         await self.intent_dispatcher.async_shutdown()
         # SberAPI.aclose no-op при DI (owns_http=False). Shared http
         # закрываем здесь — один раз, с contextlib на случай двойного вызова.

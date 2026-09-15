@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -161,12 +162,12 @@ async def test_panel_registration_handles_missing_version() -> None:
 
 def _patch_setup_dependencies(
     first_refresh_side_effect: BaseException | None = None,
-) -> tuple[dict, MagicMock]:
+) -> tuple[dict, MagicMock, MagicMock]:
     """Собрать набор патчей для async_setup_entry тестов.
 
-    Возвращает (patchers, http_mock). Shared httpx закрывается один раз
-    в coordinator.async_shutdown (успех) или непосредственно в
-    async_setup_entry (ошибка first_refresh).
+    Возвращает (patchers, http_mock, coord_mock). Shared httpx принадлежит
+    координатору: его закрывает coordinator.async_shutdown — и при выгрузке,
+    и при откате прерванной настройки.
     """
     http_mock = MagicMock()
     http_mock.aclose = AsyncMock()
@@ -180,6 +181,7 @@ def _patch_setup_dependencies(
 
     coord_mock = MagicMock()
     coord_mock.async_config_entry_first_refresh = AsyncMock(side_effect=first_refresh_side_effect)
+    coord_mock.async_shutdown = AsyncMock()
 
     patchers = {
         "ssl": patch(
@@ -201,7 +203,7 @@ def _patch_setup_dependencies(
     }
     for p in patchers.values():
         p.start()
-    return patchers, http_mock
+    return patchers, http_mock, coord_mock
 
 
 def _stop_patchers(patchers: dict) -> None:
@@ -236,9 +238,10 @@ async def test_async_setup_entry_waits_for_first_refresh() -> None:
     # С непустым списком устройств — форвард происходит
     entry.options = {"enabled_device_ids": ["dev_1"]}
 
-    patchers, _ = _patch_setup_dependencies()
+    patchers, http_mock, coord_mock = _patch_setup_dependencies()
     try:
         result = await async_setup_entry(hass, entry)
+        coord_cls = patchers["coord_cls"].target.SberHomeCoordinator
     finally:
         _stop_patchers(patchers)
 
@@ -247,6 +250,10 @@ async def test_async_setup_entry_waits_for_first_refresh() -> None:
     assert entry.runtime_data is not None
     # forward вызван ровно один раз с PLATFORMS
     hass.config_entries.async_forward_entry_setups.assert_called_once()
+    # Общий клиент передан координатору при создании — он его и закроет.
+    assert coord_cls.call_args.kwargs["shared_http"] is http_mock
+    http_mock.aclose.assert_not_awaited()
+    coord_mock.async_shutdown.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -257,7 +264,7 @@ async def test_async_setup_entry_raises_config_entry_auth_failed() -> None:
     hass = _make_hass()
     entry = _make_entry()
 
-    patchers, http_mock = _patch_setup_dependencies(
+    patchers, _, coord_mock = _patch_setup_dependencies(
         first_refresh_side_effect=ConfigEntryAuthFailed("expired"),
     )
     try:
@@ -266,9 +273,8 @@ async def test_async_setup_entry_raises_config_entry_auth_failed() -> None:
     finally:
         _stop_patchers(patchers)
 
-    # Shared http закрыт — coordinator.async_shutdown() не вызовется,
-    # так как entry не перешёл в LOADED state.
-    http_mock.aclose.assert_awaited_once()
+    # Откат настройки останавливает координатор, а он закрывает shared http.
+    coord_mock.async_shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -279,7 +285,7 @@ async def test_async_setup_entry_raises_config_entry_not_ready_on_sber_error() -
     hass = _make_hass()
     entry = _make_entry()
 
-    patchers, http_mock = _patch_setup_dependencies(
+    patchers, _, coord_mock = _patch_setup_dependencies(
         first_refresh_side_effect=SberConnectionError("connection refused"),
     )
     try:
@@ -288,7 +294,7 @@ async def test_async_setup_entry_raises_config_entry_not_ready_on_sber_error() -
     finally:
         _stop_patchers(patchers)
 
-    http_mock.aclose.assert_awaited_once()
+    coord_mock.async_shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -299,7 +305,7 @@ async def test_async_setup_entry_sber_auth_error_also_closes_clients() -> None:
     hass = _make_hass()
     entry = _make_entry()
 
-    patchers, http_mock = _patch_setup_dependencies(
+    patchers, _, coord_mock = _patch_setup_dependencies(
         first_refresh_side_effect=SberAuthError("generic"),
     )
     try:
@@ -308,7 +314,66 @@ async def test_async_setup_entry_sber_auth_error_also_closes_clients() -> None:
     finally:
         _stop_patchers(patchers)
 
+    coord_mock.async_shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [asyncio.CancelledError(), ConfigEntryNotReady("later"), RuntimeError("unexpected")],
+    ids=["cancelled", "not_ready", "unexpected"],
+)
+async def test_async_setup_entry_any_failure_stops_coordinator(error: BaseException) -> None:
+    """Любое исключение первого опроса — включая отмену задачи настройки —
+    останавливает координатор (клиент, WebSocket, фоновые задачи) и уходит
+    в HA без подмены."""
+    hass = _make_hass()
+    entry = _make_entry()
+
+    patchers, _, coord_mock = _patch_setup_dependencies(first_refresh_side_effect=error)
+    try:
+        with pytest.raises(type(error)):
+            await async_setup_entry(hass, entry)
+    finally:
+        _stop_patchers(patchers)
+
+    coord_mock.async_shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_failure_before_coordinator_closes_http() -> None:
+    """Сбой ещё до создания координатора (сломанные данные записи) закрывает
+    клиент сам — координатора, который закрыл бы его, ещё нет."""
+    hass = _make_hass()
+    entry = _make_entry()
+
+    patchers, http_mock, _ = _patch_setup_dependencies()
+    try:
+        patchers["coord_cls"].target.SberHomeCoordinator.side_effect = KeyError("token")
+        with pytest.raises(KeyError):
+            await async_setup_entry(hass, entry)
+    finally:
+        _stop_patchers(patchers)
+
     http_mock.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_failed_cleanup_keeps_original_error() -> None:
+    """Сбой самой уборки не подменяет исходную ошибку: по ней HA решает,
+    повторять настройку или просить reauth."""
+    hass = _make_hass()
+    entry = _make_entry()
+
+    patchers, _, coord_mock = _patch_setup_dependencies(
+        first_refresh_side_effect=ConfigEntryAuthFailed("expired"),
+    )
+    coord_mock.async_shutdown.side_effect = RuntimeError("cleanup failed")
+    try:
+        with pytest.raises(ConfigEntryAuthFailed):
+            await async_setup_entry(hass, entry)
+    finally:
+        _stop_patchers(patchers)
 
 
 # -----------------------------------------------------------------------------
@@ -338,6 +403,52 @@ async def test_async_unload_entry_calls_coordinator_shutdown() -> None:
 
     assert result is True
     coord_mock.async_shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_async_unload_entry_removes_only_its_own_entry_data() -> None:
+    """Успешная выгрузка убирает все данные записи из `hass.data`; данные
+    другой записи и общие маркеры интеграции остаются."""
+    own = {
+        f"{DOMAIN}_platforms_forwarded_e1": True,
+        f"{DOMAIN}_options_e1": {"enabled_device_ids": ["dev_1"]},
+        f"{DOMAIN}_prune_misses_e1": {"dev_2": 1},
+    }
+    foreign = {
+        f"{DOMAIN}_options_e2": {},
+        f"{DOMAIN}_prune_misses_e2": {},
+        f"{DOMAIN}_services_registered": True,
+    }
+    hass = MagicMock()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.config_entries.async_loaded_entries = MagicMock(return_value=[MagicMock()])
+    hass.data = {**own, **foreign}
+
+    entry = MagicMock(entry_id="e1", options={"enabled_device_ids": ["dev_1"]})
+    entry.runtime_data = MagicMock(async_shutdown=AsyncMock())
+
+    assert await async_unload_entry(hass, entry) is True
+    assert hass.data == foreign
+
+
+@pytest.mark.asyncio
+async def test_async_unload_entry_keeps_entry_data_when_unload_fails() -> None:
+    """Запись не выгрузилась и продолжает работать — её данные не трогаем,
+    иначе следующая попытка выгрузки не узнает, были ли подняты платформы."""
+    data = {
+        f"{DOMAIN}_platforms_forwarded_e1": True,
+        f"{DOMAIN}_options_e1": {"enabled_device_ids": ["dev_1"]},
+    }
+    hass = MagicMock()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+    hass.config_entries.async_loaded_entries = MagicMock(return_value=[MagicMock()])
+    hass.data = dict(data)
+
+    entry = MagicMock(entry_id="e1", options={"enabled_device_ids": []})
+    entry.runtime_data = MagicMock(async_shutdown=AsyncMock())
+
+    assert await async_unload_entry(hass, entry) is False
+    assert hass.data == data
 
 
 @pytest.mark.asyncio

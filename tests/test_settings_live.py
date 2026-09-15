@@ -85,6 +85,23 @@ async def test_listener_still_reloads_on_selection_change() -> None:
 
 
 @pytest.mark.asyncio
+async def test_listener_does_not_reload_entry_without_options_snapshot() -> None:
+    """Снимка нет, пока запись выгружается или перезагружается (unload его
+    удаляет). Смена options в этот момент не должна запускать ещё один reload:
+    новая настройка и так прочитает актуальные options."""
+    hass = MagicMock()
+    hass.config_entries.async_reload = AsyncMock()
+    entry = MagicMock(entry_id="e1", options={"enabled_device_uids": ["a", "b"]})
+    hass.data = {}
+
+    await _async_entry_updated(hass, entry)
+
+    hass.config_entries.async_reload.assert_not_called()
+    entry.runtime_data.apply_settings.assert_not_called()
+    assert hass.data == {}
+
+
+@pytest.mark.asyncio
 async def test_options_flow_offers_every_live_setting() -> None:
     from unittest.mock import PropertyMock
 
