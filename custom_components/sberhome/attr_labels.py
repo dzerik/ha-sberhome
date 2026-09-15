@@ -10,14 +10,22 @@
 `attr_label(key, lang)` берёт подпись на языке HA-инстанса (fallback
 lang→ru→humanize), для незнакомых ключей — humanize-фолбэк (staros_-префикс
 срезается, camelCase/snake_case → слова с заглавной).
+
+Файл читается один раз в executor'е (:func:`async_load_attr_labels`, вызывается
+при настройке записи) и дальше отдаётся из памяти: `attr_label` зовётся из
+WS-обработчика прямо в event loop, и чтение файла там блокировало бы HA.
+До загрузки подписей `attr_label` отдаёт humanize-фолбэк.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LABELS_FILE = Path(__file__).parent / "attr_labels.json"
 _FALLBACK_LANG = "ru"
@@ -26,13 +34,34 @@ SUPPORTED_LANGS: tuple[str, ...] = ("ru", "en", "be", "kk", "uz")
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
-@cache
-def _all_labels() -> dict[str, dict[str, str]]:
-    """Весь словарь {lang: {key: label}} из attr_labels.json (кэш)."""
+_labels: dict[str, dict[str, str]] | None = None
+"""Словарь {lang: {key: label}} из attr_labels.json; None — ещё не загружен."""
+
+
+def _read_labels_file() -> dict[str, dict[str, str]]:
+    """Прочитать attr_labels.json. Блокирующий I/O — только в executor'е."""
     try:
-        return json.loads(_LABELS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(_LABELS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def async_load_attr_labels(hass: HomeAssistant) -> None:
+    """Загрузить подписи в память, если они ещё не загружены.
+
+    Args:
+        hass: Экземпляр Home Assistant — чтение файла уходит в его executor.
+    """
+    global _labels
+    if _labels is not None:
+        return
+    _labels = await hass.async_add_executor_job(_read_labels_file)
+
+
+def _all_labels() -> dict[str, dict[str, str]]:
+    """Весь словарь {lang: {key: label}} из памяти, без обращения к диску."""
+    return _labels or {}
 
 
 def _labels_for(lang: str) -> dict[str, str]:

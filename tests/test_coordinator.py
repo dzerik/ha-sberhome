@@ -712,7 +712,11 @@ def test_prune_stale_devices_keeps_virtual_entities(coordinator):
             return_value=virtual_entries,
         ),
     ):
-        coordinator._prune_stale_devices()
+        # Несколько опросов подряд: отсрочка чистки не должна маскировать
+        # удаление. В аккаунте нет ни одного устройства (и колонки), но
+        # индикатор остаётся — его настраивают и розеткам/выключателям.
+        for _ in range(PRUNE_MIN_CONSECUTIVE_MISSES + 1):
+            coordinator._prune_stale_devices()
 
     device_reg.async_remove_device.assert_not_called()
 

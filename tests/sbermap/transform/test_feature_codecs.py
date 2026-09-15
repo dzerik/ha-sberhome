@@ -2,7 +2,7 @@
 
 Покрывает критичные API↔HA конверсии:
 - temperature ×10 (CRITICAL)
-- voltage/current/power без скейла
+- voltage/power без скейла, current — миллиамперы → амперы
 - humidity/air_pressure
 - volume_int 0..100 → 0.0..1.0
 - bool/enum passthrough
@@ -35,6 +35,7 @@ from custom_components.sberhome.sbermap.transform.feature_codecs import (
     to_ha,
     to_sber,
 )
+from custom_components.sberhome.sbermap.transform.feature_specs import FEATURE_SPECS
 
 
 class TestTemperatureCodec:
@@ -88,7 +89,7 @@ class TestTemperatureCodec:
 
 
 class TestPowerMonitoringCodecs:
-    """voltage/power — FLOAT, current — INTEGER (per клиентский SDK)."""
+    """voltage/power — FLOAT, current — INTEGER в мА (per клиентский SDK)."""
 
     def test_voltage_float_passthrough(self):
         codec = FEATURE_CODECS["cur_voltage"]
@@ -97,13 +98,20 @@ class TestPowerMonitoringCodecs:
         assert codec.unit_of_measurement == UnitOfElectricPotential.VOLT
         assert codec.device_class is SensorDeviceClass.VOLTAGE
 
-    def test_current_no_scale(self):
-        # Sber API INTEGER в Amperes напрямую (НЕ mA).
-        codec = FEATURE_CODECS["cur_current"]
-        assert codec.to_ha(2) == 2
-        assert codec.to_ha(15) == 15  # Не делим на 1000!
+    @pytest.mark.parametrize("key", ["cur_current", "current"])
+    def test_current_milliamps_to_amperes(self, key):
+        # Sber отдаёт ток в миллиамперах (C2C: «Текущий ток, мА», пример 9000),
+        # HA-сенсор — в амперах. Раньше 150 мА показывались как 150 А.
+        spec = FEATURE_SPECS[key]
+        codec = spec.codec
+        assert codec.to_ha(150) == pytest.approx(0.15)
+        assert codec.to_ha("9000") == pytest.approx(9.0)
+        assert codec.to_ha(0) == 0
+        assert codec.to_ha(None) is None
+        assert codec.to_ha("low") is None  # не число — без падения опроса
         assert codec.unit_of_measurement == UnitOfElectricCurrent.AMPERE
         assert codec.device_class is SensorDeviceClass.CURRENT
+        assert FEATURE_CODECS["cur_current"] is codec
 
     def test_power_float_passthrough(self):
         codec = FEATURE_CODECS["cur_power"]

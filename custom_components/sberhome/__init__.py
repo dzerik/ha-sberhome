@@ -34,6 +34,7 @@ from .aiosber.auth import (
 from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID, COMPANION_BASE_URL
 from .aiosber.transport import HttpTransport
 from .api import REQUEST_TIMEOUT, SberAPI, async_init_ssl
+from .attr_labels import async_load_attr_labels
 from .conflict import ISSUE_ID as CONFLICT_ISSUE_ID
 from .conflict import async_update_conflict_issue
 from .const import (
@@ -397,6 +398,9 @@ async def _async_start_entry(
     """
     # Panel + WS API не зависят от devices — регистрируем до refresh,
     # чтобы при ConfigEntryNotReady (retry) панель и WS не перерегистрировались.
+    # Подписи атрибутов для WS-форм читаются с диска заранее и в executor'е:
+    # сам WS-обработчик работает в event loop, где файловый I/O запрещён.
+    await async_load_attr_labels(hass)
     async_setup_websocket_api(hass)
     await _async_register_panel(hass)
 

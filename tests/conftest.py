@@ -124,10 +124,10 @@ MOCK_DEVICE_SWITCH = {
     ],
     "reported_state": [
         {"key": "on_off", "bool_value": True},
-        # Sber API: voltage/current/power — INTEGER без скейла (V/A/W).
-        # Подтверждено через MQTT-SberGate (PR #10).
+        # Sber API: voltage — вольты, power — ватты, current — миллиамперы
+        # (33 Вт при 222 В ≈ 149 мА).
         {"key": "cur_voltage", "type": "INTEGER", "integer_value": 222},
-        {"key": "cur_current", "type": "INTEGER", "integer_value": 1},
+        {"key": "cur_current", "type": "INTEGER", "integer_value": 149},
         {"key": "cur_power", "type": "INTEGER", "integer_value": 33},
     ],
     "attributes": [],

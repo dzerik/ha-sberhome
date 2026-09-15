@@ -54,9 +54,12 @@ async def async_setup_entry(
         if category not in _LIGHT_CATEGORIES:
             continue
         entities.append(SberLightEntity(coordinator, device_id))
-    # Sber-wide LED indicator (HSV) — глобальная настройка кольца на
-    # колонках. Прикрепляется к virtual device "Sber Indicator". Пользователь
+    # Sber-wide LED indicator (HSV) — настройка цвета индикации на уровне
+    # аккаунта. Прикрепляется к virtual device "Sber Indicator". Пользователь
     # может сменить цвет/яркость для статуса "online" из HA UI.
+    # Создаётся всегда: в приложении Сбера эту настройку показывают розеткам
+    # и выключателям с LED-индикацией (не только колонкам), а признака
+    # поддержки индикации в данных устройств интеграция пока не разбирает.
     entities.append(SberIndicatorLight(coordinator))
     async_add_entities(entities)
 

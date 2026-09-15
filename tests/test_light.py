@@ -166,7 +166,12 @@ class TestAvailability:
 class TestAsyncSetupEntry:
     @pytest.mark.asyncio
     async def test_creates_lights_and_indicator(self, light_coord):
-        """Setup: по SberLightEntity на лампу/ленту + один SberIndicatorLight."""
+        """Setup: по SberLightEntity на лампу/ленту + один SberIndicatorLight.
+
+        В аккаунте нет колонок, но индикатор всё равно создаётся: цвет
+        индикации в приложении Сбера настраивают и розеткам/выключателям.
+        unique_id прежний — существующая сущность пользователя не меняется.
+        """
         entry = MagicMock()
         entry.runtime_data = light_coord
         captured: list = []
@@ -179,3 +184,4 @@ class TestAsyncSetupEntry:
             "device_ledstrip_1",
         }
         assert len(indicators) == 1
+        assert indicators[0].unique_id == "sberhome_indicator_color"

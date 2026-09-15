@@ -25,7 +25,6 @@ from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
     Platform,
-    UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfPower,
     UnitOfPressure,
@@ -34,6 +33,7 @@ from homeassistant.const import (
 )
 
 from .feature_codecs import (
+    CURRENT_MILLIAMPS_CODEC,
     BoolCodec,
     EnumCodec,
     FeatureCodec,
@@ -329,20 +329,16 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         ),
         categories=_cats("socket", "relay"),
     ),
+    # Ток приходит в миллиамперах (как `current` в документации Sber C2C:
+    # «Текущий ток, мА», диапазон 0..30000), в HA показывается в амперах.
     "cur_current": FeatureSpec(
         platform=Platform.SENSOR,
-        codec=IntegerCodec(
-            unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-            device_class=SensorDeviceClass.CURRENT,
-        ),
+        codec=CURRENT_MILLIAMPS_CODEC,
         categories=_cats("socket", "relay"),
     ),
     "current": FeatureSpec(
         platform=Platform.SENSOR,
-        codec=IntegerCodec(
-            unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-            device_class=SensorDeviceClass.CURRENT,
-        ),
+        codec=CURRENT_MILLIAMPS_CODEC,
         categories=_cats("socket", "relay"),
     ),
     "cur_power": FeatureSpec(

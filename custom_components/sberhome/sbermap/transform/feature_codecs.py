@@ -13,7 +13,7 @@
 - `air_pressure` → INTEGER hPa без scale.
 - `hvac_temp_set` → INTEGER целые градусы (без × 10!).
 - `cur_voltage` / `cur_power` → INTEGER без scale (V / W).
-- `cur_current` → INTEGER без scale в Amperes (НЕ mA, как раньше думали).
+- `cur_current` / `current` → INTEGER в миллиамперах → HA амперы (× 0.001).
 - `light_brightness` → INTEGER в device-range (default 100..900) → HA 0..255.
 - `volume_int` → INTEGER 0..100 → HA 0.0..1.0.
 """
@@ -124,8 +124,9 @@ class FloatCodec:
 class IntegerScaleCodec:
     """INTEGER × scale (e.g. temperature: API 225 → HA 22.5).
 
-    `scale` — множитель API→HA. Для temperature scale=0.1 (API 225 → 22.5).
-    Для current (если бы был mA→A) scale=0.001.
+    `scale` — множитель API→HA. Для тока scale=0.001 (API 150 мА → 0.15 A).
+    Значение не числом (устройство прислало ENUM вместо INTEGER) даёт None,
+    как у `IntegerCodec`, а не роняет весь опрос.
     """
 
     scale: float = 1.0
@@ -137,14 +138,36 @@ class IntegerScaleCodec:
     icon: str | None = None
 
     def to_ha(self, sber_value: Any) -> float | None:
-        if sber_value is None:
+        if sber_value is None or isinstance(sber_value, bool):
             return None
-        return float(sber_value) * self.scale
+        try:
+            return float(sber_value) * self.scale
+        except (TypeError, ValueError):
+            return None
 
     def to_sber(self, ha_value: Any) -> int | None:
         if ha_value is None:
             return None
-        return int(round(float(ha_value) / self.scale))
+        try:
+            return int(round(float(ha_value) / self.scale))
+        except (TypeError, ValueError):
+            return None
+
+
+CURRENT_MILLIAMPS_CODEC = IntegerScaleCodec(
+    scale=0.001,
+    unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+    device_class=SensorDeviceClass.CURRENT,
+    suggested_display_precision=3,
+)
+"""Ток розеток и реле: Sber отдаёт INTEGER в миллиамперах, HA получает амперы.
+
+Единицу подтверждают независимо: документация Sber C2C для `current`
+(«Текущий ток, мА», диапазон 0..30000, пример 9000), приложение Сбера
+(график тока делит `cur_current` на 1000 перед показом в амперах) и показания
+реальных розеток. Раньше значение отдавалось как амперы без пересчёта, и
+нагрузка 150 мА показывалась как 150 А.
+"""
 
 
 @dataclass(slots=True, frozen=True)
@@ -306,8 +329,7 @@ FEATURE_CODECS: dict[str, FeatureCodec] = {
         suggested_display_precision=3,
     ),
     # ---- Power monitoring (socket / relay) ----
-    # NOTE: Sber API for cur_current — INTEGER в Amperes (не mA, как раньше думали).
-    # Подтверждено через MQTT-SberGate sister project + API analysis.
+    # cur_current — INTEGER в миллиамперах, см. CURRENT_MILLIAMPS_CODEC.
     # cur_voltage/cur_power — в SDK Float.valueOf (SocketStateConverter,
     # ThermostatStateConverter). IntegerCodec терял бы точность: 220.5V → 220V.
     "cur_voltage": FloatCodec(
@@ -315,12 +337,8 @@ FEATURE_CODECS: dict[str, FeatureCodec] = {
         device_class=SensorDeviceClass.VOLTAGE,
         suggested_display_precision=1,
     ),
-    # cur_current — в SDK Integer.valueOf (direct Amperes, не mA).
-    "cur_current": IntegerCodec(
-        unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-        device_class=SensorDeviceClass.CURRENT,
-        suggested_display_precision=2,
-    ),
+    # cur_current — в SDK Integer.valueOf: целые миллиамперы.
+    "cur_current": CURRENT_MILLIAMPS_CODEC,
     "cur_power": FloatCodec(
         unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
@@ -498,6 +516,7 @@ def to_sber(feature: str, ha_value: Any) -> Any:
 
 
 __all__ = [
+    "CURRENT_MILLIAMPS_CODEC",
     "FEATURE_CODECS",
     "BoolCodec",
     "EnumCodec",

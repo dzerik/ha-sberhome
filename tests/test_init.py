@@ -195,6 +195,7 @@ def _patch_setup_dependencies(
         ),
         "panel": patch("custom_components.sberhome._async_register_panel", AsyncMock()),
         "ws_api": patch("custom_components.sberhome.async_setup_websocket_api", MagicMock()),
+        "attr_labels": patch("custom_components.sberhome.async_load_attr_labels", AsyncMock()),
         "store": patch("custom_components.sberhome.HATokenStore", MagicMock()),
     }
     for p in patchers.values():
@@ -238,6 +239,7 @@ async def test_async_setup_entry_waits_for_first_refresh() -> None:
     try:
         result = await async_setup_entry(hass, entry)
         coord_cls = patchers["coord_cls"].target.SberHomeCoordinator
+        load_labels = patchers["attr_labels"].target.async_load_attr_labels
     finally:
         _stop_patchers(patchers)
 
@@ -250,6 +252,8 @@ async def test_async_setup_entry_waits_for_first_refresh() -> None:
     assert coord_cls.call_args.kwargs["shared_http"] is http_mock
     http_mock.aclose.assert_not_awaited()
     coord_mock.async_shutdown.assert_not_awaited()
+    # Подписи WS-форм загружены при настройке — обработчику не читать диск.
+    load_labels.assert_awaited_once_with(hass)
 
 
 @pytest.mark.asyncio

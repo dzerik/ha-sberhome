@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfElectricCurrent
 
 from custom_components.sberhome.sensor import SberSbermapSensor, async_setup_entry
 
@@ -148,9 +148,10 @@ class TestCurrentSensor:
         )
 
     def test_native_value(self, entity):
-        # Sber API: INTEGER в Amperes напрямую (НЕ mA, как раньше думали).
-        # Подтверждено через MQTT-SberGate (PR #10).
-        assert entity.native_value == 1
+        # Sber API: INTEGER в миллиамперах (149 мА при 33 Вт / 222 В),
+        # HA показывает амперы.
+        assert entity.native_value == pytest.approx(0.149)
+        assert entity.native_unit_of_measurement == UnitOfElectricCurrent.AMPERE
 
 
 class TestPowerSensor:
