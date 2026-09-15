@@ -69,6 +69,80 @@
     }
   },
   "services": {
+    "refresh": {
+      "name": "Holatni yangilash",
+      "description": "Sber bulutidan barcha qurilmalarning joriy holatini soʻrash va kolonka sozlamalarini (ekvalayzer, kanal rejimlari) qayta oʻqish. Avtomatlashtirishlarda datchiklarni oʻqishdan oldin va «Salyut!» ilovasidagi oʻzgarishlarni olish uchun foydali.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Integratsiya yozuvi",
+          "description": "Chaqiruv yoʻnaltirilgan SberHome yozuvi. Standart boʻyicha — SberHome paneli ishlaydigan yozuv."
+        }
+      }
+    },
+    "send_raw_command": {
+      "name": "Xom desired_state yuborish (debug)",
+      "description": "Sber API ga obyektlarni chetlab oʻtib ixtiyoriy desired_state roʻyxatini yuborish. Format bilan tajriba qilish uchun debug vositasi; javobda yuborilgan maʼlumotlar boʻladi. Faqat administratorlar uchun.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Integratsiya yozuvi",
+          "description": "Chaqiruv yoʻnaltirilgan SberHome yozuvi. Standart boʻyicha — SberHome paneli ishlaydigan yozuv."
+        },
+        "device_id": {
+          "name": "Qurilma ID",
+          "description": "Sber device_id (SberHome panelining «Diagnostika» yorligʻi). Faqat lotin harflari, raqamlar, - va _."
+        },
+        "state": {
+          "name": "Kerakli holat",
+          "description": "serialized formatidagi AttributeValueDto roʻyxati (har birida key majburiy; 64 ta atribut va 16 KB dan oshmasin). Misol: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+        }
+      }
+    },
+    "reload_intents": {
+      "name": "Ovozli buyruqlarni qayta oʻqish",
+      "description": "configuration.yaml dagi sberhome.intents va sberhome.listeners boʻlimlarini qayta oʻqib, ovozli buyruqlarni Home Assistant ni qayta ishga tushirmasdan Sber buluti bilan sinxronlash. Faqat administratorlar uchun.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Integratsiya yozuvi",
+          "description": "Chaqiruv yoʻnaltirilgan SberHome yozuvi. Standart boʻyicha — SberHome paneli ishlaydigan yozuv."
+        }
+      }
+    },
+    "tts_send": {
+      "name": "Matnni ovozlashtirish (TTS)",
+      "description": "Xabarni Sber kolonkalarida xizmat TTS-ssenariysi orqali ovozlashtirish. notify.send_message dan farqli ravishda bu yerda device_ids oddiy maydon. Standart boʻyicha — barcha uylarning barcha kolonkalari.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Integratsiya yozuvi",
+          "description": "Chaqiruv yoʻnaltirilgan SberHome yozuvi. Standart boʻyicha — SberHome paneli ishlaydigan yozuv."
+        },
+        "message": {
+          "name": "Xabar",
+          "description": "Ovozlashtirish uchun matn. Shablonlar qoʻllab-quvvatlanadi."
+        },
+        "device_ids": {
+          "name": "Kolonka ID lari",
+          "description": "Sber kolonkalari UUID roʻyxati. Buyruq faqat kolonkalar tegishli boʻlgan uyga yuboriladi. Boʻsh — barcha uylarning barcha kolonkalari."
+        }
+      }
+    },
+    "ttc_send": {
+      "name": "Assistentga buyruq (TTC)",
+      "description": "Xabarni Sber kolonkalarida xizmat TTC-ssenariysi orqali assistentga buyruq sifatida bajarish («Latifa aytib ber», «5 daqiqaga taymer qoʻy»). notify.send_message dan farqli ravishda bu yerda device_ids oddiy maydon. Standart boʻyicha — barcha uylarning barcha kolonkalari.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Integratsiya yozuvi",
+          "description": "Chaqiruv yoʻnaltirilgan SberHome yozuvi. Standart boʻyicha — SberHome paneli ishlaydigan yozuv."
+        },
+        "message": {
+          "name": "Xabar",
+          "description": "Assistentga buyruq matni (soʻzma-soʻz ovozlashtirilmaydi, bajariladi). Shablonlar qoʻllab-quvvatlanadi."
+        },
+        "device_ids": {
+          "name": "Kolonka ID lari",
+          "description": "Sber kolonkalari UUID roʻyxati. Buyruq faqat kolonkalar tegishli boʻlgan uyga yuboriladi. Boʻsh — barcha uylarning barcha kolonkalari."
+        }
+      }
+    },
     "send_custom_key": {
       "name": "Tugmani yuborish",
       "description": "SberHome televizoriga tugma bosishni (confirm/back/home) yuborish.",
@@ -386,6 +460,39 @@
     },
     "cloud_error": {
       "message": "Sber buluti kutilmagan javob qaytardi. Keyinroq qayta urinib ko'ring."
+    },
+    "refresh_failed": {
+      "message": "SberHome ma'lumotlarini yangilab bo'lmadi. Tafsilotlar jurnalda."
+    },
+    "speaker_settings_refresh_failed": {
+      "message": "Qurilmalar yangilandi, lekin Sber karnaylari sozlamalarini yuklab bo'lmadi. Keyinroq qayta urinib ko'ring."
+    },
+    "config_entry_not_found": {
+      "message": "SberHome {config_entry_id} yozuvi topilmadi."
+    },
+    "no_config_entry": {
+      "message": "SberHome sozlanmagan. Integratsiyani «Sozlamalar → Qurilmalar va xizmatlar» boʻlimida qoʻshing."
+    },
+    "config_entry_not_loaded": {
+      "message": "SberHome «{title}» yozuvi yuklanmagan. Uning holatini «Sozlamalar → Qurilmalar va xizmatlar» boʻlimida tekshiring."
+    },
+    "yaml_unavailable": {
+      "message": "configuration.yaml faylini oʻqib boʻlmadi: {error}"
+    },
+    "yaml_invalid": {
+      "message": "configuration.yaml faylining sberhome boʻlimida xato bor: {error}"
+    },
+    "intents_reconcile_failed": {
+      "message": "YAML dagi ovozli buyruqlar Sber bulutida qoʻllanmadi ({count}): {intents}. Tafsilotlar jurnalda."
+    },
+    "speakers_not_found": {
+      "message": "Sber kolonkalari topilmadi. device_ids ni tekshiring yoki «Salyut!» ilovasida uyga kolonka qoʻshing."
+    },
+    "no_speakers_in_home": {
+      "message": "«{home}» uyida Sber kolonkalari yoʻq. «Salyut!» ilovasida bu uyga SberBoom, Portal yoki Satellite qoʻshing."
+    },
+    "message_template_error": {
+      "message": "Matndagi shablonni qayta ishlab boʻlmadi: {error}"
     }
   }
 }

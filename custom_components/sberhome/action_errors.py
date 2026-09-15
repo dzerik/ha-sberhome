@@ -14,7 +14,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    HomeAssistantError,
+    ServiceValidationError,
+)
+from homeassistant.helpers.translation import async_get_translations
 
 from .aiosber.exceptions import (
     ApiError,
@@ -136,3 +142,72 @@ async def async_translate_cloud_errors(
     except SberError as err:
         LOGGER.warning("Unexpected cloud response during an action: %s", err)
         raise HomeAssistantError(translation_domain=DOMAIN, translation_key="cloud_error") from err
+
+
+def refresh_failure(coordinator: SberHomeCoordinator) -> HomeAssistantError:
+    """Ошибка действия для неудавшегося опроса устройств координатором.
+
+    ``DataUpdateCoordinator.async_refresh`` не пробрасывает ошибку опроса:
+    он пишет её в журнал, запускает повторный вход при
+    ``ConfigEntryAuthFailed`` и сохраняет в ``last_exception``. Здесь эта
+    ошибка (и исходная ошибка aiosber в ``__cause__``) переводится в
+    исключение с ключом перевода для сервиса.
+
+    Args:
+        coordinator: Координатор, у которого ``last_update_success`` ложно.
+
+    Returns:
+        Исключение для ``raise ... from coordinator.last_exception``.
+    """
+    err = coordinator.last_exception
+    cause = err.__cause__ if err is not None else None
+    if isinstance(err, ConfigEntryAuthFailed):
+        key, placeholders = "auth_failed", None
+    elif isinstance(cause, RateLimitError) or coordinator.rate_limited:
+        key, placeholders = "rate_limited", None
+    elif isinstance(cause, NetworkError):
+        key, placeholders = "cloud_unreachable", None
+    elif isinstance(cause, ApiError):
+        key, placeholders = "api_error", {"status": str(cause.status_code)}
+    elif isinstance(cause, SberError):
+        key, placeholders = "cloud_error", None
+    else:
+        key, placeholders = "refresh_failed", None
+    return HomeAssistantError(
+        translation_domain=DOMAIN,
+        translation_key=key,
+        translation_placeholders=placeholders,
+    )
+
+
+async def async_error_message(hass: HomeAssistant, err: BaseException) -> str:
+    """Текст ошибки для панели на языке Home Assistant.
+
+    WebSocket-команды панели отдают ошибку строкой. ``str()`` у исключения с
+    ключом перевода всегда даёт английский текст (а пока переводы не
+    загружены — сам ключ), поэтому сообщение собирается из переводов
+    ``exceptions`` на языке, выбранном в настройках Home Assistant.
+
+    Args:
+        hass: Экземпляр Home Assistant.
+        err: Пойманное исключение.
+
+    Returns:
+        Переведённое сообщение, а для исключений без ключа перевода или с
+        отсутствующим переводом — ``str(err)``.
+    """
+    if (
+        isinstance(err, HomeAssistantError)
+        and err.translation_domain is not None
+        and err.translation_key is not None
+    ):
+        translations = await async_get_translations(
+            hass, hass.config.language, "exceptions", {err.translation_domain}
+        )
+        key = f"component.{err.translation_domain}.exceptions.{err.translation_key}.message"
+        if template := translations.get(key):
+            try:
+                return template.format(**(err.translation_placeholders or {}))
+            except (KeyError, IndexError, ValueError):
+                return template
+    return str(err)

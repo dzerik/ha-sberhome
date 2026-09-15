@@ -191,10 +191,12 @@ async def test_update_data_connection_error(coordinator, mock_client):
 async def test_update_data_rate_limited(coordinator, mock_client):
     """429 от облака откладывает следующий опрос на Retry-After."""
     mock_client.device_service.refresh.side_effect = RateLimitError(retry_after=120)
+    assert not coordinator.rate_limited
     with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
     assert exc.value.retry_after == 120
     assert coordinator.consecutive_failures == 1
+    assert coordinator.rate_limited
 
 
 @pytest.mark.asyncio

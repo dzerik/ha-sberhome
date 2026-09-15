@@ -10,6 +10,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.sberhome import _async_register_services
 
@@ -91,10 +92,11 @@ async def test_tts_send_unknown_device_sends_nothing():
     coord = _coord_two_homes()
     tts_send = _handlers(_make_hass(coord))["tts_send"]
 
-    res = await tts_send(_call(message="hi", device_ids=["zzz"]))
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await tts_send(_call(message="hi", device_ids=["zzz"]))
 
     coord.tts_service.send.assert_not_awaited()
-    assert res["ok"] is False
+    assert exc_info.value.translation_key == "speakers_not_found"
 
 
 @pytest.mark.asyncio

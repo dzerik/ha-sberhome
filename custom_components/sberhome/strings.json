@@ -68,6 +68,80 @@
     }
   },
   "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Poll the Sber cloud for the current state of all devices and re-read speaker settings (equalizer, channel modes). Useful in automations before reading sensors and to pick up changes made in the Salute app.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "SberHome config entry to use. Defaults to the entry the SberHome panel works with."
+        }
+      }
+    },
+    "send_raw_command": {
+      "name": "Send raw desired_state (debug)",
+      "description": "Send an arbitrary desired_state list to the Sber API, bypassing entities. A debugging tool for experimenting with the wire format; the response contains the sent payload. Administrators only.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "SberHome config entry to use. Defaults to the entry the SberHome panel works with."
+        },
+        "device_id": {
+          "name": "Device ID",
+          "description": "Sber device_id (see the Diagnostics tab of the SberHome panel). Latin letters, digits, - and _ only."
+        },
+        "state": {
+          "name": "Desired state",
+          "description": "List of AttributeValueDto objects in serialized format (each needs a key; at most 64 attributes and 16 KB). Example: [{\"key\":\"on_off\",\"type\":\"BOOL\",\"bool_value\":true}]"
+        }
+      }
+    },
+    "reload_intents": {
+      "name": "Reload intents",
+      "description": "Re-read the sberhome.intents and sberhome.listeners sections of configuration.yaml and sync voice intents with the Sber cloud without restarting Home Assistant. Administrators only.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "SberHome config entry to use. Defaults to the entry the SberHome panel works with."
+        }
+      }
+    },
+    "tts_send": {
+      "name": "Speak text (TTS)",
+      "description": "Speak the message on Sber speakers via the TTS surrogate scenario. Unlike notify.send_message, device_ids is a regular field here. By default all speakers in all homes are used.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "SberHome config entry to use. Defaults to the entry the SberHome panel works with."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Text to speak. Templates are supported."
+        },
+        "device_ids": {
+          "name": "Device IDs",
+          "description": "List of Sber speaker UUIDs. The command goes only to the home that owns the speakers. Empty — all speakers in all homes."
+        }
+      }
+    },
+    "ttc_send": {
+      "name": "Assistant command (TTC)",
+      "description": "Run the message as an assistant command on Sber speakers via the TTC surrogate scenario (\"Tell a joke\", \"Set a timer for 5 minutes\"). Unlike notify.send_message, device_ids is a regular field here. By default all speakers in all homes are used.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "SberHome config entry to use. Defaults to the entry the SberHome panel works with."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Assistant command text (executed, not spoken verbatim). Templates are supported."
+        },
+        "device_ids": {
+          "name": "Device IDs",
+          "description": "List of Sber speaker UUIDs. The command goes only to the home that owns the speakers. Empty — all speakers in all homes."
+        }
+      }
+    },
     "send_custom_key": {
       "name": "Send custom key",
       "description": "Send a custom key press (confirm/back/home) to a SberHome TV.",
@@ -385,6 +459,39 @@
     },
     "cloud_error": {
       "message": "Sber cloud returned an unexpected response. Try again later."
+    },
+    "refresh_failed": {
+      "message": "Could not refresh SberHome data. Details are in the log."
+    },
+    "speaker_settings_refresh_failed": {
+      "message": "Devices were refreshed, but Sber speaker settings could not be loaded. Try again later."
+    },
+    "config_entry_not_found": {
+      "message": "SberHome config entry {config_entry_id} was not found."
+    },
+    "no_config_entry": {
+      "message": "SberHome is not set up. Add the integration in Settings → Devices & services."
+    },
+    "config_entry_not_loaded": {
+      "message": "SberHome config entry \"{title}\" is not loaded. Check its state in Settings → Devices & services."
+    },
+    "yaml_unavailable": {
+      "message": "Could not read configuration.yaml: {error}"
+    },
+    "yaml_invalid": {
+      "message": "The sberhome section of configuration.yaml is invalid: {error}"
+    },
+    "intents_reconcile_failed": {
+      "message": "Voice intents from YAML were not applied in the Sber cloud ({count}): {intents}. Details are in the log."
+    },
+    "speakers_not_found": {
+      "message": "No Sber speakers found. Check device_ids or add a speaker to the home in the Salute app."
+    },
+    "no_speakers_in_home": {
+      "message": "There are no Sber speakers in home \"{home}\". Add a SberBoom, Portal or Satellite to this home in the Salute app."
+    },
+    "message_template_error": {
+      "message": "Could not render the template in the text: {error}"
     }
   }
 }

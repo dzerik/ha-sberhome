@@ -486,6 +486,11 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._ws_client.is_connected if self._ws_client is not None else False
 
     @property
+    def rate_limited(self) -> bool:
+        """Идёт ли пауза после ответа облака 429: опрос устройств не уходит в облако."""
+        return self._rate_limited_until > time.monotonic()
+
+    @property
     def auth_manager(self) -> AuthManagerProtocol:
         """AuthManager (SberID или CSAFront) для panel status + WS handshake."""
         return self._auth_manager

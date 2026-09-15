@@ -14,6 +14,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
+from ..action_errors import async_error_message
 from ._common import get_coordinator
 from .tts_surrogate import _serialize_speaker
 
@@ -111,7 +112,9 @@ async def ws_ensure_ttc_surrogate(
         sc_id = await coord.ttc_service.get_surrogate_id(msg["home_id"])
     except Exception as err:
         _LOGGER.exception("ws ensure_ttc_surrogate failed")
-        connection.send_result(msg["id"], {"ok": False, "error": str(err)})
+        connection.send_result(
+            msg["id"], {"ok": False, "error": await async_error_message(hass, err)}
+        )
         return
     connection.send_result(msg["id"], {"ok": True, "scenario_id": sc_id})
 
@@ -144,7 +147,9 @@ async def ws_test_ttc_surrogate(
         )
     except Exception as err:
         _LOGGER.exception("ws test_ttc_surrogate failed")
-        connection.send_result(msg["id"], {"ok": False, "error": str(err)})
+        connection.send_result(
+            msg["id"], {"ok": False, "error": await async_error_message(hass, err)}
+        )
         return
     latency_ms = int((time.monotonic() - started) * 1000)
     connection.send_result(msg["id"], {"ok": True, "latency_ms": latency_ms})

@@ -300,7 +300,7 @@ class TestRenderPhraseTemplates:
 
     @pytest.mark.asyncio
     async def test_create_bad_template_raises_before_api_call(self, hass):
-        from homeassistant.exceptions import HomeAssistantError
+        from homeassistant.exceptions import ServiceValidationError
 
         service, coord = _build_service(create_response={"result": SAMPLE_SCENARIO})
         coord.hass = hass
@@ -315,7 +315,9 @@ class TestRenderPhraseTemplates:
                 )
             ],
         )
-        with pytest.raises(HomeAssistantError, match="отрендерить шаблон"):
+        with pytest.raises(ServiceValidationError) as exc_info:
             await service.create_intent(spec)
+        assert exc_info.value.translation_domain == "sberhome"
+        assert exc_info.value.translation_key == "message_template_error"
         # Sber API НЕ должен быть дёрнут — render падает до запроса
         coord.client.transport.post.assert_not_awaited()

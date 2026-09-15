@@ -81,9 +81,12 @@ def loaded_coordinator(hass: HomeAssistant) -> Iterator[MagicMock]:
     """Загруженная запись с координатором-заглушкой; сеть не используется."""
     coord = MagicMock()
     coord.client.transport.put = AsyncMock()
-    coord.async_request_refresh = AsyncMock()
+    coord.async_refresh = AsyncMock()
+    coord.last_update_success = True
     coord.async_refresh_staros = AsyncMock()
-    coord.state_cache.get_homes.return_value = []
+    coord.state_cache.get_homes.return_value = [MagicMock(id="H1")]
+    coord.tts_service.send = AsyncMock()
+    coord.ttc_service.send = AsyncMock()
     entry = MagicMock()
     entry.runtime_data = coord
     with patch.object(hass.config_entries, "async_loaded_entries", return_value=[entry]):

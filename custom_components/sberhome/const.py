@@ -11,6 +11,11 @@ DOMAIN = "sberhome"
 SPEAKER_MERGE_DOMAIN = "sber_speaker"
 LOGGER = logging.getLogger(__package__)
 
+NO_SPEAKERS_IN_HOME = "no_speakers_in_home"
+"""Ключ перевода ошибки «в доме нет колонок Sber» (TTS/TTC-суррогаты)."""
+MESSAGE_TEMPLATE_ERROR = "message_template_error"
+"""Ключ перевода ошибки рендера Jinja-шаблона в тексте для колонки."""
+
 DEFAULT_SCAN_INTERVAL = 30  # seconds (user-настраиваемый, fallback когда WS offline)
 MIN_SCAN_INTERVAL = 10  # seconds — общий диапазон для формы параметров и панели
 MAX_SCAN_INTERVAL = 3600

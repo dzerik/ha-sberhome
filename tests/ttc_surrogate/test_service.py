@@ -79,8 +79,10 @@ async def test_create_without_speakers_raises():
 
     coord = _make_coord_with_home("home-1")
     svc = TtcSurrogateService(coord)
-    with pytest.raises(HomeAssistantError, match="нет колонок Sber"):
+    with pytest.raises(HomeAssistantError) as exc_info:
         await svc.get_surrogate_id("home-1")
+    assert exc_info.value.translation_domain == "sberhome"
+    assert exc_info.value.translation_key == "no_speakers_in_home"
     coord.client.scenarios.create.assert_not_awaited()
 
 
@@ -120,8 +122,9 @@ async def test_send_no_device_ids_raises():
 
     coord = _make_coord_with_home("home-1")
     svc = TtcSurrogateService(coord)
-    with pytest.raises(HomeAssistantError, match="No speakers"):
+    with pytest.raises(HomeAssistantError) as exc_info:
         await svc.send("home-1", "hi", [])
+    assert exc_info.value.translation_key == "no_speakers_in_home"
 
 
 @pytest.mark.parametrize("status", [403, 404])

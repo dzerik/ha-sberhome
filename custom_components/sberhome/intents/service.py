@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.exceptions import ServiceValidationError, TemplateError
 from homeassistant.helpers.template import Template
 
+from ..const import DOMAIN, MESSAGE_TEMPLATE_ERROR
 from .encoder import decode_scenario, encode_scenario
 from .spec import IntentSpec
 
@@ -169,8 +170,10 @@ class IntentService:
             try:
                 rendered = Template(phrase, self._coord.hass).async_render(parse_result=False)
             except TemplateError as err:
-                raise HomeAssistantError(
-                    f"Не удалось отрендерить шаблон в TTS-фразе: {err}"
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key=MESSAGE_TEMPLATE_ERROR,
+                    translation_placeholders={"error": str(err)},
                 ) from err
             action.data["phrase"] = str(rendered)
 

@@ -105,8 +105,11 @@ async def test_get_surrogate_id_create_without_speakers_raises():
     # get_all_devices пуст по умолчанию из _make_coord_with_home.
 
     svc = TtsSurrogateService(coord)
-    with pytest.raises(HomeAssistantError, match="нет колонок Sber"):
+    with pytest.raises(HomeAssistantError) as exc_info:
         await svc.get_surrogate_id("home-1")
+    assert exc_info.value.translation_domain == "sberhome"
+    assert exc_info.value.translation_key == "no_speakers_in_home"
+    assert exc_info.value.translation_placeholders == {"home": "Test"}
 
     coord.client.scenarios.create.assert_not_awaited()
 
@@ -136,8 +139,9 @@ async def test_send_no_device_ids_raises_home_assistant_error():
     coord.tts_surrogates["home-1"] = "cached-sc"
     svc = TtsSurrogateService(coord)
 
-    with pytest.raises(HomeAssistantError, match="No speakers"):
+    with pytest.raises(HomeAssistantError) as exc_info:
         await svc.send("home-1", "hi", [])
+    assert exc_info.value.translation_key == "no_speakers_in_home"
 
     coord.client.scenarios.update.assert_not_awaited()
 
@@ -410,16 +414,19 @@ async def test_concurrent_sends_different_homes_not_blocked():
     await asyncio.gather(t1, t2)
 
 
-async def test_send_bad_template_raises_home_assistant_error(hass):
-    from homeassistant.exceptions import HomeAssistantError
+async def test_send_bad_template_raises_service_validation_error(hass):
+    from homeassistant.exceptions import ServiceValidationError
 
     coord = _make_coord_with_home("home-1")
     coord.hass = hass
     coord.tts_surrogates["home-1"] = "cached-sc"
     svc = TtsSurrogateService(coord)
 
-    with pytest.raises(HomeAssistantError, match="отрендерить шаблон"):
+    with pytest.raises(ServiceValidationError) as exc_info:
         await svc.send("home-1", "Темп {{ unclosed", ["spk-1"])
+    assert exc_info.value.translation_domain == "sberhome"
+    assert exc_info.value.translation_key == "message_template_error"
+    assert exc_info.value.translation_placeholders["error"]
 
     coord.client.scenarios.update.assert_not_awaited()
     coord.client.scenarios.run.assert_not_awaited()

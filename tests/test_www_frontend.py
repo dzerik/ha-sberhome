@@ -296,3 +296,165 @@ def test_device_raw_json_is_a_block_with_copy_on_top() -> None:
     raw = src[src.index("  _renderRaw(raw) {") :]
     assert "<sberhome-json-block" in raw.split("\n  }\n")[0]
     assert "Copy JSON</button>" not in src
+
+
+# --------------------------------------------------------------------------- #
+# Backend errors
+# --------------------------------------------------------------------------- #
+
+
+def _backend_error_messages(tmp_path: Path, script: str) -> list[str]:
+    """Прогнать ``backendErrorMessage`` из ``i18n/index.js`` в node."""
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    for name in ("index.js", "dicts.js"):
+        (tmp_path / name).write_text(
+            (WWW / "i18n" / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    driver = tmp_path / "driver.js"
+    driver.write_text(
+        'import { backendErrorMessage } from "./index.js";\n'
+        f"{script}\n"
+        "console.log(JSON.stringify(out));\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(  # noqa: S603
+        [NODE, str(driver)], capture_output=True, text=True, check=True, timeout=60
+    )
+    return json.loads(proc.stdout)
+
+
+@requires_node
+def test_backend_error_is_shown_in_user_language(tmp_path: Path) -> None:
+    """Сервис поднимает ошибку с ключом перевода — панель показывает перевод, а не английский."""
+    out = _backend_error_messages(
+        tmp_path,
+        """
+const calls = [];
+const hass = {
+  language: "ru",
+  callWS: async (msg) => {
+    calls.push(msg);
+    return { resources: {
+      "component.sberhome.exceptions.command_rejected.message":
+        "Облако отклонило команду (HTTP {status}), {missing}",
+    } };
+  },
+};
+const out = [
+  await backendErrorMessage(hass, {
+    message: "The Sber cloud rejected the command (HTTP 400)",
+    translation_domain: "sberhome",
+    translation_key: "command_rejected",
+    translation_placeholders: { status: "400" },
+  }),
+  await backendErrorMessage(hass, {
+    message: "English fallback",
+    translation_domain: "sberhome",
+    translation_key: "unknown_key",
+  }),
+  await backendErrorMessage(hass, { message: "extra keys not allowed" }),
+  await backendErrorMessage(
+    { language: "ru", callWS: async () => { throw new Error("offline"); } },
+    { message: "Server text", translation_domain: "sberhome", translation_key: "x" },
+  ),
+  JSON.stringify(calls[0]),
+];
+""",
+    )
+
+    assert out[0] == "Облако отклонило команду (HTTP 400), {missing}"
+    assert out[1] == "English fallback"
+    assert out[2] == "extra keys not allowed"
+    assert out[3] == "Server text"
+    assert json.loads(out[4]) == {
+        "type": "frontend/get_translations",
+        "language": "ru",
+        "category": "exceptions",
+        "integration": ["sberhome"],
+    }
+
+
+@requires_node
+def test_debug_tab_shows_send_raw_command_error_in_user_language(tmp_path: Path) -> None:
+    """Вкладка «Отладка» панели (``<sberhome-debug-view>``) показывает ошибку ``send_raw_command`` переводом.
+
+    Сервис больше не отвечает ``{"ok": false}``, а поднимает исключение с
+    ключом перевода; в ``message`` сервер кладёт английский текст. Настоящий
+    модуль вкладки запускается в node с заглушками lit и дочерних компонентов.
+    """
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    (tmp_path / "i18n").mkdir()
+    (tmp_path / "components").mkdir()
+    for name in ("index.js", "dicts.js"):
+        (tmp_path / "i18n" / name).write_text(
+            (WWW / "i18n" / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    view = "components/sberhome-debug-view.js"
+    (tmp_path / view).write_text((WWW / view).read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "lit-base.js").write_text(
+        "export class LitElement {}\nexport const html = () => '';\nexport const css = () => '';\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "mobile-css.js").write_text("export const mobileBase = '';\n", encoding="utf-8")
+    for stub in ("sberhome-json-block.js", "sberhome-attr-form.js"):
+        (tmp_path / "components" / stub).write_text("export {};\n", encoding="utf-8")
+    driver = tmp_path / "driver.js"
+    driver.write_text(
+        """
+const defined = {};
+globalThis.customElements = { define: (name, cls) => { defined[name] = cls; } };
+globalThis.setTimeout = () => 0;
+await import("./components/sberhome-debug-view.js");
+const View = defined["sberhome-debug-view"];
+
+function makeView(callService) {
+  const view = new View();
+  view.hass = {
+    language: "ru",
+    callService,
+    callWS: async () => ({ resources: {
+      "component.sberhome.exceptions.command_rejected.message":
+        "Облако Сбера отклонило команду (HTTP {status}).",
+    } }),
+  };
+  view._selectedId = "dev1";
+  view._payload = '[{"key": "on_off", "type": "BOOL", "bool_value": true}]';
+  return view;
+}
+
+const failing = makeView(async () => {
+  throw {
+    code: "service_validation_error",
+    message: "Validation error: Sber cloud rejected the command as invalid (HTTP 400).",
+    translation_domain: "sberhome",
+    translation_key: "command_rejected",
+    translation_placeholders: { status: "400" },
+  };
+});
+await failing._send();
+
+const ok = makeView(async () => ({ response: { ok: true, device_id: "dev1" } }));
+await ok._send();
+
+console.log(JSON.stringify({
+  error: failing._error,
+  failingToast: failing._toast,
+  sending: failing._sending,
+  okError: ok._error,
+  okToast: ok._toast,
+  okResponse: ok._response,
+}));
+""",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(  # noqa: S603
+        [NODE, str(driver)], capture_output=True, text=True, check=True, timeout=60
+    )
+    out = json.loads(proc.stdout)
+
+    assert out["error"] == "Облако Сбера отклонило команду (HTTP 400)."
+    assert out["failingToast"] == ""
+    assert out["sending"] is False
+    assert out["okError"] == ""
+    assert out["okToast"] == "Отправлено"
+    assert out["okResponse"] == {"ok": True, "device_id": "dev1"}

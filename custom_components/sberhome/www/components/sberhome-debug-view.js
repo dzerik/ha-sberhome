@@ -9,7 +9,7 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { mobileBase } from "../mobile-css.js";
-import { Localized } from "../i18n/index.js";
+import { Localized, backendErrorMessage } from "../i18n/index.js";
 import "./sberhome-json-block.js";
 
 // Форма по возможностям устройства (device_write_schema) — та же, что в
@@ -114,12 +114,11 @@ class SberHomeDebugView extends Localized(LitElement) {
         true,
       );
       this._response = resp?.response ?? resp ?? { ok: true };
-      this._toast =
-        this._response?.ok === false
-          ? this.t("common.error", { error: this._response.error || "?" })
-          : this.t("common.sent");
+      this._toast = this.t("common.sent");
     } catch (err) {
-      this._error = err?.message || String(err);
+      // Сервис при ошибке поднимает исключение с ключом перевода: сервер
+      // кладёт в message английский текст, перевод берём у Home Assistant.
+      this._error = await backendErrorMessage(this.hass, err);
     } finally {
       this._sending = false;
       setTimeout(() => (this._toast = ""), 3000);

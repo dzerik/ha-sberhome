@@ -6,7 +6,7 @@ import contextlib
 import json
 import pathlib
 import re
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import voluptuous as vol
@@ -15,13 +15,20 @@ from homeassistant.components.frontend import (
     async_remove_panel,
 )
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.const import Platform
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_CONFIG_ENTRY_ID, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    HomeAssistantError,
+    ServiceValidationError,
+)
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.loader import async_get_integration
 
 from ._ha_token_store import HACsafrontTokenStore, HATokenStore
+from .action_errors import async_translate_cloud_errors, refresh_failure
 from .aiosber.api import StarosSettingsAPI
 from .aiosber.auth import (
     AuthManager,
@@ -47,6 +54,7 @@ from .const import (
     ENTRY_DATA_OPTIONS,
     ENTRY_DATA_PLATFORMS_FORWARDED,
     LOGGER,
+    NO_SPEAKERS_IN_HOME,
     entry_data_key,
 )
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
@@ -165,13 +173,29 @@ def _validate_raw_state(value: Any) -> list[dict[str, Any]]:
     return value
 
 
+CONFIG_ENTRY_FIELD = {vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string}
+"""Необязательное поле сервисов: запись SberHome, к которой адресован вызов."""
+
+SERVICE_ENTRY_SCHEMA = vol.Schema(CONFIG_ENTRY_FIELD)
+"""Схема сервисов без собственных полей (`refresh`, `reload_intents`)."""
+
 SEND_RAW_COMMAND_SCHEMA = vol.Schema(
     {
+        **CONFIG_ENTRY_FIELD,
         vol.Required("device_id"): vol.All(str, vol.Match(RAW_DEVICE_ID_RE)),
         vol.Required("state"): _validate_raw_state,
     }
 )
 """Схема `sberhome.send_raw_command`: безопасный device_id и ограниченный payload."""
+
+SURROGATE_SEND_SCHEMA = vol.Schema(
+    {
+        **CONFIG_ENTRY_FIELD,
+        vol.Required("message"): str,
+        vol.Optional("device_ids"): [str],
+    }
+)
+"""Схема `sberhome.tts_send` и `sberhome.ttc_send`."""
 
 _PANEL_URL_PATH = "sberhome"
 _PANEL_STATIC_PATH = "/sberhome_panel"
@@ -235,6 +259,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 len(listener_specs),
             )
     hass.data[_HASS_DATA_YAML_LISTENERS] = listener_specs
+
+    # Сервисы регистрируются здесь, а не при настройке записи: так они видны
+    # и проверяются, даже когда запись не загружена, а вызов в этот момент
+    # получает понятную ошибку, а не «сервис не найден».
+    _async_register_services(hass)
 
     # Вторую запись добавить уже нельзя (single_config_entry), но созданные
     # до этого остаются — замечание в Repairs говорит, какой из них управляет
@@ -463,10 +492,6 @@ async def _async_start_entry(
     hass.data[entry_data_key(ENTRY_DATA_OPTIONS, entry.entry_id)] = dict(entry.options)
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
 
-    # Debug service для ручной отправки raw desired_state. Регистрируется
-    # один раз (первый setup'ом) — idempotent через hass.data-маркер.
-    _async_register_services(hass)
-
     # YAML-driven intents reconcile — best-effort, не блокирует setup
     # при ошибке. Применяется после первого успешного refresh, чтобы
     # state_cache.get_homes() уже знал все дома (нужен intent service
@@ -597,8 +622,62 @@ def _async_apply_yaml_listeners(hass: HomeAssistant, coordinator: SberHomeCoordi
     )
 
 
+@callback
+def _async_get_service_entry(hass: HomeAssistant, call: ServiceCall) -> SberHomeConfigEntry:
+    """Найти загруженную запись SberHome, к которой адресован вызов сервиса.
+
+    Без `config_entry_id` берётся та же запись, с которой работает панель:
+    первая загруженная (`websocket_api._common.get_config_entry`). Манифест
+    объявляет `single_config_entry`, так что обычно она единственная.
+
+    Args:
+        hass: Экземпляр Home Assistant.
+        call: Вызов сервиса; поле `config_entry_id` необязательно.
+
+    Returns:
+        Загруженная запись с координатором в `runtime_data`.
+
+    Raises:
+        ServiceValidationError: Записи с указанным id нет (или она чужого
+            домена), SberHome не настроен вовсе или запись не загружена.
+    """
+    entry_id: str | None = call.data.get(ATTR_CONFIG_ENTRY_ID)
+    if entry_id is not None:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="config_entry_not_found",
+                translation_placeholders={"config_entry_id": entry_id},
+            )
+    else:
+        loaded = hass.config_entries.async_loaded_entries(DOMAIN)
+        if loaded:
+            return cast(SberHomeConfigEntry, loaded[0])
+        entries = hass.config_entries.async_entries(DOMAIN, include_ignore=False)
+        if not entries:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="no_config_entry"
+            )
+        entry = entries[0]
+    if entry.state is not ConfigEntryState.LOADED:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="config_entry_not_loaded",
+            translation_placeholders={"title": entry.title},
+        )
+    return cast(SberHomeConfigEntry, entry)
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
-    """Регистрация сервисов интеграции.
+    """Регистрация сервисов интеграции (из `async_setup`, один раз на hass).
+
+    Каждый сервис принимает необязательный `config_entry_id` и работает с
+    одной записью (см. `_async_get_service_entry`). Ошибки — исключения
+    с переводом (`strings.json` → `exceptions`): `ServiceValidationError`
+    для неверного вызова, неизвестной или незагруженной записи,
+    `HomeAssistantError` для сбоев облака. При успехе сервисы возвращают
+    данные ответа, как и раньше (с `"ok": true`).
 
     Права доступа:
 
@@ -624,45 +703,32 @@ def _async_register_services(hass: HomeAssistant) -> None:
     именно ушло. Реальный HTTP-response от Sber логируется на DEBUG
     уровне.
     """
-    marker = f"{DOMAIN}_services_registered"
-    if hass.data.get(marker):
-        return
 
     async def _send_raw(call: ServiceCall) -> dict[str, object]:
         from datetime import UTC, datetime
 
+        entry = _async_get_service_entry(hass, call)
+        coord = entry.runtime_data
         device_id: str = call.data["device_id"]
         state: list[dict[str, Any]] = call.data["state"]
-
-        # Находим любой loaded coordinator (обычно один entry).
-        coord: SberHomeCoordinator | None = None
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-            coord = entry.runtime_data
-            break
-        if coord is None:
-            return {"ok": False, "error": "No loaded sberhome entry"}
 
         # Debug service: пишем raw через transport — без AttributeValueDto
         # парсинга, чтобы пользователь мог отправить даже некорректные
         # payloads и увидеть как gateway отреагирует.
         timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         try:
-            await coord.client.transport.put(
-                f"/devices/{device_id}/state",
-                json={
-                    "device_id": device_id,
-                    "desired_state": state,
-                    "timestamp": timestamp,
-                },
-            )
-        except Exception as err:
-            LOGGER.warning(
-                "send_raw_command to %s failed: %s (payload=%s)",
-                device_id,
-                err,
-                state,
-            )
-            return {"ok": False, "error": str(err), "device_id": device_id, "state": state}
+            async with async_translate_cloud_errors(coord):
+                await coord.client.transport.put(
+                    f"/devices/{device_id}/state",
+                    json={
+                        "device_id": device_id,
+                        "desired_state": state,
+                        "timestamp": timestamp,
+                    },
+                )
+        except HomeAssistantError:
+            LOGGER.warning("send_raw_command to %s failed (payload=%s)", device_id, state)
+            raise
 
         LOGGER.info("send_raw_command to %s: %s", device_id, state)
         return {"ok": True, "device_id": device_id, "state": state}
@@ -677,27 +743,40 @@ def _async_register_services(hass: HomeAssistant) -> None:
     )
 
     async def _refresh(call: ServiceCall) -> dict[str, object]:
-        """Принудительно обновить state всех sberhome entries из Sber Gateway.
+        """Принудительно обновить state записи из Sber Gateway.
 
         Полезно когда WS push молчит или лаг / нужно гарантированно свежее
         значение перед автоматизацией. Возвращает число обновлённых entry.
+
+        Опрос идёт через ``async_refresh``, а не debounced
+        ``async_request_refresh``: автоматизация ждёт результат именно этого
+        вызова, и сбой опроса должен остановить её, а не пропасть в журнале.
+
+        Raises:
+            HomeAssistantError: Опрос устройств или настроек колонок не удался.
         """
-        refreshed = 0
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-            coord: SberHomeCoordinator = entry.runtime_data
-            coord.reset_background_polls()
-            await coord.async_request_refresh()
-            # Форсируем и настройки колонок (/v18) — они на отдельном опросе,
-            # обычный refresh их не тянет. Так action «Обновить» подтягивает
-            # правки, сделанные в приложении Сбера.
-            await coord.async_refresh_staros()
-            refreshed += 1
-        return {"ok": True, "refreshed_entries": refreshed}
+        coord = _async_get_service_entry(hass, call).runtime_data
+        coord.reset_background_polls()
+        await coord.async_refresh()
+        if not coord.last_update_success:
+            raise refresh_failure(coord) from coord.last_exception
+        # Форсируем и настройки колонок (/v18) — они на отдельном опросе,
+        # обычный refresh их не тянет. Так action «Обновить» подтягивает
+        # правки, сделанные в приложении Сбера. False при недоступном домене
+        # (SMS-вход, облако отказало этому входу в доступе — домен отключается)
+        # — не сбой; сбой — когда домен после попытки по-прежнему доступен.
+        if not await coord.async_refresh_staros() and coord.has_staros_settings():
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="speaker_settings_refresh_failed",
+            )
+        return {"ok": True, "refreshed_entries": 1}
 
     hass.services.async_register(
         DOMAIN,
         "refresh",
         _refresh,
+        schema=SERVICE_ENTRY_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
 
@@ -705,32 +784,46 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Перечитать `configuration.yaml:sberhome.intents` + reconcile.
 
         Не требует рестарта HA — удобно после правки YAML.
-        Возвращает отчёт ReconcileReport.to_dict() для каждого
-        loaded entry. Additive: orphan'ы только логируются, не
-        удаляются.
+        Возвращает отчёт ReconcileReport.to_dict() под entry_id записи.
+        Additive: orphan'ы только логируются, не удаляются.
+
+        Raises:
+            ServiceValidationError: Запись не найдена или не загружена,
+                YAML не разбирается или не проходит схему.
+            HomeAssistantError: `configuration.yaml` не читается или часть
+                intent'ов не применилась в облаке.
         """
         from homeassistant.config import load_yaml_config_file
+
+        entry = _async_get_service_entry(hass, call)
+        coord = entry.runtime_data
 
         try:
             # HA helper: возвращает уже распарсенный configuration.yaml.
             yaml_path = hass.config.path("configuration.yaml")
             yaml_config = await hass.async_add_executor_job(load_yaml_config_file, yaml_path)
-        except (FileNotFoundError, OSError) as err:
-            return {"ok": False, "error": f"YAML недоступен: {err}"}
-        except Exception as err:
-            return {"ok": False, "error": f"YAML parse failed: {err}"}
+        except OSError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="yaml_unavailable",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except HomeAssistantError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="yaml_invalid",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
-        # Валидируем через CONFIG_SCHEMA
         try:
             validated = CONFIG_SCHEMA({DOMAIN: yaml_config.get(DOMAIN) or {}})
-        except vol.Invalid as err:
-            return {"ok": False, "error": f"YAML schema invalid: {err}"}
-
-        raw_intents = validated[DOMAIN].get(CONF_INTENTS) or []
-        try:
-            specs = load_intents_from_config(raw_intents)
+            specs = load_intents_from_config(validated[DOMAIN].get(CONF_INTENTS) or [])
         except (vol.Invalid, ValueError) as err:
-            return {"ok": False, "error": str(err)}
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="yaml_invalid",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
         hass.data[_HASS_DATA_YAML_INTENTS] = specs
 
@@ -745,42 +838,40 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 raw_listeners, reserved_slugs=reserved_slugs
             )
         except (vol.Invalid, ValueError) as err:
-            return {"ok": False, "error": f"listeners: {err}"}
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="yaml_invalid",
+                translation_placeholders={"error": f"listeners: {err}"},
+            ) from err
         hass.data[_HASS_DATA_YAML_LISTENERS] = listener_specs
 
-        # Применяем ко всем loaded entry — обычно один.
-        results: dict[str, object] = {}
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-            coord: SberHomeCoordinator | None = entry.runtime_data
-            if coord is None:
-                continue
-            service = IntentService(coord)
-            try:
-                homes = coord.state_cache.get_homes()
-                report = await reconcile_intents(service, specs, homes=homes)
-                results[entry.entry_id] = report.to_dict()
-            except Exception as err:
-                LOGGER.exception("reload_intents reconcile failed")
-                results[entry.entry_id] = {"error": str(err)}
-            # Listeners применяются отдельно от reconcile — home_id резолв
-            # из state_cache + replace в coordinator.listener_registry.
-            try:
-                _async_apply_yaml_listeners(hass, coord)
-            except Exception:
-                LOGGER.exception("reload_intents: listeners apply failed")
+        report = await reconcile_intents(
+            IntentService(coord), specs, homes=coord.state_cache.get_homes()
+        )
+        # Listeners применяются отдельно от reconcile — home_id резолв
+        # из state_cache + replace в coordinator.listener_registry.
+        _async_apply_yaml_listeners(hass, coord)
 
         LOGGER.info(
-            "Service sberhome.reload_intents: %d intent(s) + %d listener(s) "
-            "processed across %d entry(ies)",
+            "Service sberhome.reload_intents: %d intent(s) + %d listener(s), %s",
             len(specs),
             len(listener_specs),
-            len(results),
+            report.summary_line(),
         )
+        if report.failed:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="intents_reconcile_failed",
+                translation_placeholders={
+                    "count": str(len(report.failed)),
+                    "intents": ", ".join(slug for slug, _reason in report.failed),
+                },
+            )
         return {
             "ok": True,
             "intents_count": len(specs),
             "listeners_count": len(listener_specs),
-            "results": results,
+            "results": {entry.entry_id: report.to_dict()},
         }
 
     async_register_admin_service(
@@ -788,6 +879,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "reload_intents",
         _reload_intents,
+        schema=SERVICE_ENTRY_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
 
@@ -803,49 +895,59 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (edit-then-run surrogate-сценария).
 
         Роутинг: указанные `device_ids` группируются по дому-владельцу через
-        `state_cache.device_home_id` — команда уходит ТОЛЬКО в тот дом (и тот
-        config entry), которому принадлежит колонка; чужие для данного кэша
-        UUID (`device_home_id is None`) отсекаются. Без `device_ids` —
-        broadcast: все дома всех entry, все колонки (`send` с None).
+        `state_cache.device_home_id` — команда уходит ТОЛЬКО в тот дом, которому
+        принадлежит колонка; чужие для данного кэша UUID (`device_home_id is
+        None`) отсекаются. Без `device_ids` — broadcast: все дома записи, все
+        колонки (`send` с None).
+
+        Отправка идёт во все найденные дома; если хоть в одном она не удалась,
+        после обхода поднимается первая ошибка.
+
+        Raises:
+            ServiceValidationError: Запись не найдена или не загружена, ни одна
+                колонка не найдена (дома без колонок при broadcast пропускаются),
+                шаблон текста не рендерится.
+            HomeAssistantError: Облако не приняло команду хотя бы для одного дома.
         """
+        entry = _async_get_service_entry(hass, call)
+        coord = entry.runtime_data
         message: str = call.data["message"]
         device_ids: list[str] | None = call.data.get("device_ids")
+        svc = getattr(coord, service_attr)
+        cache = coord.state_cache
+
+        targets: list[tuple[str, list[str] | None]]
+        if device_ids:
+            by_home: dict[str, list[str]] = {}
+            for did in device_ids:
+                home_id = cache.device_home_id(did)
+                if home_id:
+                    by_home.setdefault(home_id, []).append(did)
+            targets = list(by_home.items())
+        else:
+            targets = [(home.id, None) for home in cache.get_homes() if home.id]
 
         results: dict[str, object] = {}
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-            coord: SberHomeCoordinator = entry.runtime_data
-            svc = getattr(coord, service_attr, None)
-            if svc is None:
-                continue
-            cache = coord.state_cache
-
-            targets: list[tuple[str, list[str] | None]]
-            if device_ids:
-                by_home: dict[str, list[str]] = {}
-                for did in device_ids:
-                    home_id = cache.device_home_id(did)
-                    if home_id:
-                        by_home.setdefault(home_id, []).append(did)
-                targets = list(by_home.items())
-            else:
-                targets = [(home.id, None) for home in cache.get_homes() if home.id]
-
-            for home_id, ids in targets:
-                try:
+        errors: list[HomeAssistantError] = []
+        for home_id, ids in targets:
+            try:
+                async with async_translate_cloud_errors(coord):
                     await svc.send(home_id, message, ids)
-                    results[home_id] = "ok"
-                except Exception as err:
-                    LOGGER.warning("%s to home %s failed: %s", label, home_id, err)
-                    results[home_id] = {"error": str(err)}
+            except HomeAssistantError as err:
+                if ids is None and err.translation_key == NO_SPEAKERS_IN_HOME:
+                    # Broadcast: дом без колонок (дача, офис) просто пропускаем.
+                    continue
+                LOGGER.warning("%s to home %s failed: %r", label, home_id, err)
+                errors.append(err)
+            else:
+                results[home_id] = "ok"
 
+        if errors:
+            raise errors[0]
         if not results:
-            return {
-                "ok": False,
-                "error": (
-                    f"{label}: ни одна колонка не найдена — проверьте device_ids "
-                    "или наличие колонок Sber в доме"
-                ),
-            }
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="speakers_not_found"
+            )
         return {"ok": True, "results": results}
 
     async def _tts_send(call: ServiceCall) -> dict[str, object]:
@@ -856,22 +958,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Выполнить ассистент-команду `message` (TTC) на колонках Sber."""
         return await _surrogate_send(call, "ttc_service", "ttc_send")
 
-    _surrogate_schema = vol.Schema(
-        {
-            vol.Required("message"): str,
-            vol.Optional("device_ids"): [str],
-        }
-    )
     for _svc_name, _svc_handler in (("tts_send", _tts_send), ("ttc_send", _ttc_send)):
         hass.services.async_register(
             DOMAIN,
             _svc_name,
             _svc_handler,
-            schema=_surrogate_schema,
+            schema=SURROGATE_SEND_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL,
         )
-
-    hass.data[marker] = True
 
 
 async def _async_entry_updated(hass: HomeAssistant, entry: SberHomeConfigEntry) -> None:

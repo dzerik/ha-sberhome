@@ -20,11 +20,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError, TemplateError
 from homeassistant.helpers.template import Template
 
 from ..aiosber.exceptions import ApiError as _AiosberApiError
 from ..aiosber.exceptions import AuthError as _AiosberAuthError
+from ..const import DOMAIN, MESSAGE_TEMPLATE_ERROR, NO_SPEAKERS_IN_HOME
 from ..intents.encoder import encode_scenario
 from ..intents.spec import IntentAction, IntentSpec
 from ..sbermap.spec.ha_mapping import resolve_category
@@ -76,13 +77,7 @@ class TtcSurrogateService:
 
         speakers = self._all_speakers_in_home(home_id)
         if not speakers:
-            home_name = self._home_name(home_id) or home_id
-            raise HomeAssistantError(
-                f"В доме «{home_name}» нет колонок Sber. TTC-суррогат создаётся "
-                "с одной HEAD_DIALOG_COMMAND task, поэтому нужна хотя бы одна "
-                "колонка. Добавьте SberBoom/Portal/Satellite в этот дом через "
-                "приложение «Салют!»."
-            )
+            raise self._no_speakers_error(home_id)
 
         body = self._build_body(home_id, "Который час", speakers[:1])
         created = await self._coord.client.scenarios.create(body)
@@ -111,7 +106,7 @@ class TtcSurrogateService:
         if not device_ids:
             device_ids = self._all_speakers_in_home(home_id)
         if not device_ids:
-            raise HomeAssistantError(f"TTC surrogate: No speakers found in home {home_id}")
+            raise self._no_speakers_error(home_id)
 
         async with self._lock_for(home_id):
             scenario_id = await self._get_or_create_surrogate_locked(home_id)
@@ -146,8 +141,10 @@ class TtcSurrogateService:
         try:
             rendered = Template(command, self._coord.hass).async_render(parse_result=False)
         except TemplateError as err:
-            raise HomeAssistantError(
-                f"TTC surrogate: не удалось отрендерить шаблон команды: {err}"
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key=MESSAGE_TEMPLATE_ERROR,
+                translation_placeholders={"error": str(err)},
             ) from err
         return str(rendered)
 
@@ -186,6 +183,24 @@ class TtcSurrogateService:
             if category == SBER_SPEAKER_CATEGORY:
                 result.append(device_id)
         return result
+
+    def _no_speakers_error(self, home_id: str) -> HomeAssistantError:
+        """Ошибка «в доме нет колонок Sber» с переводом.
+
+        Surrogate-сценарий нельзя создать без колонки (Sber требует непустые
+        device_ids), а отправлять команду некуда.
+
+        Args:
+            home_id: Дом, в котором не нашлось колонок.
+
+        Returns:
+            Исключение для ``raise``.
+        """
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key=NO_SPEAKERS_IN_HOME,
+            translation_placeholders={"home": self._home_name(home_id) or home_id},
+        )
 
     def _home_name(self, home_id: str) -> str:
         for home in self._coord.state_cache.get_homes():

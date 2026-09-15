@@ -23,6 +23,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
+from ..action_errors import async_error_message
 from ..intents import (
     IntentService,
     IntentSpec,
@@ -146,7 +147,7 @@ async def ws_create_intent(
     try:
         result = await service.create_intent(spec)
     except Exception as err:
-        connection.send_error(msg["id"], "create_failed", str(err))
+        connection.send_error(msg["id"], "create_failed", await async_error_message(hass, err))
         return
     connection.send_result(msg["id"], result.to_dict())
 
@@ -172,7 +173,7 @@ async def ws_update_intent(
     try:
         result = await service.update_intent(msg["intent_id"], spec)
     except Exception as err:
-        connection.send_error(msg["id"], "update_failed", str(err))
+        connection.send_error(msg["id"], "update_failed", await async_error_message(hass, err))
         return
     connection.send_result(msg["id"], result.to_dict())
 
