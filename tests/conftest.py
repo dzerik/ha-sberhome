@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 
 from custom_components.sberhome.const import DOMAIN
 
@@ -718,6 +718,9 @@ def mock_config_entry():
     entry.source = "user"
     entry.entry_id = "test_entry_id"
     entry.runtime_data = None
+    # Атрибут экземпляра — spec класса его не знает; координатор смотрит на
+    # состояние записи, чтобы отличить первое обновление при настройке.
+    entry.state = ConfigEntryState.LOADED
     return entry
 
 

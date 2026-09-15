@@ -42,6 +42,14 @@ from .sbermap import (
 _LIGHT_CATEGORIES = {"light", "led_strip"}
 
 
+PARALLEL_UPDATES = 1
+"""Команды сущностей платформы уходят в облако Сбера по одной.
+
+Облако одно на весь аккаунт и на всплеск запросов отвечает 429; опрос состояния
+идёт через координатор и этим ограничением не задерживается.
+"""
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SberHomeConfigEntry,
@@ -293,6 +301,8 @@ class SberIndicatorLight(CoordinatorEntity[SberHomeCoordinator], LightEntity):
 
     @property
     def available(self) -> bool:
+        if not super().available:
+            return False
         return self.coordinator.indicator_colors is not None and bool(
             self.coordinator.indicator_colors.current_colors
         )

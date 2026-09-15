@@ -431,6 +431,101 @@ async def test_stable_session_resets_failure_counter(monkeypatch):
     assert factory_calls == 6
 
 
+async def test_connection_listener_reports_connects_and_failures(caplog):
+    """Listener узнаёт о каждом подключении и сбое; сам клиент не предупреждает.
+
+    Сценарий: подключение, штатное закрытие сервером, два неудачных
+    подключения (degraded exit). Штатное закрытие сбоем не считается.
+    """
+    import logging as logging_mod
+
+    from custom_components.sberhome.aiosber.exceptions import NetworkError
+
+    events: list[tuple[bool, BaseException | None]] = []
+    plan = ["ok", "fail", "fail"]
+    calls = 0
+
+    async def factory(url, headers):
+        nonlocal calls
+        step = plan[min(calls, len(plan) - 1)]
+        calls += 1
+        if step == "fail":
+            raise ConnectionError("refused")
+        return FakeWebSocket([])
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: None,
+        factory=factory,
+        backoff_initial=0.001,
+        backoff_max=0.001,
+        max_consecutive_failures=2,
+        connection_listener=lambda connected, err: events.append((connected, err)),
+    )
+    with caplog.at_level(logging_mod.DEBUG, logger="custom_components.sberhome.aiosber"):
+        await asyncio.wait_for(client.run(), timeout=5.0)
+
+    assert [connected for connected, _ in events] == [True, False, False]
+    assert events[0][1] is None
+    assert all(isinstance(err, NetworkError) for _, err in events[1:])
+    assert [r for r in caplog.records if r.levelno >= logging_mod.WARNING] == []
+
+
+async def test_connection_listener_error_does_not_break_loop():
+    """Сбой listener'а не останавливает клиент."""
+    received: list[SocketMessageDto] = []
+
+    def listener(connected, err):
+        raise RuntimeError("listener bug")
+
+    async def factory(url, headers):
+        return FakeWebSocket([_msg_device_state()], close_after_messages=False)
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: received.append(m),
+        factory=factory,
+        connection_listener=listener,
+    )
+    task = asyncio.create_task(client.run())
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+    assert client.is_connected
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1.0)
+    assert len(received) == 1
+
+
+async def test_auth_error_reported_to_listener_before_stopping():
+    """AuthError останавливает клиент, но listener узнаёт о сбое."""
+    from custom_components.sberhome.aiosber.exceptions import AuthError
+
+    events: list[tuple[bool, BaseException | None]] = []
+    auth = _build_auth()
+
+    async def failing_token() -> str:
+        raise AuthError("token revoked")
+
+    auth.access_token = failing_token  # type: ignore[method-assign]
+
+    async def factory(url, headers):  # pragma: no cover — до handshake не доходит
+        return FakeWebSocket([])
+
+    client = WebSocketClient(
+        auth=auth,
+        callback=lambda m: None,
+        factory=factory,
+        connection_listener=lambda connected, err: events.append((connected, err)),
+    )
+    with pytest.raises(AuthError):
+        await asyncio.wait_for(client.run(), timeout=1.0)
+    assert len(events) == 1
+    assert events[0][0] is False
+    assert isinstance(events[0][1], AuthError)
+
+
 async def test_unrecognized_message_shape_logged_and_dropped(caplog):
     """v5.12.2 (issue #35): payload без известных полей — debug-лог, не тишина."""
     import logging as logging_mod

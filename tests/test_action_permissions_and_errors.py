@@ -424,6 +424,7 @@ def _scenario_coordinator(
     coord = MagicMock(spec=SberHomeCoordinator)
     coord.hass = hass
     coord.config_entry = entry
+    coord.last_update_success = True
     coord.data = {}
     coord.scenarios = [ScenarioDto(id="s1", name="S", is_active=True)]
     coord.homes = [{"id": "H1", "name": "Дом"}]

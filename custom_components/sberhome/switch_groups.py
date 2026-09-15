@@ -58,7 +58,9 @@ class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
 
     @property
     def available(self) -> bool:
-        """True если хотя бы один device группы онлайн."""
+        """True если облако отвечает и хотя бы один device группы онлайн."""
+        if not super().available:
+            return False
         cache = self.coordinator.state_cache
         for device_id in self._device_ids():
             dto = cache.get_device(device_id)

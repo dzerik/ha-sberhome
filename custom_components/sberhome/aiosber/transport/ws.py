@@ -80,6 +80,15 @@ Headers содержит `Authorization: Bearer <companion_token>`.
 MessageCallback = Callable[[SocketMessageDto], Awaitable[None] | None]
 """Callback на каждое входящее WS-сообщение."""
 
+ConnectionListener = Callable[[bool, BaseException | None], None]
+"""Callable: ``listener(connected, error)`` — смена доступности соединения.
+
+``(True, None)`` — handshake прошёл; ``(False, err)`` — попытка подключения или
+открытое соединение завершились ошибкой (штатное закрытие сервером по TTL
+ошибкой не считается). Вызывается на каждой попытке: схлопнуть повторы в одну
+запись журнала — дело владельца, который переживает пересоздание клиента.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Default factory: lazy import websockets
@@ -123,6 +132,12 @@ class WebSocketClient:
         backoff_initial: первый delay reconnect, секунды.
         backoff_max: максимальный delay reconnect.
         backoff_multiplier: множитель при каждом провале (по умолчанию 2.0).
+        connection_listener: уведомляется об успешных подключениях и сбоях
+            соединения (см. ``ConnectionListener``).
+
+    Сбои соединения клиент пишет в журнал только на уровне debug: одну запись
+    о потере связи и одну о восстановлении делает владелец через
+    ``connection_listener``.
     """
 
     def __init__(
@@ -140,6 +155,7 @@ class WebSocketClient:
         backoff_max: float = 60.0,
         backoff_multiplier: float = 2.0,
         max_consecutive_failures: int | None = 5,
+        connection_listener: ConnectionListener | None = None,
     ) -> None:
         """
         Args:
@@ -159,6 +175,8 @@ class WebSocketClient:
                 отдаёт стабильный 4xx (неверный path) — лучше отказаться от WS
                 и работать на polling, чем спамить логи. None = бесконечно.
                 Сбрасывается при любом успешном recv-loop.
+            connection_listener: ``listener(connected, error)`` на каждое
+                успешное подключение и каждый сбой соединения.
         """
         self._auth = auth
         self._callback = callback
@@ -174,6 +192,7 @@ class WebSocketClient:
         self._backoff_max = backoff_max
         self._backoff_multiplier = backoff_multiplier
         self._max_consecutive_failures = max_consecutive_failures
+        self._connection_listener = connection_listener
 
         self._stop_event = asyncio.Event()
         self._connection: WebSocketProtocol | None = None
@@ -216,7 +235,7 @@ class WebSocketClient:
 
         Используется как long-running task: `task = asyncio.create_task(client.run())`.
         После `max_consecutive_failures` подряд connect-fails — graceful exit
-        в degraded mode (log WARN, return).
+        в degraded mode (return; сбои уже переданы в `connection_listener`).
         """
         backoff = self._backoff_initial
         consecutive_failures = 0
@@ -224,18 +243,20 @@ class WebSocketClient:
             self._connected_at = None
             try:
                 await self._connect_and_receive()
-            except AuthError:
+            except AuthError as err:
                 # Critical: refresh не помог. Останавливаемся, callback должен решить дальше.
-                _LOGGER.error("WebSocket auth failed, stopping")
+                _LOGGER.debug("WebSocket auth failed, stopping: %s", err)
+                self._notify_connection(False, err)
                 raise
             except SberError as err:
                 consecutive_failures += 1
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "WebSocket error (failure %d/%s): %s",
                     consecutive_failures,
                     self._max_consecutive_failures or "∞",
                     err,
                 )
+                self._notify_connection(False, err)
             except asyncio.CancelledError:
                 _LOGGER.debug("WebSocket cancelled")
                 raise
@@ -244,9 +265,10 @@ class WebSocketClient:
                 # periodically reconnect даже при нормальной работе). Не
                 # считаем это failure'ом, логируем debug вместо ERROR.
                 _LOGGER.debug("WebSocket closed by peer (%s)", err)
-            except Exception:
+            except Exception as err:
                 consecutive_failures += 1
-                _LOGGER.exception("Unexpected WebSocket error")
+                _LOGGER.debug("Unexpected WebSocket error", exc_info=True)
+                self._notify_connection(False, err)
 
             self._connected_event.clear()
 
@@ -267,9 +289,8 @@ class WebSocketClient:
                 self._max_consecutive_failures is not None
                 and consecutive_failures >= self._max_consecutive_failures
             ):
-                _LOGGER.warning(
-                    "WebSocket disabled after %d consecutive failures — "
-                    "degrading to polling-only mode. Restart integration to retry.",
+                _LOGGER.debug(
+                    "WebSocket stopped after %d consecutive failures — polling-only mode",
                     consecutive_failures,
                 )
                 return
@@ -297,6 +318,15 @@ class WebSocketClient:
         self._connected_event.clear()
 
     # ----- Internal -----
+    def _notify_connection(self, connected: bool, error: BaseException | None) -> None:
+        """Сообщить ``connection_listener`` о смене доступности (ошибки глотаются)."""
+        if self._connection_listener is None:
+            return
+        try:
+            self._connection_listener(connected, error)
+        except Exception:
+            _LOGGER.exception("WebSocket connection listener failed")
+
     async def _connect_and_receive(self) -> None:
         """Один цикл: получить токен → handshake → recv loop.
 
@@ -318,6 +348,7 @@ class WebSocketClient:
         self._connected_event.set()
         self._connected_at = time.monotonic()
         _LOGGER.debug("WebSocket connected to %s", url)
+        self._notify_connection(True, None)
         try:
             while not self._stop_event.is_set():
                 raw = await conn.recv()

@@ -19,6 +19,13 @@ from .sbermap import HaEntityData, build_switch_command
 from .staros_settings_entity import SberStarosSettingBase
 from .switch_groups import SberGroupSwitch
 
+PARALLEL_UPDATES = 1
+"""Команды сущностей платформы уходят в облако Сбера по одной.
+
+Облако одно на весь аккаунт и на всплеск запросов отвечает 429; опрос состояния
+идёт через координатор и этим ограничением не задерживается.
+"""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -126,7 +133,7 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
 
     @property
     def available(self) -> bool:
-        return self._home_id in self.coordinator.at_home
+        return super().available and self._home_id in self.coordinator.at_home
 
     @property
     def is_on(self) -> bool | None:
@@ -176,7 +183,7 @@ class SberScenarioActiveSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEnt
 
     @property
     def available(self) -> bool:
-        return self._scenario() is not None
+        return super().available and self._scenario() is not None
 
     @property
     def is_on(self) -> bool | None:

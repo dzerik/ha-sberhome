@@ -20,6 +20,9 @@ from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData
 
+PARALLEL_UPDATES = 0
+"""Без ограничения: сущности платформы берут данные у координатора и сами в облако не ходят."""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

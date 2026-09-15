@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from email.utils import format_datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -243,21 +244,30 @@ async def test_refresh_requested_inside_window_does_not_reach_cloud(
     unsub()
 
 
-async def test_rate_limit_warning_is_logged_once_per_episode(
+async def test_rate_limit_episode_is_logged_once(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     coordinator: SberHomeCoordinator,
     cloud: _Cloud,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Серия ответов 429 — одна запись о сбое с причиной и одна о возвращении."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.sberhome")
     cloud.headers = {"Retry-After": "40"}
     unsub, _ = await _throttled_refresh(hass, coordinator, cloud)
     await _advance(hass, freezer, 41)
     await _advance(hass, freezer, 41)
     assert cloud.requests >= 3 * 4  # три опроса подряд получили 429
 
-    warnings = [r for r in caplog.records if "ограничило частоту" in r.getMessage()]
-    assert len(warnings) == 1
+    cloud.status = 200
+    await _advance(hass, freezer, 41)
+    assert coordinator.last_update_success is True
+
+    records = [r for r in caplog.records if r.name.startswith("custom_components.sberhome")]
+    problems = [r for r in records if r.levelno >= logging.WARNING]
+    assert len(problems) == 1
+    assert "Rate limited" in problems[0].getMessage()
+    assert len([r for r in records if r.levelno == logging.INFO]) == 1
     unsub()
 
 

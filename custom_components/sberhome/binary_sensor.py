@@ -19,6 +19,9 @@ from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData
 
+PARALLEL_UPDATES = 0
+"""Без ограничения: сущности платформы берут данные у координатора и сами в облако не ходят."""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -106,7 +109,7 @@ class SberAtHomeBinarySensor(CoordinatorEntity[SberHomeCoordinator], BinarySenso
 
     @property
     def available(self) -> bool:
-        return self._home_id in self.coordinator.at_home
+        return super().available and self._home_id in self.coordinator.at_home
 
     @property
     def is_on(self) -> bool | None:

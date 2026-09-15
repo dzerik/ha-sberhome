@@ -10,6 +10,7 @@ from __future__ import annotations
 from .http import HttpTransport
 from .ssl import SslContextProvider
 from .ws import (
+    ConnectionListener,
     MessageCallback,
     TopicRouter,
     WebSocketClient,
@@ -19,6 +20,7 @@ from .ws import (
 )
 
 __all__ = [
+    "ConnectionListener",
     "HttpTransport",
     "MessageCallback",
     "SslContextProvider",

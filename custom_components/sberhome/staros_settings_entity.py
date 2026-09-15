@@ -81,7 +81,7 @@ class SberStarosSettingBase(CoordinatorEntity[SberHomeCoordinator]):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.last_update_success and self._current() is not None
+        return super().available and self._current() is not None
 
     async def _async_write(self, value: Any) -> None:
         async with async_translate_cloud_errors(self.coordinator):

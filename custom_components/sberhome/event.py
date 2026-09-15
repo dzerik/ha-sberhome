@@ -17,6 +17,9 @@ from .entity import SberBaseEntity
 from .intent_dispatcher import EVENT_SBERHOME_INTENT
 from .sbermap import HaEntityData
 
+PARALLEL_UPDATES = 0
+"""Без ограничения: сущности платформы берут данные у координатора и сами в облако не ходят."""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -73,7 +76,7 @@ class SberScenarioEvent(CoordinatorEntity[SberHomeCoordinator], EventEntity):
 
     @property
     def available(self) -> bool:
-        return self._scenario() is not None
+        return super().available and self._scenario() is not None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

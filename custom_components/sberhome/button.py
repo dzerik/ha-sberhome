@@ -21,6 +21,13 @@ from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData, build_button_press_command
 
+PARALLEL_UPDATES = 1
+"""Команды сущностей платформы уходят в облако Сбера по одной.
+
+Облако одно на весь аккаунт и на всплеск запросов отвечает 429; опрос состояния
+идёт через координатор и этим ограничением не задерживается.
+"""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -108,8 +115,10 @@ class SberScenarioButton(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
 
     @property
     def available(self) -> bool:
-        # Если сценария больше нет в списке — недоступен.
-        return any(s.id == self._scenario_id for s in self.coordinator.scenarios)
+        # Облако не отвечает или сценария больше нет в списке — недоступен.
+        return super().available and any(
+            s.id == self._scenario_id for s in self.coordinator.scenarios
+        )
 
     async def async_press(self) -> None:
         async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):

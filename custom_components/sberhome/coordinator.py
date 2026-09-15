@@ -22,7 +22,7 @@ from datetime import timedelta
 from typing import Any
 
 import httpx
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, Platform
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -281,7 +281,24 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """``time.monotonic()``, раньше которого опрос не обращается к облаку (ответ 429)."""
 
     _rate_limit_episode: bool = False
-    """Идёт серия ответов 429 — предупреждение в лог уже записано."""
+    """Идёт серия ответов 429 (для отладочной записи о снятии ограничения)."""
+
+    _poll_unavailable_logged: bool = False
+    """Потеря связи с облаком при опросе уже записана в журнал предупреждением.
+
+    Свой флаг, а не ``last_update_success``: WS-push и optimistic-патчи
+    выставляют ``last_update_success = True`` посреди недоступности REST (облако
+    отвечает 429 или 5xx, а push продолжает приходить). Встроенный журнал
+    DataUpdateCoordinator смотрит на этот флаг и при живом WebSocket писал
+    ошибку на каждый неудачный опрос, а о возвращении не писал вовсе. Флаг
+    сбрасывает только удачный опрос."""
+
+    _ws_unavailable_logged: bool = False
+    """Потеря WebSocket-соединения уже записана в журнал предупреждением.
+
+    Живёт на координаторе, а не на клиенте WebSocket: после серии неудачных
+    подключений клиент завершается и следующий опрос создаёт новый, а запись
+    о потере связи должна остаться одной на весь период без соединения."""
 
     def __init__(
         self,
@@ -659,7 +676,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Облако просило подождать: внеплановый опрос («Обновить» в панели,
             # переподключение WebSocket) тоже не уходит раньше срока. Следующий
             # опрос — ровно к концу паузы, а не через полный интервал после неё.
-            raise self._rate_limited_failure(remaining)
+            failure = self._rate_limited_failure(remaining)
+            self._mark_poll_unavailable(failure)
+            raise failure
         # Опрос действительно идёт в облако: на HA без
         # ``UpdateFailed(retry_after=)`` пауза могла растянуть или сжать
         # интервал. Возвращаем штатный сразу, а не после первого успеха —
@@ -682,7 +701,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._rate_limited_until = 0.0
             if self._rate_limit_episode:
                 self._rate_limit_episode = False
-                LOGGER.info("Облако Сбера сняло ограничение частоты запросов")
+                # Возвращение связи одной записью INFO пишет
+                # _mark_poll_recovered — здесь без дубля.
+                LOGGER.debug("Облако Сбера сняло ограничение частоты запросов")
             # Параллельно строим типизированные DTO + кэш sbermap-сущностей.
             self._rebuild_entities_from_state_cache()
             # DevTools #1 state-diff: record per-device deltas for this
@@ -736,20 +757,28 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # AuthError/NetworkError/ApiError. Без явного перехвата транзиентная
         # DNS-икота (`[Errno -3] Try again`) утекала бы как «Unexpected error
         # fetching data» ERROR+traceback (issue #35).
+        #
+        # Журнал о потере и возвращении связи ведёт _mark_poll_unavailable /
+        # _mark_poll_recovered: одно предупреждение на период недоступности,
+        # одна запись INFO о возвращении, подробности каждой попытки — debug.
         except RateLimitError as err:
             self._record_update_error(err)
             delay = self._start_rate_limit_window(err.retry_after)
             # Короткий Retry-After не делает опрос чаще штатного интервала.
             wait = max(delay, self._desired_update_interval().total_seconds())
-            raise self._rate_limited_failure(wait, err) from err
+            failure = self._rate_limited_failure(wait, err)
+            self._mark_poll_unavailable(failure)
+            raise failure from err
         except CoreAuthError as err:
             self._record_update_error(err)
-            LOGGER.warning("Authentication failed during update: %s", err)
-            raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
+            auth_failure = ConfigEntryAuthFailed(f"Authentication failed: {err}")
+            self._mark_poll_unavailable(auth_failure)
+            raise auth_failure from err
         except CoreSberError as err:
             self._record_update_error(err)
-            LOGGER.warning("API communication error during update: %s", err)
-            raise UpdateFailed(f"Error communicating with API: {err}") from err
+            api_failure = UpdateFailed(f"Error communicating with API: {err}")
+            self._mark_poll_unavailable(api_failure)
+            raise api_failure from err
 
         # WebSocket — additive: запускаем после первого успешного refresh,
         # чтобы AuthManager уже имел валидный companion-токен (handshake
@@ -763,10 +792,60 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._ws_task is None or self._ws_task.done():
             self._start_ws_task()
 
-        return self._derive_data()
+        data = self._derive_data()
+        self._mark_poll_recovered()
+        return data
+
+    def _mark_poll_unavailable(self, failure: Exception) -> None:
+        """Записать неудачный опрос: предупреждение один раз на период недоступности.
+
+        Первый сбой после удачного опроса (или после запуска) пишется
+        предупреждением, следующие — debug, пока опрос снова не пройдёт. Пока
+        идёт первое обновление при настройке записи, только debug: об ошибке
+        настройки сообщает сам Home Assistant (``ConfigEntryNotReady``), и
+        DataUpdateCoordinator там тоже не пишет свою.
+
+        Встроенную ошибку DataUpdateCoordinator («Error fetching sberhome
+        data») подавляет ``last_update_success = False`` до ``raise``: он пишет
+        её, только когда флаг истинен, а push между опросами делает флаг
+        истинным, и ошибка повторялась бы на каждом опросе. Между присваиванием
+        и ``raise`` нет ``await`` — снаружи разницы не видно, флаг и так
+        становится ложным.
+
+        Args:
+            failure: Исключение, которое опрос сейчас поднимет (его текст —
+                причина в журнале).
+        """
+        self.last_update_success = False
+        entry = getattr(self, "config_entry", None)
+        if entry is not None and entry.state is ConfigEntryState.SETUP_IN_PROGRESS:
+            LOGGER.debug("Первое обновление SberHome не удалось: %s", failure)
+            return
+        if self._poll_unavailable_logged:
+            LOGGER.debug("Облако Сбера всё ещё недоступно: %s", failure)
+            return
+        self._poll_unavailable_logged = True
+        LOGGER.warning("Облако Сбера недоступно, сущности SberHome недоступны: %s", failure)
+
+    def _mark_poll_recovered(self) -> None:
+        """Отметить удачный опрос: одна запись INFO, если потеря связи была записана.
+
+        ``last_update_success = True`` до возврата из ``_async_update_data``
+        подавляет встроенную запись DataUpdateCoordinator «Fetching sberhome
+        data recovered» — иначе возвращение попадало бы в журнал дважды (или
+        ни разу, если push уже выставил флаг).
+        """
+        self.last_update_success = True
+        if self._poll_unavailable_logged:
+            self._poll_unavailable_logged = False
+            LOGGER.info("Связь с облаком Сбера восстановлена")
 
     def _start_rate_limit_window(self, retry_after: float | None) -> float:
-        """Начать паузу после ответа 429 и один раз за серию предупредить в лог.
+        """Начать паузу после ответа 429.
+
+        В журнал — только debug: причину и срок паузы несёт текст
+        ``UpdateFailed``, который ``_mark_poll_unavailable`` один раз пишет
+        предупреждением при потере связи.
 
         Args:
             retry_after: Секунды из заголовка ``Retry-After`` или None.
@@ -778,7 +857,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._rate_limited_until = time.monotonic() + delay
         if not self._rate_limit_episode:
             self._rate_limit_episode = True
-            LOGGER.warning(
+            LOGGER.debug(
                 "Облако Сбера ограничило частоту запросов — следующий опрос "
                 "не раньше чем через %.0f с",
                 delay,
@@ -1607,13 +1686,15 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             callback=router,
             factory=factory,
             topics=("DEVICE_STATE", "DEVMAN_EVENT", "GROUP_STATE", "SCENARIO_WIDGETS"),
+            connection_listener=self._on_ws_connection_change,
         )
         try:
             await self._ws_client.run()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            LOGGER.exception("WebSocket loop terminated unexpectedly")
+        except Exception as err:
+            LOGGER.debug("WebSocket loop terminated", exc_info=True)
+            self._on_ws_connection_change(False, err)
         finally:
             # Сбрасываем клиент на None, чтобы `ws_connected` property не
             # показывал stale `is_connected` мёртвого клиента. Следующий
@@ -1625,6 +1706,36 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.update_interval = self._user_update_interval
             with contextlib.suppress(Exception):
                 self.hass.async_create_task(self.async_request_refresh())
+
+    def _on_ws_connection_change(self, connected: bool, err: BaseException | None) -> None:
+        """Одна запись в журнал при потере WebSocket-соединения и одна при возврате.
+
+        Клиент WebSocket сообщает о каждой попытке подключения. Первый сбой
+        после рабочего соединения (или после запуска) пишется предупреждением,
+        следующие — debug, пока соединение не вернётся; возвращение — одна
+        запись INFO. Неожиданная ошибка (не ``SberError``) пишется с
+        трассировкой: это скорее дефект, чем сбой сети.
+
+        Args:
+            connected: True — handshake прошёл; False — соединение не удалось
+                установить или оно оборвалось с ошибкой.
+            err: Ошибка соединения при ``connected=False``.
+        """
+        if connected:
+            if self._ws_unavailable_logged:
+                self._ws_unavailable_logged = False
+                LOGGER.info("WebSocket-соединение с облаком Сбера восстановлено")
+            return
+        if self._ws_unavailable_logged:
+            LOGGER.debug("WebSocket-соединение с облаком Сбера всё ещё недоступно: %s", err)
+            return
+        self._ws_unavailable_logged = True
+        LOGGER.warning(
+            "WebSocket-соединение с облаком Сбера недоступно, изменения устройств "
+            "приходят только опросом: %s",
+            err,
+            exc_info=err if err is not None and not isinstance(err, CoreSberError) else None,
+        )
 
     @property
     def last_ws_message_at(self) -> float | None:

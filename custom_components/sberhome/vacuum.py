@@ -17,6 +17,13 @@ from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .sbermap import HaEntityData, build_vacuum_command
 
+PARALLEL_UPDATES = 1
+"""Команды сущностей платформы уходят в облако Сбера по одной.
+
+Облако одно на весь аккаунт и на всплеск запросов отвечает 429; опрос состояния
+идёт через координатор и этим ограничением не задерживается.
+"""
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
