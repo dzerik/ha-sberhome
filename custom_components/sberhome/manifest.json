@@ -15,6 +15,7 @@
   "loggers": [
     "custom_components.sberhome"
   ],
+  "quality_scale": "silver",
   "requirements": [
     "httpx>=0.25.0",
     "websockets>=12.0"
