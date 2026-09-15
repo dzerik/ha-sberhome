@@ -17,14 +17,26 @@
         "description": "Sber Aqlli uyga ulangan telefon raqamini kiriting. Format: {example_phone}. SMS orqali bir martalik kod yuboramiz.",
         "data": {
           "phone": "Telefon raqami"
+        },
+        "data_description": {
+          "phone": "Aqlli uy qurilmalari qo'shilgan Sber hisobining telefon raqami. Bo'shliqlar, qavslar, boshidagi «+7» yoki «8» ruxsat etiladi."
         }
       },
       "sms_otp": {
         "title": "SMS kodi",
-        "description": "Kodni {phone} raqamiga yubordik.",
+        "description": "Bir martalik kodni {phone} raqamiga yubordik. Kod kelmagan yoki muddati tugagan bo'lsa, «Yangi kod yuborish» belgisini qo'ying va formani yuboring.",
         "data": {
-          "otp": "SMS kod"
+          "otp": "SMS kod",
+          "resend": "Yangi kod yuborish"
+        },
+        "data_description": {
+          "otp": "SMS dagi kod. Yangi kod so'ralganda maydonni bo'sh qoldirish mumkin.",
+          "resend": "Kiritilgan kodni tekshirish o'rniga shu raqamga yangi SMS kod yuborish."
         }
+      },
+      "sberid_retry": {
+        "title": "Aqlli uyga ulanishni tekshirib bo'lmadi",
+        "description": "Sber ID orqali kirish bajarildi, lekin Home Assistant u bilan Sber aqlli uyiga ulana olmadi. Qayta urinish uchun formani yuboring: bulut mavjud bo'lmagan bo'lsa, tekshiruv takrorlanadi, kirish rad etilgan bo'lsa, Sber ID orqali kirish qayta ochiladi."
       },
       "reauth_confirm": {
         "title": "Qayta avtorizatsiya",
@@ -36,7 +48,6 @@
       "already_configured": "Qurilma allaqachon sozlangan",
       "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi",
       "wrong_account": "Boshlang'ich yozuvdan farqli Sber hisob bilan kirildi. To'g'ri hisob bilan qaytadan kiring.",
-      "cannot_connect": "Sber serverlariga ulanib bo'lmadi. Ulanishni tekshirib, qayta urinib ko'ring.",
       "no_url_available": "Home Assistant uchun ochiq URL sozlanmagan. Sozlamalar → Tizim → Tarmoq bo‘limida tashqi yoki ichki manzilni belgilang va qayta urinib ko‘ring."
     },
     "error": {
@@ -45,7 +56,7 @@
       "unknown": "Noma'lum xatolik",
       "invalid_phone": "Telefon raqami noto'g'ri. Format: 78001234567.",
       "send_otp_failed": "SMS yuborilmadi. Raqamni tekshirib, keyinroq qaytadan urinib ko'ring.",
-      "invalid_otp": "SMS kodi noto'g'ri yoki muddati tugagan. Kerak bo'lsa yangisini so'rang."
+      "invalid_otp": "SMS kodi noto'g'ri yoki muddati tugagan. Uni qayta kiriting yoki «Yangi kod yuborish» belgisini qo'ying."
     },
     "create_entry": {
       "default": "Avtorizatsiya muvaffaqiyatli o'tdi. **Qurilmalar avtomatik import qilinmadi** — yon menyudan SberHome panelini oching (yoki [/sberhome](/sberhome) manziliga o'ting) va Home Assistant-ga kerakli qurilmalarni tanlang. Shu paytgacha integratsiya ulangan, lekin entitylar yaratmaydi."

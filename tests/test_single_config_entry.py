@@ -28,6 +28,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sberhome.aiosber.auth import SberIdTokens
 from custom_components.sberhome.aiosber.const import AUTH_METHOD_SBERID
 from custom_components.sberhome.const import CONF_AUTH_METHOD, CONF_TOKEN, DOMAIN
 from custom_components.sberhome.single_entry import (
@@ -43,19 +44,8 @@ BASE = Path(__file__).resolve().parents[1] / "custom_components" / "sberhome"
 
 
 @pytest.fixture(autouse=True)
-def _custom_integrations(enable_custom_integrations: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Дать загрузчику HA найти ``custom_components/sberhome``.
-
-    При установке пакета в режиме editable (``uv pip install -e .``, как в CI)
-    setuptools добавляет в ``custom_components.__path__`` строку-заглушку
-    ``__editable__.<пакет>.finder.__path_hook__``. Загрузчик HA вызывает
-    ``iterdir()`` на каждом элементе ``__path__`` и падает с
-    FileNotFoundError, поэтому на время теста оставляем только каталоги.
-    """
-    import custom_components
-
-    real_dirs = [p for p in dict.fromkeys(custom_components.__path__) if Path(p).is_dir()]
-    monkeypatch.setattr(custom_components, "__path__", real_dirs)
+def _custom_integrations(sberhome_integration: None) -> None:
+    """Загрузчик HA находит интеграцию (см. ``sberhome_integration``)."""
 
 
 @pytest.fixture(autouse=True)
@@ -144,16 +134,21 @@ async def test_reauth_still_works(hass: HomeAssistant, extra_entries: int) -> No
         unique_id=sub,
         data={CONF_AUTH_METHOD: AUTH_METHOD_SBERID, CONF_TOKEN: {"access_token": "old"}},
     )
-    new_token = _make_token_with_sub(sub)
+    new_token = SberIdTokens.from_dict(_make_token_with_sub(sub))
     client = MagicMock()
-    client.token = new_token
+    client.sberid_tokens = new_token
     client.create_authorization_url.return_value = "https://id.sber.ru/authorize"
     client.aclose = AsyncMock()
 
     with (
         patch("custom_components.sberhome.config_flow.async_init_ssl", AsyncMock()),
-        patch("custom_components.sberhome.config_flow.httpx.AsyncClient"),
+        patch(
+            "custom_components.sberhome.config_flow.httpx.AsyncClient",
+            return_value=AsyncMock(),
+        ),
         patch("custom_components.sberhome.config_flow.SberAPI", return_value=client),
+        # Проверка облака перед обновлением записи — в test_config_flow.py.
+        patch("custom_components.sberhome.config_flow._async_probe_gateway", AsyncMock()),
         patch(
             "custom_components.sberhome.config_flow.get_url",
             return_value="http://ha.local:8123",
@@ -176,7 +171,7 @@ async def test_reauth_still_works(hass: HomeAssistant, extra_entries: int) -> No
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
-    assert entry.data[CONF_TOKEN] == new_token
+    assert entry.data[CONF_TOKEN] == new_token.to_dict()
     reload.assert_called_once_with(entry.entry_id)
     assert len(hass.config_entries.async_entries(DOMAIN)) == extra_entries + 1
 

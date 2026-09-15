@@ -17,14 +17,26 @@
         "description": "Enter the phone number registered with Sber Home. Format: {example_phone}. We'll send a one-time SMS code.",
         "data": {
           "phone": "Phone number"
+        },
+        "data_description": {
+          "phone": "The phone number of the Sber account your smart home devices are added to. Spaces, brackets and a leading +7 or 8 are fine."
         }
       },
       "sms_otp": {
         "title": "Enter the SMS code",
-        "description": "We sent a one-time code to {phone}.",
+        "description": "We sent a one-time code to {phone}. If the code has not arrived or has expired, tick “Send a new code” and submit the form.",
         "data": {
-          "otp": "SMS code"
+          "otp": "SMS code",
+          "resend": "Send a new code"
+        },
+        "data_description": {
+          "otp": "The code from the SMS. Leave it empty when requesting a new code.",
+          "resend": "Send a new SMS code to the same number instead of checking the entered one."
         }
+      },
+      "sberid_retry": {
+        "title": "Sber smart home check failed",
+        "description": "Signing in with Sber ID succeeded, but Home Assistant could not reach the Sber smart home with it. Submit the form to try again: if the cloud was unavailable, the check is repeated; if the sign-in was rejected, Sber ID sign-in opens again."
       },
       "reauth_confirm": {
         "title": "[%key:common::config_flow::title::reauth%]",
@@ -36,15 +48,15 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "wrong_account": "Signed in with a different Sber account than the original config entry. Sign in again with the correct account.",
-      "cannot_connect": "Could not reach Sber servers. Check the connection and try again.",
       "no_url_available": "No accessible Home Assistant URL is configured. Set an external or internal URL in Settings → System → Network and try again."
     },
     "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "unknown": "[%key:common::config_flow::error::unknown%]",
       "invalid_phone": "Invalid phone number. Use international format like 78001234567.",
       "send_otp_failed": "Could not send the SMS code. Verify the number and try again later.",
-      "invalid_otp": "The SMS code is wrong or expired. Request a new one if needed."
+      "invalid_otp": "The SMS code is wrong or expired. Enter it again or tick “Send a new code”."
     },
     "create_entry": {
       "default": "Authorization successful. **No devices were imported automatically** — open the SberHome panel in the sidebar (or go to [/sberhome](/sberhome)) and pick which devices you want in Home Assistant. Until then the integration is connected but exposes no entities."

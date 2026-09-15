@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -658,6 +659,22 @@ MOCK_DEVICE_TREE = {
         }
     ],
 }
+
+
+@pytest.fixture
+def sberhome_integration(enable_custom_integrations: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Дать загрузчику HA найти ``custom_components/sberhome``.
+
+    При установке пакета в режиме editable (``uv pip install -e .``, как в CI)
+    setuptools добавляет в ``custom_components.__path__`` строку-заглушку
+    ``__editable__.<пакет>.finder.__path_hook__``. Загрузчик HA вызывает
+    ``iterdir()`` на каждом элементе ``__path__`` и падает с
+    FileNotFoundError, поэтому на время теста оставляем только каталоги.
+    """
+    import custom_components
+
+    real_dirs = [p for p in dict.fromkeys(custom_components.__path__) if Path(p).is_dir()]
+    monkeypatch.setattr(custom_components, "__path__", real_dirs)
 
 
 @pytest.fixture
