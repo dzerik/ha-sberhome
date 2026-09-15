@@ -140,3 +140,41 @@ async def test_refresh_invalid_grant():
     async with _client(handler) as http:
         with pytest.raises(InvalidGrant):
             await refresh_sberid_tokens(http, "expired-rt")
+
+
+@pytest.mark.parametrize(
+    ("exc", "match"),
+    [
+        (httpx.ConnectTimeout("timed out"), "Timeout contacting"),
+        (httpx.RemoteProtocolError("Server disconnected"), "HTTP error contacting"),
+    ],
+)
+async def test_refresh_transport_errors_mapped(exc, match):
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise exc
+
+    async with _client(handler) as http:
+        with pytest.raises(NetworkError, match=match):
+            await refresh_sberid_tokens(http, "rt")
+
+
+async def test_refresh_error_with_html_body_raises_auth_error_with_text():
+    """400 без JSON (HTML от WAF) — AuthError с фрагментом текста, а не InvalidGrant."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="<html>Request blocked</html>")
+
+    async with _client(handler) as http:
+        with pytest.raises(AuthError, match="Request blocked") as exc_info:
+            await refresh_sberid_tokens(http, "rt")
+    assert not isinstance(exc_info.value, InvalidGrant)
+
+
+async def test_refresh_error_with_json_array_body_is_api_error():
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, json=["bad gateway"])
+
+    async with _client(handler) as http:
+        with pytest.raises(ApiError) as exc_info:
+            await refresh_sberid_tokens(http, "rt")
+    assert exc_info.value.status_code == 502

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from custom_components.sberhome.aiosber import SberClient
 from custom_components.sberhome.aiosber.api import PairingAPI
@@ -127,3 +128,32 @@ async def test_sber_client_pairing_property():
     assert isinstance(client.pairing, PairingAPI)
     async with client:
         await client.pairing.list_matter_categories()
+
+
+async def test_wifi_credentials_accepts_unwrapped_object():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"ssid": "SberSetup", "password": "tmp123", "expires_in": 300}
+        )
+
+    api, _ = _build(h)
+    creds = await api.get_wifi_credentials()
+    assert creds["expires_in"] == 300
+
+
+async def test_wifi_credentials_rejects_non_object():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["SberSetup"])
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected dict"):
+        await api.get_wifi_credentials()
+
+
+async def test_matter_categories_rejects_non_list():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"categories": "light"}})
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected list"):
+        await api.list_matter_categories()

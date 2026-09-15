@@ -31,6 +31,7 @@ from ..const import (
     TOKEN_EXPIRY_LEEWAY_S,
 )
 from ..exceptions import AuthError, InvalidGrant
+from ._single_flight import SingleFlightRefresh
 from .companion import exchange_for_companion_token
 from .oauth import refresh_sberid_tokens
 from .store import TokenStore
@@ -84,11 +85,9 @@ class AuthManager:
         self._on_sberid_refreshed = on_sberid_refreshed
         self._lock = asyncio.Lock()
         self._loaded = False
-        # Single-flight: число завершённых попыток refresh и ошибка последней.
-        # Задача, ждавшая lock, пока соседняя безуспешно обновляла токен,
-        # получает ту же ошибку, а не повторяет обмен (см. `_refresh_locked`).
-        self._refresh_attempts = 0
-        self._last_refresh_error: Exception | None = None
+        # Single-flight: N параллельных refresh дают один обмен; задача, ждавшая
+        # lock, пока соседняя безуспешно обновляла токен, получает ту же ошибку.
+        self._single_flight = SingleFlightRefresh(self._lock, self._refresh_companion)
 
     # ----- Public API -----
     async def access_token(self) -> str:
@@ -102,14 +101,14 @@ class AuthManager:
         if self._companion and not self._companion.is_expired(self._leeway):
             return self._companion.access_token
 
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            # Double-check после lock — возможно соседний task уже обновил
-            if self._companion and not self._companion.is_expired(self._leeway):
-                return self._companion.access_token
-            await self._refresh_locked(seen_attempt)
-            assert self._companion is not None  # _refresh_companion гарантирует
-            return self._companion.access_token
+        # Double-check под lock — возможно соседний task уже обновил
+        await self._single_flight.run(
+            skip=lambda: (
+                self._companion is not None and not self._companion.is_expired(self._leeway)
+            )
+        )
+        assert self._companion is not None  # _refresh_companion гарантирует
+        return self._companion.access_token
 
     async def force_refresh(self, stale_token: str | None = None) -> None:
         """Принудительно обновить companion-токен.
@@ -129,25 +128,23 @@ class AuthManager:
             AuthError: другие auth-проблемы.
         """
         await self._ensure_loaded()
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            if (
+        await self._single_flight.run(
+            skip=lambda: (
                 stale_token is not None
                 and self._companion is not None
                 and self._companion.access_token != stale_token
-            ):
-                return
-            await self._refresh_locked(seen_attempt)
+            )
+        )
 
     def set_sberid_tokens(self, tokens: SberIdTokens) -> None:
         """Установить новые SberID-токены (например, после первого OAuth-flow)."""
         self._sberid = tokens
-        self._last_refresh_error = None  # новые учётные данные — refresh снова возможен
+        self._single_flight.reset()  # новые учётные данные — refresh снова возможен
 
     def set_companion_tokens(self, tokens: CompanionTokens) -> None:
         """Установить новые companion-токены (после первого обмена)."""
         self._companion = tokens
-        self._last_refresh_error = None
+        self._single_flight.reset()
 
     async def persist(self) -> None:
         """Сохранить текущие companion-токены в store."""
@@ -188,40 +185,6 @@ class AuthManager:
                 if stored is not None:
                     self._companion = stored
                 self._loaded = True
-
-    async def _refresh_locked(self, seen_attempt: int) -> None:
-        """Выполнить refresh под `self._lock`, разделяя неудачу с ждавшими.
-
-        Args:
-            seen_attempt: значение `_refresh_attempts` до ожидания lock. Если
-                за время ожидания соседняя задача уже пыталась обновить токен
-                и упала — её ошибка пробрасывается без повторного обращения
-                к Sber (иначе очередь из N запросов даёт N неудачных refresh).
-
-        Raises:
-            InvalidGrant / AuthError / NetworkError: ошибка refresh.
-        """
-        err = self._last_refresh_error
-        # InvalidGrant — отказ окончательный (одноразовый refresh_token отозван):
-        # повтор с теми же учётными данными гарантированно упадёт, а до reauth
-        # каждый запрос бил бы в Sber. Прочие ошибки делятся только с теми, кто
-        # ждал lock во время неудачной попытки.
-        if err is not None and (
-            seen_attempt != self._refresh_attempts or isinstance(err, InvalidGrant)
-        ):
-            raise err
-        self._last_refresh_error = None
-        try:
-            await self._refresh_companion()
-        except Exception as exc:
-            self._last_refresh_error = exc
-            raise
-        else:
-            self._last_refresh_error = None
-        finally:
-            # Считаем ЗАВЕРШЁННЫЕ попытки: задачи, вставшие в очередь во время
-            # этой, видят прежнее значение и узнают о её исходе.
-            self._refresh_attempts += 1
 
     async def _refresh_companion(self) -> None:
         """Получить новый companion-токен.

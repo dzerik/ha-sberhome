@@ -234,3 +234,15 @@ def test_node_serde_ignores_unknown_and_survives():
     )
     assert node.type == "FUTURE_WIDGET"
     assert node.current_value == 7
+
+
+@pytest.mark.asyncio
+async def test_get_settings_deep_non_json_response_returns_none():
+    """Колонка вне сети — companion отвечает не-JSON; экрана настроек нет."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>Bad Gateway</html>")
+
+    api, hits = _build(h)
+    assert await api.get_settings_deep(PRODUCT, SERIAL) is None
+    assert len(hits) == 1

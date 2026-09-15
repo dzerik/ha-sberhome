@@ -4,11 +4,9 @@
 
 | Подкаталог | HA imports | Зачем |
 |---|---|---|
-| `values/` | ❌ запрещены | pure dataclasses, переиспользуемы вне HA |
-| `codecs/` | ❌ запрещены | serialized-format Sber-only, нет HA-логики |
 | `spec/ha_mapping.py` | ✅ разрешён `Platform` | type-safe platform constants |
 | `transform/` | ✅ разрешены HA-deps | основной выигрыш гибрида: STATE_*/HVACMode/etc. |
-| `exceptions.py`, `__init__.py` | ❌ запрещены | re-exports, не должны тянуть HA через себя |
+| `__init__.py` | ❌ запрещён | re-exports, не должен тянуть HA через себя |
 
 В `aiosber/` — стандартное правило: **полный запрет** HA imports (см.
 `tests/aiosber/test_no_ha_imports.py`).

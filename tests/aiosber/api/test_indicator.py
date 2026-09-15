@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from custom_components.sberhome.aiosber import SberClient
 from custom_components.sberhome.aiosber.api import IndicatorAPI
@@ -14,6 +15,7 @@ from custom_components.sberhome.aiosber.auth import (
     InMemoryTokenStore,
 )
 from custom_components.sberhome.aiosber.dto import IndicatorColor
+from custom_components.sberhome.aiosber.exceptions import ProtocolError
 from custom_components.sberhome.aiosber.transport import HttpTransport
 
 
@@ -97,3 +99,30 @@ async def test_sber_client_indicator_property():
     assert isinstance(client.indicator, IndicatorAPI)
     async with client:
         await client.indicator.get()
+
+
+async def test_get_accepts_unwrapped_payload():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_sample_indicator_payload())
+
+    api, _ = _build(h)
+    colors = await api.get()
+    assert colors.current_colors[0].hue == 200
+
+
+async def test_get_null_result_raises_protocol_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": None})
+
+    api, _ = _build(h)
+    with pytest.raises(ProtocolError):
+        await api.get()
+
+
+async def test_get_raw_rejects_non_object_payload():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["online-1"])
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected dict"):
+        await api.get_raw()

@@ -31,7 +31,6 @@ class AuthManagerProtocol(Protocol):
     async def force_refresh(self, stale_token: str | None = None) -> None:
         """Обновить токен. `stale_token` — токен, получивший 401: если он
         уже заменён соседним refresh, повторно не обновлять."""
-        ...
 
 
 class TokenStore(Protocol):

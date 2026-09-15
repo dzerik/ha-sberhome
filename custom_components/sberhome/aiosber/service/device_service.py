@@ -206,19 +206,15 @@ class DeviceService:
             raw_by_id[dto.id] = raw
         return devices, raw_by_id
 
-    async def _refresh_via_tree(self, *, fetch_started_at: float | None = None) -> None:
+    async def _refresh_via_tree(self, *, fetch_started_at: float) -> None:
         """Legacy fallback: GET /device_groups/tree.
 
         Используется только если flat-API упал (Sber может вернуть 500 или
         изменить schema). Single-home aware — для multi-home аккаунтов
         придёт только дефолтный дом.
         """
-        import time
-
         from ..dto.union import UnionTreeDto
 
-        if fetch_started_at is None:
-            fetch_started_at = time.monotonic()
         resp = await self._transport.get("/device_groups/tree")
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload:

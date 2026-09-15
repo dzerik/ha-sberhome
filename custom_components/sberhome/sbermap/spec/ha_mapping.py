@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from homeassistant.const import Platform
@@ -282,10 +283,14 @@ CATEGORY_KEYWORDS: Final[dict[str, frozenset[str]]] = {
 }
 
 
-def _build_keyword_index() -> dict[str, str]:
-    """Обратный индекс `keyword → category` с проверкой конфликтов."""
+def _build_keyword_index(keywords: Mapping[str, frozenset[str]]) -> dict[str, str]:
+    """Обратный индекс `keyword → category` с проверкой конфликтов.
+
+    Raises:
+        ValueError: один keyword указан у двух разных категорий.
+    """
     idx: dict[str, str] = {}
-    for cat, kws in CATEGORY_KEYWORDS.items():
+    for cat, kws in keywords.items():
         for kw in kws:
             prev = idx.get(kw)
             if prev is not None and prev != cat:
@@ -296,7 +301,7 @@ def _build_keyword_index() -> dict[str, str]:
     return idx
 
 
-_KEYWORD_TO_CATEGORY: Final[dict[str, str]] = _build_keyword_index()
+_KEYWORD_TO_CATEGORY: Final[dict[str, str]] = _build_keyword_index(CATEGORY_KEYWORDS)
 
 # IMAGE_TYPE_MAP-паттерны, отсортированные по длине (длинные → детерминизм).
 # Раньше порядок зависел от insertion order словаря — хрупко.

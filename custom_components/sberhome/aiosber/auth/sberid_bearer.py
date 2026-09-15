@@ -22,6 +22,7 @@ import httpx
 
 from ..const import DEFAULT_CLIENT_ID, TOKEN_ENDPOINT, TOKEN_EXPIRY_LEEWAY_S
 from ..exceptions import InvalidGrant
+from ._single_flight import SingleFlightRefresh
 from .oauth import refresh_sberid_tokens
 from .tokens import SberIdTokens
 
@@ -56,10 +57,8 @@ class SberIdBearerAuth:
         self._client_id = client_id
         self._endpoint = endpoint
         self._lock = asyncio.Lock()
-        # Single-flight: число завершённых попыток refresh и ошибка последней
-        # (см. `_refresh_locked`).
-        self._refresh_attempts = 0
-        self._last_refresh_error: Exception | None = None
+        # Single-flight: N параллельных refresh дают одну ротацию токенов.
+        self._single_flight = SingleFlightRefresh(self._lock, self._refresh)
 
     async def access_token(self) -> str:
         """Вернуть валидный SberID access_token, обновив его при истечении.
@@ -69,12 +68,8 @@ class SberIdBearerAuth:
         """
         if not self._tokens.is_expired(self._leeway):
             return self._tokens.access_token
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            if not self._tokens.is_expired(self._leeway):
-                return self._tokens.access_token
-            await self._refresh_locked(seen_attempt)
-            return self._tokens.access_token
+        await self._single_flight.run(skip=lambda: not self._tokens.is_expired(self._leeway))
+        return self._tokens.access_token
 
     async def force_refresh(self, stale_token: str | None = None) -> None:
         """Принудительно обновить SberID-токены (HttpTransport при 401).
@@ -88,44 +83,9 @@ class SberIdBearerAuth:
         Raises:
             InvalidGrant: refresh_token отсутствует или отозван.
         """
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            if stale_token is not None and self._tokens.access_token != stale_token:
-                return
-            await self._refresh_locked(seen_attempt)
-
-    async def _refresh_locked(self, seen_attempt: int) -> None:
-        """Выполнить refresh под `self._lock`, разделяя неудачу с ждавшими.
-
-        Args:
-            seen_attempt: значение `_refresh_attempts` до ожидания lock. Если
-                за время ожидания соседняя задача уже пыталась обновить токены
-                и упала — её ошибка пробрасывается без повторного refresh.
-
-        Raises:
-            InvalidGrant / AuthError / NetworkError: ошибка refresh.
-        """
-        err = self._last_refresh_error
-        # InvalidGrant — отказ окончательный (одноразовый refresh_token отозван):
-        # повтор с теми же учётными данными гарантированно упадёт, а до reauth
-        # каждый запрос бил бы в Sber. Прочие ошибки делятся только с теми, кто
-        # ждал lock во время неудачной попытки.
-        if err is not None and (
-            seen_attempt != self._refresh_attempts or isinstance(err, InvalidGrant)
-        ):
-            raise err
-        self._last_refresh_error = None
-        try:
-            await self._refresh()
-        except Exception as exc:
-            self._last_refresh_error = exc
-            raise
-        else:
-            self._last_refresh_error = None
-        finally:
-            # Считаем ЗАВЕРШЁННЫЕ попытки: задачи, вставшие в очередь во время
-            # этой, видят прежнее значение и узнают о её исходе.
-            self._refresh_attempts += 1
+        await self._single_flight.run(
+            skip=lambda: stale_token is not None and self._tokens.access_token != stale_token
+        )
 
     async def _refresh(self) -> None:
         refresh_token = self._tokens.refresh_token

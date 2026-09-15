@@ -21,6 +21,7 @@ from ...aiosber.dto import AttributeValueDto, ColorValue
 
 if TYPE_CHECKING:
     from ...aiosber.dto.device import DeviceDto
+    from ...aiosber.dto.feature import DeviceFeatureDto
 
 
 # HA reference ranges (canonical).
@@ -28,7 +29,7 @@ H_RANGE: tuple[int, int] = (0, 360)
 S_RANGE: tuple[int, int] = (0, 100)
 
 # ranges для ColorValue — per-device из DeviceFeatureDto.ColorValues.
-# Key на field key: short {h, s, v} (см. GatewayCodec.encode_color). API value
+# Key на field key: short {h, s, v} (см. `ColorValue.to_dict` в aiosber). API value
 # идёт в native range лампы: для dt_bulb_e27_m (Beken cb2l) это 0..1000
 # для s/v, для других — 0..100. Раньше был hardcoded WIRE_*_RANGE = (0, 100)
 # и API ключи {hue, saturation, brightness} — из-за длинных ключей backend
@@ -68,84 +69,52 @@ def _real_color_temp_range_for(image_set_type: str | None) -> tuple[int, int]:
     return (2700, 6500)
 
 
-def _attr_key(attr: Any) -> str | None:
-    """Get attr.key from dict OR DeviceFeatureDto."""
-    if isinstance(attr, dict):
-        return attr.get("key")
-    return getattr(attr, "key", None)
+def _find_attr(attributes: list[DeviceFeatureDto] | None, key: str) -> DeviceFeatureDto | None:
+    """Первый атрибут `device.attributes[]` с указанным key.
 
-
-def _attr_int_range(attributes: list[Any] | None, key: str) -> tuple[int, int] | None:
-    """Найти `int_values.range` у атрибута с указанным key.
-
-    Поддерживает оба формата: dict (legacy mock в тестах) и
-    `DeviceFeatureDto` (парсированный DTO от реального API). Раньше
-    ограничение `isinstance(attr, dict)` ломало lookup для всех реальных
-    устройств — `has_brightness=False`, supported_color_modes → {ONOFF}.
+    `null`-элементы списка пропускаются: DTO-слой сохраняет их как None.
     """
-    if not attributes:
-        return None
-    for attr in attributes:
-        if _attr_key(attr) != key:
+    for attr in attributes or ():
+        if attr is not None and attr.key == key:
+            return attr
+    return None
+
+
+def _attr_int_range(attributes: list[DeviceFeatureDto] | None, key: str) -> tuple[int, int] | None:
+    """`int_values.range` первого атрибута с указанным key, у которого он описан."""
+    for attr in attributes or ():
+        if attr is None or attr.key != key:
             continue
-        if isinstance(attr, dict):
-            ranges = (attr.get("int_values") or {}).get("range")
-            if ranges:
-                return (int(ranges["min"]), int(ranges["max"]))
-        else:
-            int_values = getattr(attr, "int_values", None)
-            ranges = getattr(int_values, "range", None) if int_values else None
-            if ranges is not None:
-                return (int(ranges.min), int(ranges.max))
+        if attr.int_values is not None and attr.int_values.range is not None:
+            return (int(attr.int_values.range.min), int(attr.int_values.range.max))
     return None
 
 
 def _attr_color_ranges(
-    attributes: list[Any] | None,
+    attributes: list[DeviceFeatureDto] | None,
 ) -> dict[str, tuple[int, int]] | None:
-    if not attributes:
+    """Диапазоны h/s/v атрибута `light_colour`; None — если описаны не все каналы."""
+    attr = _find_attr(attributes, "light_colour")
+    cv = attr.color_values if attr is not None else None
+    if cv is None or cv.h is None or cv.s is None or cv.v is None:
         return None
-    for attr in attributes:
-        if _attr_key(attr) != "light_colour":
-            continue
-        if isinstance(attr, dict):
-            cv = attr.get("color_values") or {}
-            try:
-                return {
-                    "h": (int(cv["h"]["min"]), int(cv["h"]["max"])),
-                    "s": (int(cv["s"]["min"]), int(cv["s"]["max"])),
-                    "v": (int(cv["v"]["min"]), int(cv["v"]["max"])),
-                }
-            except (KeyError, TypeError):
-                return None
-        else:
-            cv = getattr(attr, "color_values", None)
-            if cv is None:
-                return None
-            try:
-                return {
-                    "h": (int(cv.h.min), int(cv.h.max)),
-                    "s": (int(cv.s.min), int(cv.s.max)),
-                    "v": (int(cv.v.min), int(cv.v.max)),
-                }
-            except AttributeError:
-                return None
-    return None
+    return {
+        "h": (int(cv.h.min), int(cv.h.max)),
+        "s": (int(cv.s.min), int(cv.s.max)),
+        "v": (int(cv.v.min), int(cv.v.max)),
+    }
 
 
-def _attr_enum_options(attributes: list[Any] | None, key: str) -> tuple[str, ...]:
-    if not attributes:
+def _attr_enum_options(attributes: list[DeviceFeatureDto] | None, key: str) -> tuple[str, ...]:
+    """Допустимые значения ENUM-атрибута.
+
+    Пустой кортеж — атрибута нет или Sber прислал ENUM без значений
+    (`enum_values` отсутствует или `{"values": null}`).
+    """
+    attr = _find_attr(attributes, key)
+    if attr is None or attr.enum_values is None:
         return ()
-    for attr in attributes:
-        if _attr_key(attr) != key:
-            continue
-        if isinstance(attr, dict):
-            values = (attr.get("enum_values") or {}).get("values") or []
-            return tuple(values)
-        ev = getattr(attr, "enum_values", None)
-        values = getattr(ev, "values", None) if ev else None
-        return tuple(values) if values else ()
-    return ()
+    return tuple(attr.enum_values.values or ())
 
 
 def light_config_from_dto(dto: DeviceDto) -> LightConfig:

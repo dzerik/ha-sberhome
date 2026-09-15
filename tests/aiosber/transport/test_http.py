@@ -655,3 +655,59 @@ async def test_aclose_closes_underlying_http():
     # Повторный запрос должен упасть, потому что клиент закрыт
     with pytest.raises((RuntimeError, NetworkError)):
         await transport.get("/x")
+
+
+async def test_protocol_error_mapped_to_network_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        raise httpx.RemoteProtocolError("Server disconnected without sending a response")
+
+    transport, _, _ = _build(h)
+    async with transport:
+        with pytest.raises(NetworkError, match="HTTP error GET"):
+            await transport.get("/x")
+
+
+def _refreshing_auth(http: httpx.AsyncClient) -> AuthManager:
+    store = InMemoryTokenStore(initial=CompanionTokens(access_token="OLD", expires_in=3600))
+    sberid = SberIdTokens(access_token="SID", refresh_token="RT", expires_in=3600)
+    return AuthManager(http=http, store=store, sberid_tokens=sberid)
+
+
+async def test_retry_after_refresh_network_failure_is_network_error():
+    """Токен обновлён, но повторный запрос оборвался — NetworkError, не AuthError."""
+    calls = {"gateway": 0}
+
+    def router(req: httpx.Request) -> httpx.Response:
+        if "smarthome/token" in req.url.path:
+            return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+        calls["gateway"] += 1
+        if calls["gateway"] == 1:
+            return httpx.Response(401, json={"error": "expired"})
+        raise httpx.ReadTimeout("read timed out")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    transport = HttpTransport(http=http, auth=_refreshing_auth(http))
+    async with transport:
+        with pytest.raises(NetworkError, match="Retry failed GET"):
+            await transport.get("/devices/")
+    assert calls["gateway"] == 2
+
+
+async def test_refresh_failure_other_than_invalid_grant_is_prefixed_auth_error():
+    """Companion отверг обмен, а SberID refresh вернул не invalid_grant — AuthError."""
+
+    def router(req: httpx.Request) -> httpx.Response:
+        if "smarthome/token" in req.url.path:
+            return httpx.Response(401, json={"error": "invalid_token"})
+        if req.url.path.endswith("/oidc/v3/token"):
+            return httpx.Response(
+                400, json={"error": "invalid_request", "error_description": "bad client"}
+            )
+        return httpx.Response(401, json={"error": "expired"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(router))
+    transport = HttpTransport(http=http, auth=_refreshing_auth(http))
+    async with transport:
+        with pytest.raises(AuthError, match="Token refresh failed") as exc_info:
+            await transport.get("/devices/")
+    assert not isinstance(exc_info.value, InvalidGrant)

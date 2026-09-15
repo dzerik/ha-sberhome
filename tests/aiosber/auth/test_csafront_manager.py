@@ -193,3 +193,132 @@ async def test_load_from_store_when_no_initial():
     token = await mgr.access_token()
     assert token == "sht-old"
     await http.aclose()
+
+
+# ----- lifecycle: set / persist / clear ------------------------------------
+
+
+def _rotation_handler(calls: dict[str, int], *, refresh_payload: dict | None = None):
+    async def handler(req: httpx.Request) -> httpx.Response:
+        if "/oidc/v3/token" in req.url.path:
+            calls["refresh"] = calls.get("refresh", 0) + 1
+            return httpx.Response(
+                200,
+                json=refresh_payload
+                or {"access_token": "ax-new", "refresh_token": "rx-new", "expires_in": 1800},
+            )
+        if "smarthome/token" in req.url.path:
+            calls["smart"] = calls.get("smart", 0) + 1
+            return httpx.Response(200, json={"token": "sht-new", "state": {"status": "OK"}})
+        raise AssertionError(f"unexpected {req.url}")
+
+    return handler
+
+
+async def test_set_persist_clear_lifecycle():
+    http = _client(_rotation_handler({}))
+    store = InMemoryCsafrontTokenStore()
+    mgr = CsafrontAuthManager(http=http, store=store)
+    assert not mgr.has_tokens
+    assert mgr.smart_home_expires_at is None
+    await mgr.persist()  # нечего сохранять
+    assert await store.load() is None
+
+    tokens = _initial_tokens()
+    mgr.set_tokens(tokens)
+    assert mgr.has_tokens
+    assert mgr.smart_home_expires_at == tokens.csafront_obtained_at + 1800
+    await mgr.persist()
+    assert await store.load() is tokens
+
+    await mgr.clear()
+    assert not mgr.has_tokens
+    assert await store.load() is None
+    await http.aclose()
+
+
+async def test_force_refresh_without_tokens_raises_invalid_grant():
+    calls: dict[str, int] = {}
+    http = _client(_rotation_handler(calls))
+    mgr = CsafrontAuthManager(http=http, store=InMemoryCsafrontTokenStore())
+    with pytest.raises(InvalidGrant, match="no tokens to refresh"):
+        await mgr.force_refresh()
+    assert calls == {}
+    await http.aclose()
+
+
+async def test_force_refresh_skips_when_token_already_rotated():
+    calls: dict[str, int] = {}
+    http = _client(_rotation_handler(calls))
+    mgr = CsafrontAuthManager(
+        http=http, store=InMemoryCsafrontTokenStore(), initial=_initial_tokens()
+    )
+    await mgr.force_refresh("sht-old")
+    await mgr.force_refresh("sht-old")  # опоздавший 401 со старым токеном
+    assert calls == {"refresh": 1, "smart": 1}
+    await http.aclose()
+
+
+async def test_refresh_without_rotation_keeps_refresh_token_and_ttl():
+    """Backend вернул только access_token — прежние refresh_token и TTL сохраняются."""
+    http = _client(_rotation_handler({}, refresh_payload={"access_token": "ax-new"}))
+    store = InMemoryCsafrontTokenStore()
+    mgr = CsafrontAuthManager(
+        http=http, store=store, initial=_initial_tokens(expires_in=900, age_s=1200)
+    )
+    assert await mgr.access_token() == "sht-new"
+    saved = await store.load()
+    assert saved is not None
+    assert saved.csafront_access_token == "ax-new"
+    assert saved.csafront_refresh_token == "rx-old"
+    assert saved.csafront_expires_in == 900
+    assert saved.phone == "78001234567"
+    await http.aclose()
+
+
+async def test_failing_refresh_callback_does_not_break_refresh(caplog):
+    async def cb(tokens: CsafrontTokens) -> None:
+        raise RuntimeError("config entry is gone")
+
+    http = _client(_rotation_handler({}))
+    store = InMemoryCsafrontTokenStore()
+    mgr = CsafrontAuthManager(
+        http=http,
+        store=store,
+        initial=_initial_tokens(expires_in=10, age_s=120),
+        on_tokens_refreshed=cb,
+    )
+    assert await mgr.access_token() == "sht-new"
+    assert (await store.load()).smart_home_token == "sht-new"
+    assert "on_tokens_refreshed callback failed" in caplog.text
+    await http.aclose()
+
+
+async def test_set_tokens_lifts_invalid_grant_after_reauth():
+    """После отзыва refresh_token запросы не бьют в Sber, пока не пришёл новый SMS-вход."""
+    state = {"revoked": True, "refresh": 0}
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        if "/oidc/v3/token" in req.url.path:
+            state["refresh"] += 1
+            if state["revoked"]:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(200, json={"access_token": "ax-new", "expires_in": 1800})
+        return httpx.Response(200, json={"token": "sht-new"})
+
+    http = _client(handler)
+    mgr = CsafrontAuthManager(
+        http=http,
+        store=InMemoryCsafrontTokenStore(),
+        initial=_initial_tokens(expires_in=10, age_s=120),
+    )
+    for _ in range(2):
+        with pytest.raises(InvalidGrant):
+            await mgr.access_token()
+    assert state["refresh"] == 1
+
+    state["revoked"] = False
+    mgr.set_tokens(_initial_tokens(expires_in=10, age_s=120))
+    assert await mgr.access_token() == "sht-new"
+    assert state["refresh"] == 2
+    await http.aclose()

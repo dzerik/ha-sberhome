@@ -80,3 +80,14 @@ async def test_list_short_filters_non_dict_items():
 
     api, _ = _build(h)
     assert await api.list_short() == [{"id": "a"}]
+
+
+@pytest.mark.asyncio
+async def test_list_device_accepts_unwrapped_list():
+    """Ответ без `result`-обёртки — голый список шаблонов."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "tpl-sleep", "name": "Режим сна"}])
+
+    api, _ = _build(h)
+    assert await api.list_device() == [{"id": "tpl-sleep", "name": "Режим сна"}]

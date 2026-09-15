@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from custom_components.sberhome.aiosber import SberClient
 from custom_components.sberhome.aiosber.api import ScenarioAPI
@@ -13,6 +14,7 @@ from custom_components.sberhome.aiosber.auth import (
     CompanionTokens,
     InMemoryTokenStore,
 )
+from custom_components.sberhome.aiosber.exceptions import ProtocolError
 from custom_components.sberhome.aiosber.transport import HttpTransport
 
 
@@ -426,3 +428,79 @@ async def test_history_filters_non_dict_event_items():
     events = await api.history("home-1")
     assert len(events) == 1
     assert events[0].id == "ok"
+
+
+# ---------------------------------------------------------------------------
+# raw / нестандартные ответы
+# ---------------------------------------------------------------------------
+
+_SCENARIO_RAW = {
+    "id": "sc-1",
+    "name": "Утро",
+    "is_active": True,
+    "steps": [{"tasks": [{"type": "DEVICE_COMMAND", "device_id": "dev-lamp-1"}]}],
+}
+
+
+async def test_list_raw_keeps_nested_fields():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": [_SCENARIO_RAW]})
+
+    api, _ = _build(h)
+    raw = await api.list_raw()
+    assert raw[0]["steps"][0]["tasks"][0]["device_id"] == "dev-lamp-1"
+
+
+async def test_get_null_result_raises_protocol_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": None})
+
+    api, _ = _build(h)
+    with pytest.raises(ProtocolError, match="sc-404"):
+        await api.get("sc-404")
+
+
+async def test_create_rejects_non_object_response():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["sc-1"])
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected dict"):
+        await api.create(_SCENARIO_RAW)
+
+
+async def test_list_system_rejects_non_list_payload():
+    """Ни одного list-поля в объекте — это не список сценариев."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": 5, "message": "internal"})
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected list"):
+        await api.list_system()
+
+
+async def test_list_widgets_accepts_plain_list():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "w-1"}])
+
+    api, _ = _build(h)
+    assert await api.list_widgets() == [{"id": "w-1"}]
+
+
+async def test_run_scenario_empty_body_reports_ok():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"")
+
+    api, _ = _build(h)
+    assert await api.run("sc-1") == {"ok": True}
+
+
+async def test_at_home_get_flat_bool_value_alongside_other_keys():
+    """Плоская форма с соседними ключами: `{"bool_value": true, "name": "at_home"}`."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"name": "at_home", "value": 1, "bool_value": True})
+
+    api, _ = _build(h)
+    assert await api.get_at_home() is True

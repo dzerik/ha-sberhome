@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from .exceptions import CodecError, MappingError, SbermapError, SpecError
 from .spec.ha_mapping import IMAGE_TYPE_MAP, resolve_category, resolve_device_category
 from .transform import (
     EQ_PRESET_MANUAL,
@@ -67,16 +66,12 @@ from .transform import (
 __all__ = [
     "ClimateConfig",
     "ClimateState",
-    "CodecError",
     "CoverConfig",
     "CoverStateSnapshot",
     "HaEntityData",
     "EQ_PRESET_MANUAL",
     "IMAGE_TYPE_MAP",
     "LightConfig",
-    "MappingError",
-    "SbermapError",
-    "SpecError",
     "StarosSettingEntity",
     "TV_SOURCES",
     "VacuumCommand",

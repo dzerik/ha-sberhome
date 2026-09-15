@@ -213,8 +213,6 @@ class WebSocketClient:
             params.append(("desired_home_id", home_id))
         for ext_id in self._external_device_ids:
             params.append(("ext_dvc_id", ext_id))
-        if not params:
-            return self._base_url
         sep = "&" if "?" in self._base_url else "?"
         return f"{self._base_url}{sep}{urlencode(params)}"
 
@@ -373,9 +371,7 @@ class WebSocketClient:
             return
 
         msg = SocketMessageDto.from_dict(payload)
-        if msg is None:
-            return
-        if msg.topic is None:
+        if msg is None or msg.topic is None:
             # Ни одно из 8 известных полей не заполнено — неизвестный
             # wire-формат или служебное сообщение. Раньше дропалось молча
             # (TopicRouter выходил без лога) — слепое пятно диагностики:

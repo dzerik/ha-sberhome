@@ -27,6 +27,7 @@ from custom_components.sberhome.sbermap.transform.feature_codecs import (
     FEATURE_CODECS,
     BoolCodec,
     EnumCodec,
+    FloatCodec,
     IntegerCodec,
     IntegerScaleCodec,
     TemperatureCodec,
@@ -314,3 +315,50 @@ class TestSpecificMetadata:
         # kettle temperature НЕ ×10 (целые градусы).
         codec = FEATURE_CODECS["kitchen_water_temperature"]
         assert codec.to_ha(85) == 85  # 85°C напрямую
+
+
+_ALL_CODECS = [
+    IntegerCodec(),
+    FloatCodec(),
+    IntegerScaleCodec(scale=0.1),
+    TemperatureCodec(),
+    BoolCodec(),
+    EnumCodec(),
+    VolumeCodec(),
+]
+
+
+class TestCodecContract:
+    """Общий контракт всех кодеков: отсутствующее значение остаётся отсутствующим."""
+
+    @pytest.mark.parametrize("codec", _ALL_CODECS, ids=lambda c: type(c).__name__)
+    def test_none_in_both_directions(self, codec):
+        assert codec.to_ha(None) is None
+        assert codec.to_sber(None) is None
+
+    @pytest.mark.parametrize(
+        ("codec", "sber", "ha"),
+        [
+            (IntegerCodec(), 45, 45),
+            (FloatCodec(), 0.35, 0.35),
+            (IntegerScaleCodec(scale=0.1), 225, 22.5),
+            (TemperatureCodec(), 21.5, 21.5),
+            (BoolCodec(), True, True),
+            (EnumCodec(), "eco", "eco"),
+            (VolumeCodec(), 40, 0.4),
+        ],
+        ids=lambda v: type(v).__name__ if not isinstance(v, (int, float, str)) else str(v),
+    )
+    def test_round_trip(self, codec, sber, ha):
+        assert codec.to_ha(sber) == pytest.approx(ha)
+        assert codec.to_sber(ha) == pytest.approx(sber)
+
+    @pytest.mark.parametrize(
+        "codec",
+        [IntegerCodec(), IntegerScaleCodec(scale=0.001), TemperatureCodec()],
+        ids=lambda c: type(c).__name__,
+    )
+    def test_non_numeric_value_is_dropped_not_raised(self, codec):
+        """Устройство прислало ENUM вместо числа — поле пропадает, опрос не падает."""
+        assert codec.to_ha("medium") is None
+        assert codec.to_sber("medium") is None

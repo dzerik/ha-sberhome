@@ -829,3 +829,113 @@ class TestThermostatMixin:
         )
         # _ThermostatMixin наследуется
         assert UnderfloorHeatingDevice(d).main_sensor == "C"
+
+
+# ============== Accessor table: wire key → typed property ==============
+def _attr(key: str, value) -> dict:
+    if isinstance(value, bool):
+        return {"key": key, "type": "BOOL", "bool_value": value}
+    if isinstance(value, int):
+        return {"key": key, "type": "INTEGER", "integer_value": str(value)}
+    return {"key": key, "type": "ENUM", "enum_value": value}
+
+
+_ACCESSORS = [
+    (RadiatorDevice, "hvac_radiator", "temperature_correction", -2, "temperature_correction"),
+    (RadiatorDevice, "hvac_radiator", "show_setup", True, "show_setup"),
+    (AirConditionerDevice, "hvac_ac", "hvac_air_flow_direction", "swing", "air_flow_direction"),
+    (AirConditionerDevice, "hvac_ac", "hvac_humidity_set", 45, "target_humidity"),
+    (AirConditionerDevice, "hvac_ac", "humidity", 38, "humidity"),
+    (AirConditionerDevice, "hvac_ac", "hvac_ionization", True, "ionization"),
+    (HeaterDevice, "hvac_heater", "hvac_air_flow_power", "medium", "fan_speed"),
+    (BoilerDevice, "hvac_boiler", "hvac_thermostat_mode", "eco", "thermostat_mode"),
+    (
+        UnderfloorHeatingDevice,
+        "hvac_underfloor_heating",
+        "hvac_thermostat_mode",
+        "comfort",
+        "thermostat_mode",
+    ),
+    (AirPurifierDevice, "hvac_air_purifier", "hvac_air_flow_power", "turbo", "speed"),
+    (AirPurifierDevice, "hvac_air_purifier", "hvac_night_mode", True, "night_mode"),
+    (AirPurifierDevice, "hvac_air_purifier", "hvac_aromatization", False, "aromatization"),
+    (
+        AirPurifierDevice,
+        "hvac_air_purifier",
+        "hvac_replace_ionizator",
+        True,
+        "replace_ionizer_alarm",
+    ),
+    (HumidifierDevice, "hvac_humidifier", "hvac_air_flow_power", "quiet", "speed"),
+    (HumidifierDevice, "hvac_humidifier", "hvac_night_mode", False, "night_mode"),
+    (HumidifierDevice, "hvac_humidifier", "hvac_ionization", True, "ionization"),
+    (HumidifierDevice, "hvac_humidifier", "hvac_water_low_level", True, "water_low_alarm"),
+    (KettleDevice, "kettle", "kitchen_water_low_level", True, "water_low_alarm"),
+    (VacuumDevice, "vacuum_cleaner", "vacuum_cleaner_cleaning_type", "wet", "cleaning_type"),
+    (VacuumDevice, "vacuum_cleaner", "child_lock", True, "child_lock"),
+    (WindowBlindDevice, "window_blind", "open_rate", "fast", "open_rate"),
+    (IntercomDevice, "intercom", "intercom_mute", True, "is_muted"),
+    (TemperatureSensorDevice, "sensor_temp", "temp_unit_view", "c", "temp_unit"),
+    (TemperatureSensorDevice, "sensor_temp", "sensor_sensitive", "auto", "sensitivity"),
+    (DoorSensorDevice, "sensor_door", "sensor_sensitive", "high", "sensitivity"),
+    (MotionSensorDevice, "sensor_pir", "sensor_sensitive", "auto", "sensitivity"),
+    (GasSensorDevice, "sensor_gas", "alarm_mute", True, "alarm_muted"),
+]
+
+
+@pytest.mark.parametrize(
+    ("cls", "category", "key", "value", "prop"),
+    _ACCESSORS,
+    ids=[f"{row[0].__name__}.{row[4]}" for row in _ACCESSORS],
+)
+def test_typed_accessor_reads_reported_value(cls, category, key, value, prop):
+    typed = as_typed(_dto(category, reported=[_attr(key, value)]))
+    assert type(typed) is cls
+    assert getattr(typed, prop) == value
+    # Устройство, не приславшее атрибут, — None, а не значение по умолчанию.
+    assert getattr(cls(_dto(category)), prop) is None
+
+
+def test_base_raw_metadata_accessors():
+    d = _dto(
+        "dt_bulb_e27_m",
+        device_type_name="bulb_sber",
+        device_info={"model": "SBDV-00019", "product_id": "SBER_BULB"},
+        reported=[{"key": "signal_strength", "type": "ENUM", "enum_value": "medium"}],
+    )
+    t = TypedDevice(d)
+    assert t.dto is d
+    assert t.category == "dt_bulb_e27_m"
+    assert t.model == "SBDV-00019"
+    assert t.signal_strength == "medium"
+    bare = TypedDevice(DeviceDto(id="x", device_type_name="relay_sber"))
+    assert bare.category == "relay_sber"
+    assert bare.model is None
+
+
+def test_cover_transitional_states():
+    closing = CurtainDevice(_dto("curtain", reported=[_attr("open_state", "closing")]))
+    assert closing.is_closing is True
+    assert closing.is_open is False
+    assert CurtainDevice(_dto("curtain")).is_open is None
+
+
+def test_scenario_button_battery_typo_fallback_and_indicator_colours():
+    """Часть прошивок шлёт `battery_percentag` (опечатка в спецификации Sber)."""
+    typo = ScenarioButtonDevice(_dto("scenario_button", reported=[_attr("battery_percentag", 64)]))
+    assert typo.battery_percentage == 64
+    both = ScenarioButtonDevice(
+        _dto(
+            "scenario_button",
+            reported=[_attr("battery_percentage", 80), _attr("battery_percentag", 64)],
+        )
+    )
+    assert both.battery_percentage == 80
+    colour = {
+        "key": "color_indicator_off",
+        "type": "COLOR",
+        "color_value": {"h": 0, "s": 100, "v": 40},
+    }
+    t = ScenarioButtonDevice(_dto("scenario_button", reported=[colour]))
+    assert t.color_indicator_off.brightness == 40
+    assert ScenarioButtonDevice(_dto("scenario_button")).color_indicator_off is None

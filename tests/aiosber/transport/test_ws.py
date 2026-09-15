@@ -657,16 +657,147 @@ async def test_topic_router_async_handler_supported():
 
 
 # ---------------------------------------------------------------------------
-# default_websockets_factory ImportError if lib missing
+# default_websockets_factory
 # ---------------------------------------------------------------------------
-async def test_default_factory_helpful_error_when_websockets_missing():
+async def test_default_factory_connects_with_auth_headers(monkeypatch):
+    import sys
+    import types
+
+    from custom_components.sberhome.aiosber.transport import default_websockets_factory
+
+    captured: dict = {}
+    fake = FakeWebSocket([])
+
+    async def fake_connect(url, *, additional_headers):
+        captured["url"] = url
+        captured["headers"] = additional_headers
+        return fake
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=fake_connect))
+    conn = await default_websockets_factory(
+        "wss://ws.iot.sberdevices.ru/v1?topic=DEVICE_STATE", {"Authorization": "Bearer T"}
+    )
+    assert conn is fake
+    assert captured == {
+        "url": "wss://ws.iot.sberdevices.ru/v1?topic=DEVICE_STATE",
+        "headers": [("Authorization", "Bearer T")],
+    }
+
+
+async def test_default_factory_helpful_error_when_websockets_missing(monkeypatch):
     """Если websockets не установлен — понятная ошибка."""
+    import sys
+
     from custom_components.sberhome.aiosber.exceptions import SberError
     from custom_components.sberhome.aiosber.transport import default_websockets_factory
 
-    # Попробуем — если websockets установлен, тест пропустим
-    try:
-        import websockets  # type: ignore[import-not-found]  # noqa: F401
-    except ImportError:
-        with pytest.raises(SberError, match="websockets library required"):
-            await default_websockets_factory("wss://example/", {})
+    monkeypatch.setitem(sys.modules, "websockets", None)
+    with pytest.raises(SberError, match="websockets library required"):
+        await default_websockets_factory("wss://example/", {})
+
+
+# ---------------------------------------------------------------------------
+# Сбои соединения и остановка
+# ---------------------------------------------------------------------------
+async def test_unexpected_recv_error_counts_as_failure_and_reconnects():
+    events: list[tuple[bool, BaseException | None]] = []
+    connections = [
+        FakeWebSocket([], raise_on_recv=RuntimeError("frame decoder bug")),
+        FakeWebSocket([], close_after_messages=False),
+    ]
+
+    async def factory(url, headers):
+        return connections.pop(0)
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: None,
+        factory=factory,
+        backoff_initial=0.001,
+        connection_listener=lambda connected, err: events.append((connected, err)),
+    )
+    task = asyncio.create_task(client.run())
+    for _ in range(100):
+        if len(events) >= 3:
+            break
+        await asyncio.sleep(0.01)
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1.0)
+
+    assert [connected for connected, _ in events] == [True, False, True]
+    assert isinstance(events[1][1], RuntimeError)
+
+
+async def test_stop_during_backoff_exits_without_waiting():
+    attempts = 0
+
+    async def factory(url, headers):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("network unreachable")
+
+    client = WebSocketClient(
+        auth=_build_auth(),
+        callback=lambda m: None,
+        factory=factory,
+        backoff_initial=30.0,
+    )
+    task = asyncio.create_task(client.run())
+    for _ in range(100):
+        if attempts:
+            break
+        await asyncio.sleep(0.01)
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1.0)
+    assert attempts == 1
+
+
+async def test_stop_tolerates_close_failure():
+    class BrokenClose(FakeWebSocket):
+        async def close(self) -> None:
+            self._close_event.set()
+            raise OSError("socket already closed")
+
+    fake = BrokenClose([], close_after_messages=False)
+
+    async def factory(url, headers):
+        return fake
+
+    client = WebSocketClient(auth=_build_auth(), callback=lambda m: None, factory=factory)
+    task = asyncio.create_task(client.run())
+    await client.wait_until_connected(timeout=1.0)
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1.0)
+    assert not client.is_connected
+
+
+async def test_non_object_json_ignored_with_warning(caplog):
+    received: list[SocketMessageDto] = []
+    fake = FakeWebSocket(['["heartbeat"]', _msg_device_state()])
+
+    async def factory(url, headers):
+        return fake
+
+    client = WebSocketClient(
+        auth=_build_auth(), callback=lambda m: received.append(m), factory=factory
+    )
+    task = asyncio.create_task(client.run())
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.01)
+    await client.stop()
+    task.cancel()
+    with contextlib.suppress(BaseException):
+        await task
+
+    assert len(received) == 1
+    assert "non-object message: list" in caplog.text
+
+
+async def test_topic_router_ignores_message_without_topic():
+    received = []
+    router = TopicRouter()
+    router.on(Topic.DEVICE_STATE, lambda m: received.append(m))
+    await router(SocketMessageDto())
+    assert received == []

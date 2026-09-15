@@ -230,3 +230,94 @@ async def test_refresh_csafront_raises_invalid_grant_on_400():
     with pytest.raises(InvalidGrant):
         await refresh_csafront(http, "revoked")
     await http.aclose()
+
+
+# ----- ошибки транспорта и ответа для всех шагов ---------------------------
+
+_PKCE = PkceParams.generate()
+
+_STEPS = {
+    "send_otp": lambda http: send_otp(http, "78001002030", _PKCE),
+    "verify_otp": lambda http: verify_otp(http, "ouid-1", "123456"),
+    "exchange_authcode": lambda http: exchange_authcode(http, "ac-1", _PKCE),
+    "get_smart_home_token": lambda http: get_smart_home_token(http, "ax"),
+    "refresh_csafront": lambda http: refresh_csafront(http, "rx"),
+}
+
+
+def _raising(exc: Exception):
+    async def handler(req: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return handler
+
+
+@pytest.mark.parametrize("step", sorted(_STEPS))
+@pytest.mark.parametrize(
+    "exc",
+    [httpx.ReadTimeout("read timed out"), httpx.RemoteProtocolError("peer closed")],
+    ids=["timeout", "transport"],
+)
+async def test_step_wraps_transport_failures_as_network_error(step, exc):
+    """Таймаут и обрыв соединения на любом шаге → NetworkError, не сырой httpx."""
+    http = _client(_raising(exc))
+    with pytest.raises(NetworkError, match=step):
+        await _STEPS[step](http)
+    await http.aclose()
+
+
+@pytest.mark.parametrize("step", sorted(_STEPS))
+async def test_step_rejects_html_challenge_instead_of_json(step):
+    """Anti-bot шлюз отвечает HTML-страницей со статусом 200 → AuthError."""
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html><body>Checking your browser…</body></html>")
+
+    http = _client(handler)
+    with pytest.raises(AuthError, match="invalid JSON"):
+        await _STEPS[step](http)
+    await http.aclose()
+
+
+@pytest.mark.parametrize(
+    ("step", "match"),
+    [
+        ("verify_otp", "no authcode"),
+        ("exchange_authcode", "no access_token"),
+        ("get_smart_home_token", "no 'token'"),
+        ("refresh_csafront", "no access_token"),
+    ],
+)
+async def test_step_rejects_json_without_required_field(step, match):
+    """200 с JSON, но без ключевого поля (например, `{"error": ...}`) → AuthError."""
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"state": {"status": "PENDING"}})
+
+    http = _client(handler)
+    with pytest.raises(AuthError, match=match):
+        await _STEPS[step](http)
+    await http.aclose()
+
+
+@pytest.mark.parametrize("step", ["verify_otp", "exchange_authcode", "refresh_csafront"])
+async def test_step_server_error_is_auth_error_not_invalid_grant(step):
+    """5xx — временная беда сервера: AuthError, но не InvalidGrant (без reauth)."""
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="Service Temporarily Unavailable")
+
+    http = _client(handler)
+    with pytest.raises(AuthError, match="503") as exc_info:
+        await _STEPS[step](http)
+    assert not isinstance(exc_info.value, InvalidGrant)
+    await http.aclose()
+
+
+async def test_verify_otp_reads_code_key_inside_response_data():
+    async def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"response_data": {"code": "ac-code"}})
+
+    http = _client(handler)
+    assert await verify_otp(http, "ouid", "123456") == "ac-code"
+    await http.aclose()

@@ -27,12 +27,12 @@ omit = ["custom_components/sberhome/__pycache__/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
-# Нижняя граница покрытия: измеренный итог полного прогона (86.5%), округлённый
+# Нижняя граница покрытия: измеренный итог полного прогона (99.2%), округлённый
 # вниз. pytest-cov применяет её сам — CI падает, если покрытие опустилось ниже.
 # Raise as coverage grows, never lower.
 # Прогон отдельного файла тестов упрётся в эту границу — локально добавляйте
 # `--no-cov`.
-fail_under = 86
+fail_under = 99
 
 [tool.mypy]
 # Совпадает с Python шага mypy в .github/workflows/ci.yml.

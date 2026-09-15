@@ -422,3 +422,77 @@ async def test_invalid_grant_is_sticky_until_new_credentials():
         mgr.set_sberid_tokens(SberIdTokens(access_token="SID2", expires_in=3600))
         await mgr.force_refresh("OLD")
         assert (await mgr.access_token()) == "NEW"
+
+
+# ---- companion отверг живой SberID ----
+async def test_companion_rejection_refreshes_sberid_and_retries():
+    """SberID по сроку жив, но отозван на сервере: 401 → refresh SberID → повторный обмен."""
+    sberid = SberIdTokens(access_token="REVOKED_SID", refresh_token="RT", expires_in=3600)
+    captured: list[SberIdTokens] = []
+    seen_bearers: list[str] = []
+
+    async def on_refreshed(tokens: SberIdTokens) -> None:
+        captured.append(tokens)
+
+    def token_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"access_token": "NEW_SID", "refresh_token": "RT2", "expires_in": 3600},
+        )
+
+    def companion_handler(req: httpx.Request) -> httpx.Response:
+        bearer = req.headers["authorization"]
+        seen_bearers.append(bearer)
+        if bearer == "Bearer REVOKED_SID":
+            return httpx.Response(401, json={"error": "invalid_token"})
+        return httpx.Response(200, json={"access_token": "COMP", "expires_in": 86400})
+
+    client, _ = _client_recording(
+        {"/v3/token": token_handler, "/smarthome/token": companion_handler}
+    )
+    store = InMemoryTokenStore()
+    async with client as http:
+        mgr = AuthManager(
+            http=http, store=store, sberid_tokens=sberid, on_sberid_refreshed=on_refreshed
+        )
+        assert await mgr.access_token() == "COMP"
+
+    assert seen_bearers == ["Bearer REVOKED_SID", "Bearer NEW_SID"]
+    assert [t.refresh_token for t in captured] == ["RT2"]
+    assert (await store.load()).access_token == "COMP"
+
+
+async def test_companion_rejection_without_sberid_refresh_token_needs_reauth():
+    sberid = SberIdTokens(access_token="REVOKED_SID", refresh_token=None, expires_in=3600)
+
+    def companion_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": "access_denied"})
+
+    client, _ = _client_recording({"/smarthome/token": companion_handler})
+    async with client as http:
+        mgr = AuthManager(http=http, store=InMemoryTokenStore(), sberid_tokens=sberid)
+        with pytest.raises(InvalidGrant, match="no SberID refresh_token"):
+            await mgr.access_token()
+
+
+# ---- set / persist / expiry properties ----
+async def test_set_companion_tokens_persist_and_expiry_properties():
+    store = InMemoryTokenStore()
+    client, hits = _client_recording({})
+    async with client as http:
+        mgr = AuthManager(http=http, store=store)
+        assert mgr.sberid_expires_at is None
+        assert mgr.companion_expires_at is None
+        await mgr.persist()  # companion ещё нет — ничего не пишется
+        assert await store.load() is None
+
+        sberid = SberIdTokens(access_token="SID", expires_in=3600, obtained_at=1_000.0)
+        companion = CompanionTokens(access_token="COMP", expires_in=86400, obtained_at=2_000.0)
+        mgr.set_sberid_tokens(sberid)
+        mgr.set_companion_tokens(companion)
+        assert mgr.sberid_expires_at == 4_600.0
+        assert mgr.companion_expires_at == 88_400.0
+
+        await mgr.persist()
+        assert await store.load() is companion
+    assert hits == []

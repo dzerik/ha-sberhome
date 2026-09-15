@@ -142,3 +142,9 @@ def test_extract_code_missing_raises():
 def test_extract_code_handles_https_redirect():
     code = extract_code_from_redirect("https://example.com/cb?code=https-flow&state=s")
     assert code == "https-flow"
+
+
+def test_extract_code_malformed_url_raises_pkce_error():
+    """Незакрытая IPv6-скобка — urlparse падает, наружу уходит PkceError."""
+    with pytest.raises(PkceError, match="Invalid redirect URL"):
+        extract_code_from_redirect("https://[::1/callback?code=ABC")

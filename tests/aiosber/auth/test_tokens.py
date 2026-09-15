@@ -1,10 +1,10 @@
-"""Тесты SberIdTokens / CompanionTokens."""
+"""Тесты SberIdTokens / CompanionTokens / CsafrontTokens."""
 
 from __future__ import annotations
 
 import time
 
-from custom_components.sberhome.aiosber.auth import CompanionTokens, SberIdTokens
+from custom_components.sberhome.aiosber.auth import CompanionTokens, CsafrontTokens, SberIdTokens
 
 
 def test_sberid_from_dict_full():
@@ -93,3 +93,34 @@ def test_companion_is_expired_logic():
 
     stale = CompanionTokens(access_token="x", expires_in=10, obtained_at=time.time() - 100)
     assert stale.is_expired()
+
+
+def test_csafront_tokens_roundtrip_and_expiry():
+    tokens = CsafrontTokens(
+        csafront_access_token="ax",
+        csafront_refresh_token="rx",
+        smart_home_token="sht",
+        client_uuid="cu-1",
+        csafront_expires_in=1800,
+        csafront_obtained_at=1_000.0,
+        smart_home_obtained_at=1_000.0,
+        phone="78001234567",
+    )
+    restored = CsafrontTokens.from_dict(tokens.to_dict())
+    assert restored == tokens
+    assert restored.csafront_expires_at == 2_800.0
+    assert restored.is_csafront_expired()
+
+
+def test_csafront_tokens_from_minimal_dict_uses_defaults():
+    restored = CsafrontTokens.from_dict(
+        {
+            "csafront_access_token": "ax",
+            "csafront_refresh_token": "rx",
+            "smart_home_token": "sht",
+            "client_uuid": "cu-1",
+        }
+    )
+    assert restored.csafront_expires_in == 1800
+    assert restored.phone is None
+    assert not restored.is_csafront_expired()

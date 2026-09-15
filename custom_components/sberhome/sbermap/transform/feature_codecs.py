@@ -55,11 +55,9 @@ class FeatureCodec(Protocol):
 
     def to_ha(self, sber_value: Any) -> Any:
         """Sber API value → HA-friendly value."""
-        ...
 
     def to_sber(self, ha_value: Any) -> Any:
         """HA value → Sber API value (reverse)."""
-        ...
 
 
 # ============================================================================

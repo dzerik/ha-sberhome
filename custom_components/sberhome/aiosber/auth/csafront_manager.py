@@ -27,6 +27,7 @@ import httpx
 
 from ..const import TOKEN_EXPIRY_LEEWAY_S
 from ..exceptions import InvalidGrant
+from ._single_flight import SingleFlightRefresh
 from .csafront import get_smart_home_token, refresh_csafront
 from .store import CsafrontTokenStore
 from .tokens import CsafrontTokens
@@ -72,10 +73,8 @@ class CsafrontAuthManager:
         self._on_refreshed = on_tokens_refreshed
         self._lock = asyncio.Lock()
         self._loaded = initial is not None
-        # Single-flight: число завершённых попыток refresh и ошибка последней
-        # (см. `_refresh_locked`).
-        self._refresh_attempts = 0
-        self._last_refresh_error: Exception | None = None
+        # Single-flight: N параллельных refresh дают одну ротацию пары.
+        self._single_flight = SingleFlightRefresh(self._lock, self._refresh_tokens)
 
     # ----- Public API (mirror of AuthManager) -----
     async def access_token(self) -> str:
@@ -95,14 +94,14 @@ class CsafrontAuthManager:
         if not self._tokens.is_csafront_expired(self._leeway):
             return self._tokens.smart_home_token
 
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            # double-check после lock
-            if self._tokens and not self._tokens.is_csafront_expired(self._leeway):
-                return self._tokens.smart_home_token
-            await self._refresh_locked(seen_attempt)
-            assert self._tokens is not None
-            return self._tokens.smart_home_token
+        # double-check под lock
+        await self._single_flight.run(
+            skip=lambda: (
+                self._tokens is not None and not self._tokens.is_csafront_expired(self._leeway)
+            )
+        )
+        assert self._tokens is not None
+        return self._tokens.smart_home_token
 
     async def force_refresh(self, stale_token: str | None = None) -> None:
         """Принудительно обновить пару (CSAFront + SmartHomeToken).
@@ -120,21 +119,19 @@ class CsafrontAuthManager:
             InvalidGrant: refresh_token отозван — нужен полный SMS-OTP flow.
         """
         await self._ensure_loaded()
-        seen_attempt = self._refresh_attempts
-        async with self._lock:
-            if (
+        await self._single_flight.run(
+            skip=lambda: (
                 stale_token is not None
                 and self._tokens is not None
                 and self._tokens.smart_home_token != stale_token
-            ):
-                return
-            await self._refresh_locked(seen_attempt)
+            )
+        )
 
     def set_tokens(self, tokens: CsafrontTokens) -> None:
         """Установить новые токены (например после успешного SMS-OTP flow)."""
         self._tokens = tokens
         self._loaded = True
-        self._last_refresh_error = None  # новые учётные данные — refresh снова возможен
+        self._single_flight.reset()  # новые учётные данные — refresh снова возможен
 
     async def persist(self) -> None:
         """Сохранить текущие токены в store."""
@@ -166,39 +163,6 @@ class CsafrontAuthManager:
                 if stored is not None:
                     self._tokens = stored
                 self._loaded = True
-
-    async def _refresh_locked(self, seen_attempt: int) -> None:
-        """Выполнить refresh под `self._lock`, разделяя неудачу с ждавшими.
-
-        Args:
-            seen_attempt: значение `_refresh_attempts` до ожидания lock. Если
-                за время ожидания соседняя задача уже пыталась обновить пару и
-                упала — её ошибка пробрасывается без повторного refresh.
-
-        Raises:
-            InvalidGrant / AuthError / NetworkError: ошибка refresh.
-        """
-        err = self._last_refresh_error
-        # InvalidGrant — отказ окончательный (одноразовый refresh_token отозван):
-        # повтор с теми же учётными данными гарантированно упадёт, а до reauth
-        # каждый запрос бил бы в Sber. Прочие ошибки делятся только с теми, кто
-        # ждал lock во время неудачной попытки.
-        if err is not None and (
-            seen_attempt != self._refresh_attempts or isinstance(err, InvalidGrant)
-        ):
-            raise err
-        self._last_refresh_error = None
-        try:
-            await self._refresh_tokens()
-        except Exception as exc:
-            self._last_refresh_error = exc
-            raise
-        else:
-            self._last_refresh_error = None
-        finally:
-            # Считаем ЗАВЕРШЁННЫЕ попытки: задачи, вставшие в очередь во время
-            # этой, видят прежнее значение и узнают о её исходе.
-            self._refresh_attempts += 1
 
     async def _refresh_tokens(self) -> None:
         """Обновить CSAFront пару + новый SmartHomeToken.

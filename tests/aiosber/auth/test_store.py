@@ -1,9 +1,11 @@
-"""Тесты InMemoryTokenStore."""
+"""Тесты InMemoryTokenStore и InMemoryCsafrontTokenStore."""
 
 from __future__ import annotations
 
 from custom_components.sberhome.aiosber.auth import (
     CompanionTokens,
+    CsafrontTokens,
+    InMemoryCsafrontTokenStore,
     InMemoryTokenStore,
 )
 
@@ -47,3 +49,18 @@ async def test_initial_token():
     initial = CompanionTokens(access_token="preset")
     store = InMemoryTokenStore(initial=initial)
     assert (await store.load()) is initial
+
+
+async def test_csafront_store_roundtrip_and_clear():
+    tokens = CsafrontTokens(
+        csafront_access_token="ax",
+        csafront_refresh_token="rx",
+        smart_home_token="sht",
+        client_uuid="cu-1",
+    )
+    store = InMemoryCsafrontTokenStore()
+    assert await store.load() is None
+    await store.save(tokens)
+    assert await store.load() is tokens
+    await store.clear()
+    assert await store.load() is None

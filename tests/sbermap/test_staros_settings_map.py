@@ -370,3 +370,40 @@ def test_build_staros_value():
     assert build_staros_value("STARCAST_VOLUME", 2.5) == 2.5
     # Неизвестный тип — passthrough.
     assert build_staros_value("MYSTERY", "raw") == "raw"
+
+
+def test_equalizer_server_preset_wins_over_band_matching():
+    """Валидный серверный activePreset — это и есть текущий пресет."""
+    ents = _map(
+        [
+            {
+                "id": "equalizer",
+                "type": "EQUALIZER",
+                "enabled": False,
+                "activePreset": "flat",
+                "presets": ["flat", "user"],
+                "frequencies": [60, 230, 910, 3600, 14000],
+                "minMaxStep": [-6, 6, 1],
+                "userPreset": {"user": [2.0, 2.0, 2.0, 2.0, 2.0]},
+            }
+        ]
+    )
+    preset = next(e for e in ents if e.eq_role == "preset")
+    assert preset.state == "flat"
+
+
+def test_equalizer_without_id_gives_no_entities():
+    assert _map([{"type": "EQUALIZER", "enabled": True, "userPreset": {"user": [0.0]}}]) == []
+
+
+def test_equalizer_preset_bands_unknown_or_absent():
+    from custom_components.sberhome.sbermap.transform.staros_settings import (
+        equalizer_preset_bands,
+    )
+
+    assert equalizer_preset_bands(None) is None
+    assert equalizer_preset_bands("Нет такого") is None
+
+
+def test_build_staros_value_slider_non_numeric_passthrough():
+    assert build_staros_value("SLIDER", "max") == "max"

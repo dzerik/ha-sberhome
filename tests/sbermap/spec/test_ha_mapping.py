@@ -301,3 +301,35 @@ class TestResolveDeviceCategory:
             primary_category_slug = None
 
         assert resolve_device_category(FakeDto()) is None
+
+
+class TestLookupHelpers:
+    def test_platforms_and_categories_are_mutually_consistent(self):
+        from homeassistant.const import Platform
+
+        from custom_components.sberhome.sbermap.spec import (
+            categories_for_platform,
+            platforms_for_category,
+        )
+
+        assert Platform.CLIMATE in platforms_for_category("hvac_ac")
+        assert "hvac_ac" in categories_for_platform(Platform.CLIMATE)
+        assert platforms_for_category("teleporter") == ()
+        assert categories_for_platform(Platform.CALENDAR) == frozenset()
+
+    def test_ha_attribute_for_feature(self):
+        from custom_components.sberhome.sbermap.spec import ha_attribute_for_feature
+
+        assert ha_attribute_for_feature("light_brightness") == "brightness"
+        assert ha_attribute_for_feature("hvac_work_mode") == "hvac_mode"
+        assert ha_attribute_for_feature("unknown_feature") is None
+
+    def test_keyword_conflict_is_rejected(self):
+        from custom_components.sberhome.sbermap.spec.ha_mapping import _build_keyword_index
+
+        index = _build_keyword_index(
+            {"socket": frozenset({"socket"}), "relay": frozenset({"relay"})}
+        )
+        assert index == {"socket": "socket", "relay": "relay"}
+        with pytest.raises(ValueError, match="conflict"):
+            _build_keyword_index({"socket": frozenset({"plug"}), "relay": frozenset({"plug"})})

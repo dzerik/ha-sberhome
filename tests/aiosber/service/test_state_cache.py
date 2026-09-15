@@ -619,3 +619,39 @@ def test_update_from_tree_also_protected():
     assert dev is not None
     on_off = next(av for av in dev.reported_state if av.key == "on_off")
     assert on_off.bool_value is False  # локальный патч сохранён
+
+
+def test_flat_update_skips_devices_without_id_and_empty_rooms_have_no_home():
+    cache = StateCache()
+    homes, rooms, groups, devices = _flat_data()
+    rooms.append(
+        UnionDto(id="room-attic", name="Чердак", group_type=UnionType.ROOM, parent_id="home-main")
+    )
+    cache.update_from_flat(homes, rooms, groups, [*devices, DeviceDto(name="без id")])
+    assert len(cache.get_all_devices()) == 3
+    # Комната без устройств не привязывается к дому по устройствам.
+    assert "room-attic" not in {r.id for r in cache.get_rooms(home_id="home-main")}
+
+
+def test_patch_device_desired_unknown_device_is_ignored():
+    cache = StateCache()
+    cache.patch_device_desired("ghost", [AttributeValueDto.of_bool("on_off", True)])
+    assert cache.get_device("ghost") is None
+
+
+def test_local_patch_for_device_missing_from_snapshot_is_not_resurrected():
+    """Устройство патчили во время опроса, но в свежем снимке его уже нет."""
+    import time
+
+    cache = StateCache()
+    cache.update_from_flat(*_stale_snapshot())
+    fetch_started_at = time.monotonic()
+    cache.patch_device_state("lamp-1", [_bool_attr("on_off", True)])
+    cache.update_from_flat(
+        [UnionDto(id="home-1", name="Дом", group_type=UnionType.HOME)],
+        [],
+        [],
+        [],
+        fetch_started_at=fetch_started_at,
+    )
+    assert cache.get_device("lamp-1") is None

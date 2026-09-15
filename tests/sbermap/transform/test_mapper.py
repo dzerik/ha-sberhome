@@ -431,3 +431,98 @@ class TestSberBoxTime:
         assert len(sounds) == 1
         assert sounds[0].key == "staros_assistant_sounds_enabled"
         assert sounds[0].bool_value is True
+
+
+# =============================================================================
+# Нормализация типов и свежесть desired
+# =============================================================================
+
+
+class TestDeclaredTypeNormalization:
+    """Задекларированный в attributes[] тип важнее `type` конкретного значения."""
+
+    def _humidity(self, declared: str, value: dict) -> object:
+        dto = _dto(
+            "cat_sensor_temp_humidity",
+            [{"key": "humidity", "last_sync": "2026-09-15T10:00:00Z", **value}],
+            attributes=[{"key": "humidity", "type": declared}],
+        )
+        ent = next(e for e in map_device_to_entities(dto) if e.state_attribute_key == "humidity")
+        return ent.state
+
+    def test_float_declared_integer_only_value(self):
+        assert self._humidity("FLOAT", {"type": "INTEGER", "integer_value": "41"}) == 41
+
+    def test_float_declared_without_any_number(self):
+        assert self._humidity("FLOAT", {"type": "INTEGER"}) is None
+
+    def test_integer_declared_float_only_value(self):
+        assert self._humidity("INTEGER", {"type": "FLOAT", "float_value": 40.7}) == 40
+
+    def test_integer_declared_without_any_number(self):
+        assert self._humidity("INTEGER", {"type": "FLOAT"}) is None
+
+
+class TestDesiredWithoutReported:
+    def test_fresh_desired_used_when_nothing_reported(self):
+        dto = _dto(
+            "cat_socket",
+            [],
+            desired_state=[
+                {"type": "BOOL", "bool_value": True},  # запись без key игнорируется
+                {
+                    "key": "on_off",
+                    "type": "BOOL",
+                    "bool_value": True,
+                    "last_sync": "2026-09-15T10:00:00Z",
+                },
+            ],
+        )
+        primary = next(e for e in map_device_to_entities(dto) if e.unique_id == "test-id")
+        assert primary.state == "on"
+
+
+class TestClimatePrimaryAttributes:
+    def test_target_current_and_fan(self):
+        dto = _dto(
+            "hvac_ac",
+            [
+                {"key": "on_off", "type": "BOOL", "bool_value": True},
+                {"key": "hvac_work_mode", "type": "ENUM", "enum_value": "heat"},
+                {"key": "hvac_temp_set", "type": "INTEGER", "integer_value": "24"},
+                {"key": "temperature", "type": "FLOAT", "float_value": 22.5},
+                {"key": "hvac_air_flow_power", "type": "ENUM", "enum_value": "medium"},
+            ],
+        )
+        climate = next(e for e in map_device_to_entities(dto) if e.platform is Platform.CLIMATE)
+        assert climate.attributes == {
+            "temperature": 24,
+            "current_temperature": 22.5,
+            "fan_mode": "medium",
+        }
+
+
+def test_primary_platform_without_builder_gives_no_primary():
+    from custom_components.sberhome.sbermap.transform.category_specs import (
+        CategorySpec,
+        build_primary_entity,
+    )
+
+    spec = CategorySpec(Platform.SENSOR, frozenset({"temperature"}))
+    assert build_primary_entity({"temperature": 21}, spec, "dev", "Датчик", "sensor_temp") is None
+
+
+class TestBuildCommandValueTypes:
+    def test_float_colour_and_fallback_string(self):
+        from custom_components.sberhome.aiosber.dto import AttributeValueType, ColorValue
+
+        colour = ColorValue(hue=120, saturation=100, brightness=50)
+        attrs = build_command(
+            "dev", custom_float=21.5, custom_colour=colour, custom_list=["a", "b"]
+        )
+        by_key = {a.key: a for a in attrs}
+        assert by_key["custom_float"].type is AttributeValueType.FLOAT
+        assert by_key["custom_float"].float_value == 21.5
+        assert by_key["custom_colour"].color_value == colour
+        assert by_key["custom_list"].type is AttributeValueType.STRING
+        assert by_key["custom_list"].string_value == "['a', 'b']"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from custom_components.sberhome.aiosber import (
     AttributeValueDto,
@@ -17,6 +18,7 @@ from custom_components.sberhome.aiosber.auth import (
     CompanionTokens,
     InMemoryTokenStore,
 )
+from custom_components.sberhome.aiosber.exceptions import ProtocolError
 from custom_components.sberhome.aiosber.transport import HttpTransport
 
 
@@ -226,3 +228,93 @@ async def test_sber_client_groups_property():
     async with client:
         result = await client.groups.list()
     assert result == []  # empty list of UnionDto
+
+
+# ----- raw / нестандартные ответы -----
+_ROOM = {
+    "id": "room-kitchen",
+    "name": "Кухня",
+    "parent_id": "home-1",
+    "group_type": "ROOM",
+    "device_ids": ["dev-lamp-1"],
+    "image_set_type": "kitchen",
+}
+
+
+async def test_list_raw_returns_dicts_as_is():
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.path.endswith("/device_groups/")
+        return httpx.Response(200, json={"result": [_ROOM]})
+
+    api, _ = _build(h)
+    assert await api.list_raw() == [_ROOM]
+
+
+async def test_get_accepts_unwrapped_group_payload():
+    """Ответ без `result`-обёртки (голый объект группы) тоже разбирается."""
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_ROOM)
+
+    api, _ = _build(h)
+    group = await api.get("room-kitchen")
+    assert group.name == "Кухня"
+    assert group.device_ids == ["dev-lamp-1"]
+
+
+async def test_get_null_result_raises_protocol_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": None, "code": 0})
+
+    api, _ = _build(h)
+    with pytest.raises(ProtocolError, match="room-x"):
+        await api.get("room-x")
+
+
+async def test_tree_null_result_raises_protocol_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": None})
+
+    api, _ = _build(h)
+    with pytest.raises(ProtocolError, match="group tree"):
+        await api.tree()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"result": {"group": _ROOM, "devices": [], "children": []}},
+        {"group": _ROOM, "devices": [], "children": []},
+    ],
+    ids=["wrapped", "bare"],
+)
+async def test_tree_raw_unwraps_optional_result(payload):
+    def h(req: httpx.Request) -> httpx.Response:
+        assert req.url.path.endswith("/device_groups/tree")
+        return httpx.Response(200, json=payload)
+
+    api, _ = _build(h)
+    raw = await api.tree_raw()
+    assert raw["group"]["id"] == "room-kitchen"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [httpx.Response(200, content=b""), httpx.Response(200, json=[])],
+    ids=["empty-body", "json-array"],
+)
+async def test_set_state_non_object_response_returns_none(response):
+    """Sber иногда отвечает на команду пустым телом — команда при этом принята."""
+    api, hits = _build(lambda req: response)
+    result = await api.set_state("room-kitchen", [AttributeValueDto.of_bool(AttrKey.ON_OFF, True)])
+    assert result is None
+    assert hits[0].method == "PUT"
+
+
+async def test_list_rejects_non_list_payload():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"id": "home-1"}})
+
+    api, _ = _build(h)
+    with pytest.raises(ValueError, match="Expected list"):
+        await api.list()

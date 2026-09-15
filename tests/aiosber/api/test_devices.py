@@ -11,6 +11,7 @@ import pytest
 from custom_components.sberhome.aiosber import (
     AttributeValueDto,
     AttrKey,
+    DesiredDeviceStateDto,
     DeviceAPI,
     DeviceDto,
     SberClient,
@@ -400,3 +401,48 @@ async def test_sber_client_devices_property():
     async with client:
         result = await client.devices.list()
     assert result == []
+
+
+async def test_set_state_dto_sends_desired_state():
+    captured: dict = {}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.content)
+        return httpx.Response(200, json={})
+
+    api, _ = _build(h)
+    body = DesiredDeviceStateDto(
+        desired_state=[AttributeValueDto.of_int(AttrKey.LIGHT_BRIGHTNESS, 500)]
+    )
+    await api.set_state_dto("dev-1", body, timestamp="2026-09-15T10:00:00.000Z")
+    assert captured["body"]["device_id"] == "dev-1"
+    assert captured["body"]["timestamp"] == "2026-09-15T10:00:00.000Z"
+    assert captured["body"]["desired_state"][0]["key"] == "light_brightness"
+
+
+async def test_discover_keeps_payload_with_result_sibling_keys():
+    """`result` рядом с несколькими другими ключами — это данные, а не обёртка."""
+    payload = {"result": "ok", "sub_devices": [{"id": "zb-1"}], "hub_id": "hub-1"}
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    api, _ = _build(h)
+    assert await api.discover("hub-1") == payload
+
+
+async def test_list_flat_garbage_item_raises_protocol_error():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": [None]})
+
+    api, _ = _build(h)
+    with pytest.raises(ProtocolError, match="DeviceDto"):
+        await api.list_flat()
+
+
+async def test_enums_non_object_payload_returns_empty():
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": ["hvac_work_mode"]})
+
+    api, _ = _build(h)
+    assert await api.enums() == {}
