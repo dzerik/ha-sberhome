@@ -222,19 +222,17 @@ class IntentDispatcher:
             self._pending = False
             trigger = ",".join(sorted(self._pending_sources)) or "unknown"
             self._pending_sources.clear()
-            homes = self._state_cache.get_homes()
-            if not homes:
+            home_ids = [home.id for home in self._state_cache.get_homes() if home.id]
+            if not home_ids:
                 LOGGER.debug("intent dispatch requested, но state_cache без homes — пропуск")
                 continue
-            for home in homes:
-                if not home.id:
-                    continue
+            for home_id in home_ids:
                 try:
-                    await self._dispatch_home(home.id, trigger=trigger)
+                    await self._dispatch_home(home_id, trigger=trigger)
                 except Exception:  # noqa: BLE001 — best-effort per home
                     LOGGER.debug(
                         "intent dispatch failed for home %s (ignored)",
-                        home.id,
+                        home_id,
                         exc_info=True,
                     )
 

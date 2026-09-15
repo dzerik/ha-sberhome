@@ -160,12 +160,3 @@ class SberBaseEntity(CoordinatorEntity[SberHomeCoordinator]):
         # Optimistic patch уже сделан DeviceService.set_state — нужно лишь
         # пересобрать sbermap entities и уведомить HA-подписчиков.
         self.coordinator.rebuild_caches_and_notify()
-
-    async def _async_send_command(self, **features: Any) -> None:
-        """Send command via bidirectional mapper.
-
-        Usage: ``await self._async_send_command(on_off=True, light_brightness=200)``
-        """
-        from .sbermap import build_command
-
-        await self._async_send_attrs(build_command(self._device_id, **features))

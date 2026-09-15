@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from homeassistant.components.event import EventEntity
 from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import SIGNAL_DEVMAN_EVENT, SberHomeConfigEntry, SberHomeCoordinator
+from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
 from .intent_dispatcher import EVENT_SBERHOME_INTENT
 from .sbermap import HaEntityData
@@ -128,56 +125,38 @@ class SberSbermapEvent(SberBaseEntity, EventEntity):
         self._ha_unique_id = ha_entity.unique_id
         self._state_key = ha_entity.state_attribute_key or ""
         self._attr_event_types = list(ha_entity.event_types or ())
-        self._last_seen: str | None = None
+        # Нажатие, которое уже лежит в reported_state при создании сущности
+        # (запуск HA, перезагрузка записи после смены выбора устройств), —
+        # прошлое, а не новое: без этой отметки первое же обновление
+        # координатора повторяло его как событие и запускало автоматизации.
+        current = self._current_press()
+        self._last_seen: str | None = current[1] if current else None
+
+    def _current_press(self) -> tuple[str, str] | None:
+        """Текущее нажатие: ``(тип события, отметка)``.
+
+        Отметка — тип вместе со временем синхронизации атрибута, если оно
+        есть: так повторное нажатие того же типа отличается от прежнего.
+        """
+        ent = self._entity_data(self._ha_unique_id)
+        if ent is None or ent.state is None:
+            return None
+        value = str(ent.state)
+        # Используем raw timestamp из reported_state если есть.
+        ts = None
+        dto = self._device_dto
+        if dto is not None:
+            for av in dto.reported_state:
+                if av.key == self._state_key:
+                    ts = getattr(av, "last_sync", None)
+                    break
+        return value, (f"{value}:{ts}" if ts else value)
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        ent = self._entity_data(self._ha_unique_id)
-        if ent is not None and ent.state is not None:
-            value = str(ent.state)
-            # Используем raw timestamp из reported_state если есть.
-            ts = None
-            dto = self._device_dto
-            if dto is not None:
-                for av in dto.reported_state:
-                    if av.key == self._state_key:
-                        ts = getattr(av, "last_sync", None)
-                        break
-            marker = f"{value}:{ts}" if ts else value
-            if marker != self._last_seen:
-                self._last_seen = marker
-                if value in self._attr_event_types:
-                    self._trigger_event(value)
+        current = self._current_press()
+        if current is not None and current[1] != self._last_seen:
+            value, self._last_seen = current
+            if value in self._attr_event_types:
+                self._trigger_event(value)
         super()._handle_coordinator_update()
-
-    async def async_added_to_hass(self) -> None:
-        """Подписаться на dispatcher для DEVMAN_EVENT WS push'ей (PR #11).
-
-        Coordinator получает WS event'ы и шлёт через `SIGNAL_DEVMAN_EVENT`.
-        Event entity слушает signal и стреляет в HA event bus в реальном
-        времени (без ожидания polling tick).
-        """
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(self.hass, SIGNAL_DEVMAN_EVENT, self._handle_devman_signal)
-        )
-
-    @callback
-    def _handle_devman_signal(self, device_id: str | None, event_payload: dict[str, Any]) -> None:
-        """Обработать WS DEVMAN_EVENT — fire HA event если совпадает device + key.
-
-        Sber payload в `event` обычно содержит `key` (= state_attribute_key типа
-        "button_1_event") и `enum_value` (= тип события "click"/"double_click").
-        Точная схема может варьироваться — ловим оба варианта.
-        """
-        if device_id != self._device_id:
-            return
-        if not isinstance(event_payload, dict):
-            return
-        key = event_payload.get("key")
-        if key != self._state_key:
-            return
-        value = event_payload.get("enum_value") or event_payload.get("value")
-        if value and value in self._attr_event_types:
-            self._trigger_event(str(value))
-            self.async_write_ha_state()

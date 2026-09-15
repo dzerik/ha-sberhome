@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,6 +18,11 @@ from custom_components.sberhome.intents.spec import (
     IntentSpec,
     IntentTrigger,
 )
+
+TWO_HOMES = [
+    UnionDto(id="home-1", name="Дом", group_type="HOME"),
+    UnionDto(id="home-2", name="Дача", group_type="HOME"),
+]
 
 
 def _yaml_spec(name: str, slug: str, phrases=None, actions=None) -> IntentSpec:
@@ -165,6 +171,72 @@ class TestReconcileUpdatePath:
         assert report.unchanged == ["morning"]
         assert report.updated == []
         assert report.created == []
+        svc.update_intent.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "yaml_changes",
+        [
+            {"phrases": ["другая фраза"]},
+            {"enabled": False},
+            {
+                "actions": [
+                    IntentAction(type="ha_event_only", data={}),
+                    IntentAction(type="tts", data={"phrase": "hi", "device_ids": ["s"]}),
+                ]
+            },
+        ],
+        ids=["phrases", "enabled", "action-count"],
+    )
+    @pytest.mark.asyncio
+    async def test_any_wire_relevant_difference_updates(self, yaml_changes):
+        """Имя совпадает, но фразы, включённость или число действий — нет."""
+        existing = [_sber_spec("sber-1", "Morning", "morning", phrases=["доброе утро"])]
+        svc = _make_service(existing=existing)
+        yaml = _yaml_spec("Morning", "morning", phrases=["доброе утро"])
+
+        report = await reconcile_intents(svc, [replace(yaml, **yaml_changes)])
+
+        assert report.updated == ["morning"]
+        svc.update_intent.assert_awaited_once()
+
+    @pytest.mark.parametrize("hint", [("yaml_home_name", "Дача"), ("yaml_home_id", "home-2")])
+    @pytest.mark.asyncio
+    async def test_home_set_in_yaml_moves_existing_intent(self, hint):
+        """Дом, заданный в YAML, отличается от облачного → update в новый дом.
+
+        Раньше сравнение шло по YAML-спеке без home_id, и перенос сценария в
+        другой дом через YAML навсегда оставался «unchanged».
+        """
+        existing = [
+            replace(
+                _sber_spec("sber-1", "Morning", "morning", phrases=["доброе утро"]),
+                home_id="home-1",
+            )
+        ]
+        svc = _make_service(existing=existing)
+        yaml = _yaml_spec("Morning", "morning", phrases=["доброе утро"])
+        yaml.raw_extras[hint[0]] = hint[1]
+
+        report = await reconcile_intents(svc, [yaml], homes=TWO_HOMES)
+
+        assert report.updated == ["morning"]
+        assert svc.update_intent.await_args.args[1].home_id == "home-2"
+
+    @pytest.mark.asyncio
+    async def test_intent_without_home_in_yaml_stays_where_user_moved_it(self):
+        """Без явного дома в YAML облачный дом не перезаписывается домом по умолчанию."""
+        existing = [
+            replace(
+                _sber_spec("sber-1", "Morning", "morning", phrases=["доброе утро"]),
+                home_id="home-2",
+            )
+        ]
+        svc = _make_service(existing=existing)
+        yaml = _yaml_spec("Morning", "morning", phrases=["доброе утро"])
+
+        report = await reconcile_intents(svc, [yaml], homes=TWO_HOMES)
+
+        assert report.unchanged == ["morning"]
         svc.update_intent.assert_not_awaited()
 
 

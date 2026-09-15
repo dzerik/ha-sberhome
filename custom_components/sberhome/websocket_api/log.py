@@ -64,13 +64,4 @@ def ws_subscribe_messages(
     def forward(message_data: dict[str, Any]) -> None:
         connection.send_message(websocket_api.event_message(msg["id"], {"message": message_data}))
 
-    coord._ws_log_subscribers.append(forward)
-
-    @callback
-    def _unsub() -> None:
-        import contextlib
-
-        with contextlib.suppress(ValueError):
-            coord._ws_log_subscribers.remove(forward)
-
-    connection.subscriptions[msg["id"]] = _unsub
+    connection.subscriptions[msg["id"]] = coord.ws_devtools.subscribe(forward)

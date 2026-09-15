@@ -7,6 +7,7 @@ coordinator-полей, публичный API request_dispatch/fire_event/start
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -280,6 +281,23 @@ class TestDispatchWorker:
         assert env.hass.bus.async_fire.call_args[0][1]["scenario_id"] == "sc-b"
 
     @pytest.mark.asyncio
+    async def test_event_listed_in_several_homes_fires_once(self):
+        """Журнал нескольких домов вернул одно и то же событие — одно HA-событие."""
+        disp, env = _dispatcher(["home-a", "home-b"])
+        disp._last_event_time["home-a"] = parse_event_time("2026-04-27T00:00:00Z")
+        disp._last_event_time["home-b"] = parse_event_time("2026-04-27T00:00:00Z")
+        env.client.scenarios.history = AsyncMock(
+            return_value=[_event(time="2026-04-27T13:00:00Z", event_id="shared")]
+        )
+
+        disp.request_dispatch()
+        await disp._task
+
+        env.hass.bus.async_fire.assert_called_once()
+        # Курсор второго дома не сдвигается: он ничего не выстрелил.
+        assert disp._last_event_time["home-b"] == parse_event_time("2026-04-27T00:00:00Z")
+
+    @pytest.mark.asyncio
     async def test_no_homes_is_noop(self):
         disp, env = _dispatcher([])
         disp.request_dispatch()
@@ -369,6 +387,61 @@ class TestPoller:
         finally:
             mod.INTENT_POLLER_INTERVAL_SEC = original
         assert disp._pending or disp._task is not None
+
+    @pytest.mark.asyncio
+    async def test_poller_backs_off_while_push_is_healthy(self):
+        from custom_components.sberhome import intent_dispatcher as mod
+
+        disp, env = _dispatcher()
+        disp.request_dispatch = MagicMock()
+        disp._last_push_at = time.monotonic()
+        original = mod.INTENT_POLLER_INTERVAL_SEC
+        mod.INTENT_POLLER_INTERVAL_SEC = 0.01
+        try:
+            task = asyncio.create_task(disp._poller_loop())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            mod.INTENT_POLLER_INTERVAL_SEC = original
+        disp.request_dispatch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_poller_is_idempotent(self):
+        disp, env = _dispatcher()
+        created: list[asyncio.Task] = []
+
+        def _background(coro, name=None):
+            task = asyncio.create_task(coro)
+            created.append(task)
+            return task
+
+        env.hass.async_create_background_task = _background
+        disp.start_poller()
+        disp.start_poller()
+        assert len(created) == 1
+        await disp.async_shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_waits_for_running_worker(self):
+        disp, env = _dispatcher()
+        disp._last_event_time["home-1"] = parse_event_time("2026-04-27T12:00:00Z")
+        finished = asyncio.Event()
+
+        async def slow_history(*args, **kwargs):
+            await asyncio.sleep(0.02)
+            finished.set()
+            return []
+
+        env.client.scenarios.history = AsyncMock(side_effect=slow_history)
+        disp.request_dispatch()
+        await asyncio.sleep(0)
+
+        await disp.async_shutdown()
+
+        assert finished.is_set()
+        assert disp._task.done()
 
     @pytest.mark.asyncio
     async def test_shutdown_cancels_poller_and_waits_worker(self):

@@ -34,7 +34,7 @@ async def ws_status_ttc_surrogate(
         connection.send_result(msg["id"], {"homes": []})
         return
 
-    from ..sbermap.spec.ha_mapping import resolve_category
+    from ..sbermap import resolve_device_category
     from ..ttc_surrogate.marker import match_surrogate
     from ..ttc_surrogate.service import SBER_SPEAKER_CATEGORY
 
@@ -52,20 +52,14 @@ async def ws_status_ttc_surrogate(
     cache = coord.state_cache
     devices = cache.get_all_devices()
     homes_payload = []
+    # У домов из кэша id всегда непустой — без id StateCache их не хранит.
     for home in cache.get_homes():
-        if not home.id:
-            continue
-        speakers = []
-        for device_id, dto in devices.items():
-            if cache.device_home_id(device_id) != home.id:
-                continue
-            slug = None
-            if getattr(dto, "full_categories", None):
-                first = dto.full_categories[0]
-                slug = getattr(first, "slug", None)
-            cat = resolve_category(dto.image_set_type, slug=slug)
-            if cat == SBER_SPEAKER_CATEGORY:
-                speakers.append(_serialize_speaker(dto, device_id))
+        speakers = [
+            _serialize_speaker(dto, device_id)
+            for device_id, dto in devices.items()
+            if cache.device_home_id(device_id) == home.id
+            and resolve_device_category(dto) == SBER_SPEAKER_CATEGORY
+        ]
 
         sc_id: str | None
         if cache_fallback:

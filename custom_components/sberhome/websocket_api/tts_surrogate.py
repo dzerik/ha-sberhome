@@ -20,23 +20,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _name_to_str(name: Any) -> str:
-    """Достать человекочитаемое имя из ``DeviceDto.name`` (NameDto или None).
+    """Достать человекочитаемое имя из ``DeviceDto.name`` (``NameDto`` или None).
 
-    Sber wire даёт `name: {name: "Люстра", defaultName: "", names: {}}`
-    через ``NameDto``. Plain-string fallback тоже поддерживаем (legacy).
+    Sber wire даёт `name: {name: "Люстра", defaultName: "", names: {}}`;
+    пустое имя заменяется именем по умолчанию.
     """
     if name is None:
         return ""
-    if isinstance(name, str):
-        return name
-    # NameDto: pick .name → .default_name → ""
-    inner = getattr(name, "name", None)
-    if inner:
-        return str(inner)
-    default = getattr(name, "default_name", None)
-    if default:
-        return str(default)
-    return ""
+    return str(name.name or name.default_name or "")
 
 
 def _serialize_speaker(dto: Any, device_id: str) -> dict[str, Any]:
@@ -70,7 +61,7 @@ async def ws_status_tts_surrogate(
         connection.send_result(msg["id"], {"homes": []})
         return
 
-    from ..sbermap.spec.ha_mapping import resolve_category
+    from ..sbermap import resolve_device_category
     from ..tts_surrogate.marker import match_surrogate
     from ..tts_surrogate.service import SBER_SPEAKER_CATEGORY
 
@@ -90,20 +81,14 @@ async def ws_status_tts_surrogate(
     cache = coord.state_cache
     devices = cache.get_all_devices()
     homes_payload = []
+    # У домов из кэша id всегда непустой — без id StateCache их не хранит.
     for home in cache.get_homes():
-        if not home.id:
-            continue
-        speakers = []
-        for device_id, dto in devices.items():
-            if cache.device_home_id(device_id) != home.id:
-                continue
-            slug = None
-            if getattr(dto, "full_categories", None):
-                first = dto.full_categories[0]
-                slug = getattr(first, "slug", None)
-            cat = resolve_category(dto.image_set_type, slug=slug)
-            if cat == SBER_SPEAKER_CATEGORY:
-                speakers.append(_serialize_speaker(dto, device_id))
+        speakers = [
+            _serialize_speaker(dto, device_id)
+            for device_id, dto in devices.items()
+            if cache.device_home_id(device_id) == home.id
+            and resolve_device_category(dto) == SBER_SPEAKER_CATEGORY
+        ]
 
         # Resolve scenario_id authoritatively (или из кеша при fallback'е).
         sc_id: str | None

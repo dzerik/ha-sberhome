@@ -120,7 +120,6 @@ def coordinator(
     coord.error_count = 0
     coord.ws_devtools = WsDevToolsRecorder(maxlen=100)
     coord._ws_log = coord.ws_devtools.log
-    coord._ws_log_subscribers = coord.ws_devtools.subscribers
     # Phase 4 (DevTools) — collectors are real objects so observe_*
     # calls don't blow up; mock would need spec'd interfaces.
     from custom_components.sberhome.command_tracker import CommandTracker
@@ -302,31 +301,21 @@ async def test_on_ws_device_state_ignores_empty_reported_state(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_on_ws_devman_event_dispatches_signal(coordinator):
-    """DEVMAN_EVENT → async_dispatcher_send с device_id + payload (PR #11)."""
-    from unittest.mock import patch
-
-    msg = SocketMessageDto(
-        event=DevmanDto(device_id="scenario-1"),
-    )
-    with patch("custom_components.sberhome.coordinator.async_dispatcher_send") as mock_send:
-        await coordinator._on_ws_devman_event(msg)
-    mock_send.assert_called_once()
-    args = mock_send.call_args.args
-    assert args[1] == "sberhome_devman_event"
-    assert args[2] == "scenario-1"
-    assert args[3] == {"device_id": "scenario-1"}
+async def test_on_ws_devman_event_is_logged_for_devtools(coordinator):
+    """DEVMAN_EVENT попадает в журнал DevTools с device_id и payload."""
+    msg = SocketMessageDto(event=DevmanDto(device_id="scenario-1"))
+    await coordinator._on_ws_devman_event(msg)
+    (record,) = list(coordinator.ws_devtools.log)
+    assert record["topic"] == "DEVMAN_EVENT"
+    assert record["device_id"] == "scenario-1"
+    assert record["payload"] == {"device_id": "scenario-1"}
 
 
 @pytest.mark.asyncio
 async def test_on_ws_devman_event_no_event_payload(coordinator):
-    """Если event=None — dispatcher НЕ вызывается."""
-    from unittest.mock import patch
-
-    msg = SocketMessageDto(event=None)
-    with patch("custom_components.sberhome.coordinator.async_dispatcher_send") as mock_send:
-        await coordinator._on_ws_devman_event(msg)
-    mock_send.assert_not_called()
+    """Если event=None — в журнал ничего не пишется."""
+    await coordinator._on_ws_devman_event(SocketMessageDto(event=None))
+    assert list(coordinator.ws_devtools.log) == []
 
 
 def test_start_ws_task_creates_background_task(coordinator):

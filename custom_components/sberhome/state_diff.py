@@ -19,8 +19,8 @@ Design notes:
       :meth:`AttributeValueDto.to_dict`) so the collector never has
       to know about dataclasses or ``AttributeValueType``.
     * Both ring buffer (chronological) and per-device baseline are
-      kept in memory.  Same size envelope as the existing
-      ``_ws_log`` / ``_ws_log_subscribers`` pattern in coordinator.py.
+      kept in memory.  Same size envelope as the WS message log in
+      :class:`~custom_components.sberhome.ws_devtools.WsDevToolsRecorder`.
     * Empty deltas (payload identical to the previous one for that
       device) are dropped — nothing is recorded and no subscriber
       fires.  Keeps the log honest: every row represents real change.

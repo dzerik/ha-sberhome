@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -164,3 +164,41 @@ async def test_other_config_entry_is_untouched(
 
     assert renamed == 0
     assert entity_registry.async_get(foreign.entity_id).unique_id == f"{OLD_ID}_battery"
+
+
+async def test_record_of_retired_feature_is_left_alone(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    entry: MockConfigEntry,
+    device: dr.DeviceEntry,
+) -> None:
+    """Суффикса больше нет у устройства — угадывать новый ключ не из чего."""
+    retired = entity_registry.async_get_or_create(
+        "sensor", DOMAIN, f"{OLD_ID}_retired_feature", config_entry=entry, device_id=device.id
+    )
+
+    renamed = await async_repair_rotated_unique_ids(hass, entry, _coordinator(["battery"]))
+
+    assert renamed == 0
+    assert entity_registry.async_get(retired.entity_id).unique_id == f"{OLD_ID}_retired_feature"
+
+
+async def test_registry_failure_does_not_break_setup(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    entry: MockConfigEntry,
+    device: dr.DeviceEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Сбой реестра при переклейке — предупреждение в журнале, настройка идёт дальше."""
+    entity_registry.async_get_or_create(
+        "sensor", DOMAIN, f"{OLD_ID}_battery", config_entry=entry, device_id=device.id
+    )
+
+    with patch.object(
+        er.EntityRegistry, "async_update_entity", side_effect=RuntimeError("registry locked")
+    ):
+        renamed = await async_repair_rotated_unique_ids(hass, entry, _coordinator(["battery"]))
+
+    assert renamed == 0
+    assert "Переклейка идентификаторов сущностей не удалась" in caplog.text

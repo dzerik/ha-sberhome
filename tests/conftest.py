@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sberhome.const import DOMAIN
+from custom_components.sberhome.const import CONF_TOKEN, DOMAIN
+
+from .fake_cloud import COMPANION_TOKENS, SBERID_TOKEN, FakeSberCloud
 
 MOCK_TOKEN = {
     "access_token": "test_access_token",
@@ -767,3 +777,63 @@ def mock_coordinator_with_entities(mock_devices):
     coord.data = mock_devices
     coord.devices, coord.entities = build_coordinator_caches(mock_devices)
     return coord
+
+
+@pytest.fixture
+def fake_cloud() -> FakeSberCloud:
+    """Облако Сбера в памяти, на которое смотрит запись из ``setup_sberhome``."""
+    return FakeSberCloud()
+
+
+@pytest.fixture
+async def setup_sberhome(
+    hass: HomeAssistant, sberhome_integration: None, fake_cloud: FakeSberCloud
+) -> AsyncIterator[Callable[..., Awaitable[MockConfigEntry]]]:
+    """Настроить интеграцию целиком поверх ``fake_cloud``.
+
+    Подменяются только сеть (``httpx.MockTransport``), SSL-контекст, панель
+    (ей нужен HTTP-сервер HA) и WebSocket-соединение с облаком — оно ждёт
+    вечно, как живое подключение без событий.
+    """
+
+    def _client(*_args: Any, **_kwargs: Any) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(fake_cloud))
+
+    async def _idle_ws(_self: Any) -> None:
+        await asyncio.Event().wait()
+
+    async def _setup(
+        *,
+        options: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+        version: int = 2,
+    ) -> MockConfigEntry:
+        if config is not None:
+            # YAML-секция `sberhome:` — до настройки записи, как при запуске HA.
+            assert await async_setup_component(hass, DOMAIN, {DOMAIN: config})
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=version,
+            title="SberHome",
+            data=data
+            if data is not None
+            else {CONF_TOKEN: dict(SBERID_TOKEN), "companion_tokens": dict(COMPANION_TOKENS)},
+            options=options if options is not None else {},
+        )
+        entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        return entry
+
+    with (
+        patch("custom_components.sberhome.httpx", SimpleNamespace(AsyncClient=_client)),
+        patch("custom_components.sberhome.async_init_ssl", AsyncMock(return_value=None)),
+        patch("custom_components.sberhome._async_register_panel", AsyncMock()),
+        patch("custom_components.sberhome.coordinator.SberHomeCoordinator._run_ws", _idle_ws),
+    ):
+        yield _setup
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.state is ConfigEntryState.LOADED:
+                await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()

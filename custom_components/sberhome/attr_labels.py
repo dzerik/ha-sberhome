@@ -39,12 +39,12 @@ _labels: dict[str, dict[str, str]] | None = None
 
 
 def _read_labels_file() -> dict[str, dict[str, str]]:
-    """Прочитать attr_labels.json. Блокирующий I/O — только в executor'е."""
-    try:
-        data = json.loads(_LABELS_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Прочитать attr_labels.json. Блокирующий I/O — только в executor'е.
+
+    Файл — часть интеграции, как manifest.json; его содержимое проверяют тесты.
+    """
+    data: dict[str, dict[str, str]] = json.loads(_LABELS_FILE.read_text(encoding="utf-8"))
+    return data
 
 
 async def async_load_attr_labels(hass: HomeAssistant) -> None:

@@ -113,6 +113,22 @@ def test_load_unknown_trigger_type_invalid():
         )
 
 
+@pytest.mark.parametrize(
+    "filter_",
+    [
+        {"trigger_type": 5},
+        {"trigger_type": ["TIME", 5]},
+        "TIME",
+    ],
+    ids=["trigger-type-not-str", "trigger-type-item-not-str", "filter-not-mapping"],
+)
+def test_load_malformed_filter_invalid(filter_):
+    import voluptuous as vol
+
+    with pytest.raises(vol.Invalid):
+        LISTENERS_SCHEMA([{"slug": "x", "name": "X", "filter": filter_}])
+
+
 def test_load_duplicate_slug_within_listeners_raises():
     raw = LISTENERS_SCHEMA(
         [

@@ -28,7 +28,7 @@ from ..aiosber.exceptions import AuthError as _AiosberAuthError
 from ..const import DOMAIN, MESSAGE_TEMPLATE_ERROR, NO_SPEAKERS_IN_HOME
 from ..intents.encoder import encode_scenario
 from ..intents.spec import IntentAction, IntentSpec
-from ..sbermap.spec.ha_mapping import resolve_category
+from ..sbermap.spec.ha_mapping import resolve_device_category
 from .marker import build_marker, build_surrogate_name, match_surrogate
 
 if TYPE_CHECKING:
@@ -175,12 +175,7 @@ class TtcSurrogateService:
         for device_id, dto in cache.get_all_devices().items():
             if cache.device_home_id(device_id) != home_id:
                 continue
-            slug = None
-            if dto.full_categories:
-                first = dto.full_categories[0]
-                slug = getattr(first, "slug", None)
-            category = resolve_category(dto.image_set_type, slug=slug)
-            if category == SBER_SPEAKER_CATEGORY:
+            if resolve_device_category(dto) == SBER_SPEAKER_CATEGORY:
                 result.append(device_id)
         return result
 

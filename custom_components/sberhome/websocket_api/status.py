@@ -17,13 +17,13 @@ from ._common import get_config_entry, get_coordinator
 
 
 def _read_integration_version() -> str | None:
-    """Прочитать version из manifest.json — для отображения в UI шапке."""
-    try:
-        manifest_path = Path(__file__).resolve().parent.parent / "manifest.json"
-        with manifest_path.open() as f:
-            return json.load(f).get("version")
-    except Exception:
-        return None
+    """Прочитать version из manifest.json — для отображения в UI шапке.
+
+    Файл есть всегда: без manifest.json Home Assistant не загрузит интеграцию.
+    """
+    manifest_path = Path(__file__).resolve().parent.parent / "manifest.json"
+    with manifest_path.open() as f:
+        return json.load(f).get("version")
 
 
 # Кэшируем — manifest не меняется во время runtime.

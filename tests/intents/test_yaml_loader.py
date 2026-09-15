@@ -79,6 +79,10 @@ class TestSchemaValidation:
                 ]
             )
 
+    def test_action_must_be_mapping(self):
+        with pytest.raises(vol.Invalid):
+            INTENTS_SCHEMA([{"name": "X", "phrases": ["x"], "actions": ["ha_event_only"]}])
+
     def test_tts_requires_phrase(self):
         with pytest.raises(vol.Invalid):
             INTENTS_SCHEMA(

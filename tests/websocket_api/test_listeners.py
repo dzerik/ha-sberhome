@@ -32,7 +32,7 @@ async def test_ws_list_listeners_returns_specs():
     hass.data = {"sberhome": {}}
     entry = MagicMock()
     entry.runtime_data = coord
-    hass.config_entries.async_entries.return_value = [entry]
+    hass.config_entries.async_loaded_entries.return_value = [entry]
 
     connection = MagicMock()
 
@@ -61,7 +61,7 @@ async def test_ws_list_listeners_empty():
     hass.data = {"sberhome": {}}
     entry = MagicMock()
     entry.runtime_data = coord
-    hass.config_entries.async_entries.return_value = [entry]
+    hass.config_entries.async_loaded_entries.return_value = [entry]
 
     connection = MagicMock()
     await ws_list_listeners.__wrapped__(
@@ -77,7 +77,7 @@ async def test_ws_list_listeners_no_entry_returns_empty():
     """Integration ещё не настроена (нет entries) → пустой list."""
     hass = MagicMock()
     hass.data = {}
-    hass.config_entries.async_entries.return_value = []
+    hass.config_entries.async_loaded_entries.return_value = []
 
     connection = MagicMock()
     await ws_list_listeners.__wrapped__(

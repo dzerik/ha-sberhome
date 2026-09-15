@@ -48,25 +48,8 @@ from .spec import IntentAction, IntentSpec
 
 _LOGGER = logging.getLogger(__name__)
 
-# Известные YAML-action-типы. UI-actions с unknown=True здесь не нужны
-# (они только read-only proxy для существующих сценариев из Sber).
-_KNOWN_YAML_ACTION_TYPES = frozenset({"ha_event_only", "tts", "device_command"})
-
 # Slug: lowercase, цифры/буквы/_/-. Используется в description-маркере.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-def _validate_action(value: Any) -> dict[str, Any]:
-    """Schema-валидация одного action из YAML."""
-    if not isinstance(value, dict):
-        raise vol.Invalid(f"action должен быть dict, получено {type(value).__name__}")
-    type_ = value.get("type")
-    if type_ not in _KNOWN_YAML_ACTION_TYPES:
-        raise vol.Invalid(
-            f"неизвестный action type {type_!r}. "
-            f"Поддерживаемые в YAML: {sorted(_KNOWN_YAML_ACTION_TYPES)}"
-        )
-    return value
 
 
 # Schema per action-type. Воспаламбда не работает с YAML, поэтому

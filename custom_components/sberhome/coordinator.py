@@ -27,7 +27,6 @@ from homeassistant.const import STATE_OFF, STATE_ON, Platform
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -91,10 +90,6 @@ from .state_diff import DiffCollector
 from .ttc_surrogate import TtcSurrogateService
 from .tts_surrogate import TtsSurrogateService
 from .ws_devtools import WsDevToolsRecorder
-
-# Dispatcher signal для DEVMAN_EVENT push'ей. Event entities подписываются
-# в `async_added_to_hass`, fire HA event bus при получении.
-SIGNAL_DEVMAN_EVENT = f"{DOMAIN}_devman_event"
 
 # Пауза между неуспешной командой и retry. 1 sec ловит большую часть
 # transient network glitches gateway'я без раздражающего пользователя
@@ -368,11 +363,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.polling_count: int = 0
         self.error_count: int = 0
         # Ring buffer WS/command сообщений + panel subscribers — вынесено
-        # в WsDevToolsRecorder (SOLID). Алиасы _ws_log/_ws_log_subscribers
-        # шарят те же mutable-объекты для websocket_api/log.py.
+        # в WsDevToolsRecorder (SOLID). Алиас _ws_log шарит тот же буфер для
+        # websocket_api/log.py; подписка панели — через ws_devtools.subscribe.
         self.ws_devtools = WsDevToolsRecorder(maxlen=buffer_size)
         self._ws_log = self.ws_devtools.log
-        self._ws_log_subscribers = self.ws_devtools.subscribers
         # DevTools #1: per-device state-payload diff collector.  Fed by
         # every WS DEVICE_STATE push and by polling refresh; empty deltas
         # (identical-to-prior) are dropped so the DevTools log shows only
@@ -1798,9 +1792,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ``handled`` is False only when the payload has no recognisable
             topic (empty or malformed).
         """
-        msg = SocketMessageDto.from_dict(payload)
-        if msg is None:
-            return {"topic": None, "handled": False, "device_id": None}
+        # Из dict разбор всегда даёт объект; без распознанных полей у него нет
+        # темы, и ниже это отражается как ``handled=False``.
+        msg = SocketMessageDto.from_dict(payload) or SocketMessageDto()
         topic = msg.topic
         device_id = msg.target_device_id
         direction = "replay" if mark_replay else "in"
@@ -2002,14 +1996,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # WS push вообще. Fired event без этой строки в пределах ~1 сек
         # до него = событие доставил safety-net poller, а не WS.
         LOGGER.debug("scenario_widgets push received (device_id=%s)", msg.target_device_id)
-        try:
-            payload = msg.to_dict()
-        except Exception:
-            payload = {"error": "serialization_failed"}
         self._record_ws_message(
             topic=topic_name,
             device_id=msg.target_device_id,
-            payload=payload,
+            payload=msg.to_dict(),
         )
 
         self.intent_dispatcher.request_dispatch(source="ws-push")
@@ -2023,38 +2013,29 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         topic_name = msg.topic.value if msg.topic else "UNKNOWN"
         LOGGER.debug("WS %s received: %s", topic_name, msg)
-        try:
-            payload = msg.to_dict()
-        except Exception:
-            LOGGER.debug("WS %s: cannot serialize payload", topic_name, exc_info=True)
-            payload = {"error": "serialization_failed"}
         self._record_ws_message(
             topic=topic_name,
             device_id=msg.target_device_id,
-            payload=payload,
+            payload=msg.to_dict(),
         )
 
     async def _on_ws_devman_event(self, msg: SocketMessageDto) -> None:
-        """DEVMAN_EVENT — диспатч в HA через signal (PR #11).
+        """DEVMAN_EVENT — записать в журнал DevTools.
 
-        Event entities подписаны на SIGNAL_DEVMAN_EVENT и стреляют в HA event
-        bus при получении (без ожидания polling).
+        Сущностям событие не передаётся: в ``DevmanDto`` нет ключа атрибута и
+        значения (только ``type``/``device_id``/``device``/``group``), так что
+        сопоставить его с кнопкой нечем. Нажатия кнопок приходят в
+        ``reported_state`` через DEVICE_STATE и обрабатываются event-сущностями
+        при обновлении координатора.
         """
         device_id = msg.target_device_id
         LOGGER.debug("WS DEVMAN_EVENT for %s: %s", device_id, msg.event)
         if msg.event is None:
             return
-        event_dict = msg.event.to_dict()
         self._record_ws_message(
             topic="DEVMAN_EVENT",
             device_id=device_id,
-            payload=event_dict,
-        )
-        async_dispatcher_send(
-            self.hass,
-            SIGNAL_DEVMAN_EVENT,
-            device_id,
-            event_dict,
+            payload=msg.event.to_dict(),
         )
 
     # ------------------------------------------------------------------

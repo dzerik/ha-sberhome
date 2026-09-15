@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN
+from ._common import get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,13 +44,11 @@ async def ws_list_listeners(
     msg: dict[str, Any],
 ) -> None:
     """Вернуть JSON-friendly список всех зарегистрированных listeners."""
-    entries = hass.config_entries.async_entries(DOMAIN)
-    if not entries:
-        connection.send_result(msg["id"], {"listeners": []})
-        return
-
-    coord = entries[0].runtime_data
-    if not hasattr(coord, "listener_registry"):
+    # Только загруженная запись: у ожидающей повторной настройки (облако
+    # недоступно при запуске) координатора нет, и обращение к нему роняло
+    # команду с «Unknown error».
+    coord = get_coordinator(hass)
+    if coord is None:
         connection.send_result(msg["id"], {"listeners": []})
         return
 

@@ -86,8 +86,10 @@ async def async_repair_rotated_unique_ids(
                 if record.unique_id == live or record.unique_id.startswith(f"{live}_"):
                     continue
 
+                # Цель всегда начинается с live, а запись — нет (проверено выше),
+                # так что совпасть с текущим ключом она не может.
                 target = _retarget(record.unique_id, live, suffixes)
-                if target is None or target == record.unique_id:
+                if target is None:
                     continue
                 # Занятый ключ — не наш случай: async_update_entity бросит, а
                 # дубль лучше оставить видимым, чем уронить настройку.

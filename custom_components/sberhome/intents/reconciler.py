@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from ..aiosber.dto.union import UnionDto
@@ -114,6 +114,12 @@ def _resolve_home_id(spec: IntentSpec, homes: list[UnionDto]) -> tuple[str | Non
     if homes:
         return homes[0].id, None
     return None, None
+
+
+def _has_explicit_home(spec: IntentSpec) -> bool:
+    """Задан ли дом в YAML явно (``home`` или ``home_id``)."""
+    extras = spec.raw_extras or {}
+    return bool(extras.get("yaml_home_id") or extras.get("yaml_home_name"))
 
 
 def _prepare_for_sber(spec: IntentSpec, slug: str, home_id: str | None) -> IntentSpec:
@@ -219,10 +225,8 @@ async def reconcile_intents(
 
     # 3. Для каждого YAML intent: create / update / unchanged.
     for spec in yaml_specs:
-        slug = spec.raw_extras.get("yaml_slug")
-        if not slug:
-            report.failed.append(("?", "yaml_slug missing — loader bug"))
-            continue
+        # Спеки приходят только из yaml_loader, а он всегда проставляет slug.
+        slug = spec.raw_extras["yaml_slug"]
 
         home_id, home_warning = _resolve_home_id(spec, homes)
         if home_warning is not None:
@@ -250,8 +254,12 @@ async def reconcile_intents(
                     created.id,
                 )
             else:
-                # UPDATE — но сначала проверим эквивалентность
-                if _spec_equivalent(spec, existing_spec):
+                # UPDATE — но сначала проверим эквивалентность. Дом сравниваем,
+                # только если он задан в YAML явно: у спеки из YAML своего
+                # home_id нет (он в raw_extras), и без подстановки перенос
+                # сценария в другой дом через YAML никогда не применялся.
+                explicit_home = home_id if _has_explicit_home(spec) else None
+                if _spec_equivalent(replace(spec, home_id=explicit_home), existing_spec):
                     report.unchanged.append(slug)
                     _LOGGER.debug(
                         "YAML intent unchanged: slug=%s (Sber state matches YAML)",
@@ -273,6 +281,9 @@ async def reconcile_intents(
                     actions=prepared.actions,
                     enabled=prepared.enabled,
                     description=prepared.description,
+                    # Явный дом из YAML переносит сценарий; без него сценарий
+                    # остаётся в доме, куда его положили в облаке.
+                    home_id=explicit_home or existing_spec.home_id,
                     raw_extras={**existing_spec.raw_extras, **prepared.raw_extras},
                 )
                 await service.update_intent(existing_spec.id, prepared_with_extras)
