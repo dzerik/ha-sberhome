@@ -21,6 +21,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import builtins
 from datetime import UTC, datetime
 from typing import Any
 
@@ -67,7 +68,7 @@ class GroupAPI:
         raw = _unwrap_list(resp.json())
         return [u for d in raw if (u := UnionDto.from_dict(d)) is not None]
 
-    async def list_raw(self) -> list[dict[str, Any]]:
+    async def list_raw(self) -> builtins.list[dict[str, Any]]:
         """Return all groups as raw dicts (backward compat)."""
         resp = await self._transport.get("/device_groups/")
         return _unwrap_list(resp.json())
@@ -120,7 +121,7 @@ class GroupAPI:
     async def set_state(
         self,
         group_id: str,
-        attributes: list[AttributeValueDto],
+        attributes: builtins.list[AttributeValueDto],
         *,
         return_group_status: bool | None = None,
         timestamp: str | None = None,

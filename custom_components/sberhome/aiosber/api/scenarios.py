@@ -27,6 +27,7 @@ Endpoints (gateway/v1):
 
 from __future__ import annotations
 
+import builtins
 from typing import Any
 
 from ..dto.scenario import ScenarioDto, ScenarioEventDto
@@ -45,7 +46,7 @@ class ScenarioAPI:
         raw = _unwrap_list(resp.json())
         return [s for d in raw if (s := ScenarioDto.from_dict(d)) is not None]
 
-    async def list_raw(self) -> list[dict[str, Any]]:
+    async def list_raw(self) -> builtins.list[dict[str, Any]]:
         """Raw list — bypasses DTO conversion.
 
         Используется в диагностике / при исследовании wire-формата:
@@ -65,12 +66,12 @@ class ScenarioAPI:
             raise ProtocolError(f"Cannot parse scenario {scenario_id}")
         return dto
 
-    async def list_system(self) -> list[dict[str, Any]]:
+    async def list_system(self) -> builtins.list[dict[str, Any]]:
         """Системные сценарии (предустановленные Sber)."""
         resp = await self._transport.get("/scenario/v2/system-scenario")
         return _unwrap_list(resp.json())
 
-    async def list_widgets(self) -> list[dict[str, Any]]:
+    async def list_widgets(self) -> builtins.list[dict[str, Any]]:
         resp = await self._transport.get("/scenario/v2/widget")
         return _unwrap_list(resp.json())
 
@@ -202,7 +203,7 @@ class ScenarioAPI:
         *,
         offset: int = 0,
         limit: int = 20,
-    ) -> list[ScenarioEventDto]:
+    ) -> builtins.list[ScenarioEventDto]:
         """`GET /scenario/v2/event` — журнал срабатываний сценариев.
 
         Используется HA-coordinator'ом для catch'а голосовых команд:

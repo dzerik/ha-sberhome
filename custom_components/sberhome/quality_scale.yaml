@@ -122,5 +122,6 @@ rules:
       _ws_adapter.py. httpx shared по entry с verify=ssl_ctx.
   strict-typing:
     status: todo
-    comment: Есть type hints везде, но `mypy --strict` полностью не запускается —
-      несколько legacy мест с Any. Планируется вычистить.
+    comment: mypy (без --strict) проверяется в CI, но 25 модулей с известными
+      ошибками пока исключены списком в pyproject.toml. Список сокращаем
+      по мере вычистки, затем — переход к --strict.

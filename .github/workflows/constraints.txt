@@ -8,3 +8,7 @@
 # which breaks the 3.12/3.13 legs of our matrix. 0.13.316 is the last release
 # that installs on both 3.12 and 3.13.
 pytest-homeassistant-custom-component<=0.13.316
+
+# Type checker for the `typecheck` job. Pinned: a new mypy release adds checks
+# and would break CI without any change in our code — bump deliberately.
+mypy==2.3.1

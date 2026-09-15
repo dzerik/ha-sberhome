@@ -7,6 +7,7 @@ Lifecycle: построен в ``async_setup_entry`` из YAML конфига. �
 
 from __future__ import annotations
 
+import builtins
 import logging
 from collections.abc import Iterable
 
@@ -27,7 +28,7 @@ class ListenerRegistry:
         """Все specs в порядке, как пришли. Не копия — caller'ам нужно не мутировать."""
         return self._specs
 
-    def find_matching(self, event: EventMeta) -> list[ListenerSpec]:
+    def find_matching(self, event: EventMeta) -> builtins.list[ListenerSpec]:
         """Все listeners (enabled=True), которые matches event."""
         return [s for s in self._specs if match_listener(s, event)]
 

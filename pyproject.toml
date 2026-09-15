@@ -27,6 +27,52 @@ omit = ["custom_components/sberhome/__pycache__/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+# Нижняя граница покрытия: измеренный итог полного прогона (86.5%), округлённый
+# вниз. pytest-cov применяет её сам — CI падает, если покрытие опустилось ниже.
+# Raise as coverage grows, never lower.
+# Прогон отдельного файла тестов упрётся в эту границу — локально добавляйте
+# `--no-cov`.
+fail_under = 86
+
+[tool.mypy]
+# Совпадает с Python шага mypy в .github/workflows/ci.yml.
+python_version = "3.13"
+# Ловит опечатки в именах модулей ниже: секция, не совпавшая ни с одним
+# модулем, даёт предупреждение вместо молчаливого пропуска.
+warn_unused_configs = true
+
+# ratchet: remove a module from this list once it is clean; new modules must pass.
+# Имена модулей — как их видит `mypy custom_components/sberhome` (без
+# префикса custom_components, у него нет __init__.py).
+[[tool.mypy.overrides]]
+module = [
+    "sberhome",  # __init__.py
+    "sberhome.aiosber.dto.devices.covers",
+    "sberhome.aiosber.dto.devices.electric",
+    "sberhome.aiosber.dto.settings",
+    "sberhome.aiosber.service.state_cache",
+    "sberhome.binary_sensor",
+    "sberhome.button",
+    "sberhome.config_flow",
+    "sberhome.coordinator",
+    "sberhome.event",
+    "sberhome.intents.marker",
+    "sberhome.intents.reconciler",
+    "sberhome.light",
+    "sberhome.notify",
+    "sberhome.sbermap.transform.category_specs",
+    "sberhome.sbermap.transform.feature_codecs",
+    "sberhome.sbermap.transform.feature_specs",
+    "sberhome.sbermap.transform.staros_settings",
+    "sberhome.settings",
+    "sberhome.state_diff",
+    "sberhome.switch",
+    "sberhome.switch_groups",
+    "sberhome.websocket_api.rooms",
+    "sberhome.websocket_api.ttc_surrogate",
+    "sberhome.websocket_api.tts_surrogate",
+]
+ignore_errors = true
 
 [tool.ruff]
 target-version = "py313"

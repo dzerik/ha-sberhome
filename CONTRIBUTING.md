@@ -39,13 +39,14 @@ pip install -e .
 # Все тесты с coverage
 pytest
 
-# Один файл / один тест
-pytest tests/test_light.py
-pytest tests/test_light.py::test_turn_on
-
-# Без coverage (быстрее)
-pytest --no-cov tests/test_api.py
+# Один файл / один тест — с --no-cov, иначе сработает порог покрытия
+pytest --no-cov tests/test_light.py
+pytest --no-cov tests/test_light.py::test_turn_on
 ```
+
+Полный прогон падает, если покрытие ниже `fail_under` из
+`[tool.coverage.report]` в `pyproject.toml`. Порог только поднимаем —
+когда покрытие выросло, подними его в том же PR.
 
 Текущий показатель: **1307 passed / 13 skipped** (v5.7.1). Регрессии
 в существующих тестах — блокер для merge.
@@ -63,6 +64,18 @@ ruff format --check custom_components/sberhome tests
 - rules: E, F, W, I, UP, B, SIM
 
 Если `format` показывает diff — запусти `ruff format custom_components/sberhome tests` чтобы применить.
+
+## Типы
+
+```bash
+pip install mypy==2.3.1   # та же версия, что в .github/workflows/constraints.txt
+mypy custom_components/sberhome
+```
+
+CI требует чистый прогон. Модули с ошибками, которые были до включения
+проверки, перечислены в `[[tool.mypy.overrides]]` в `pyproject.toml`.
+Новые модули в этот список не добавляются; вычистил модуль — убери его
+из списка.
 
 ## Архитектура
 

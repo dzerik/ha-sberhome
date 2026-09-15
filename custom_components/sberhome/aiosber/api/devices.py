@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import builtins
 from datetime import UTC, datetime
 from typing import Any
 
@@ -53,7 +54,7 @@ class DeviceAPI:
         payload = _unwrap_result(resp.json())
         return [_to_device(d) for d in flatten_device_tree(payload)]
 
-    async def list_flat(self, *, limit: int = 500) -> list[DeviceDto]:
+    async def list_flat(self, *, limit: int = 500) -> builtins.list[DeviceDto]:
         """Плоский список всех устройств аккаунта через `/devices?pagination`.
 
         Это **multi-home aware** — в отличие от `/device_groups/tree` который
@@ -93,7 +94,7 @@ class DeviceAPI:
     async def set_state(
         self,
         device_id: str,
-        attributes: list[AttributeValueDto],
+        attributes: builtins.list[AttributeValueDto],
         *,
         timestamp: str | None = None,
     ) -> None:
@@ -137,7 +138,7 @@ class DeviceAPI:
         )
 
     # ----- meta -----
-    async def enums(self) -> dict[str, list[str]]:
+    async def enums(self) -> dict[str, builtins.list[str]]:
         """GET /devices/enums — нормализованный справочник enum-значений атрибутов.
 
         Sber `/devices/enums` отвечает разными shapes (голый list,
