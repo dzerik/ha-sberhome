@@ -1,76 +1,158 @@
 rules:
+  # Статусы сверены с кодом 2026-09-15. done — правило выполнено целиком,
+  # exempt — правило к интеграции не применимо (причина в comment),
+  # todo — выполнено не полностью или не выполнено (чего не хватает — в comment).
+  # Уровень в manifest.json не указан: Bronze выполнен не полностью.
+
   # ---------------------------------------------------------------------------
-  # Bronze — ОБЯЗАТЕЛЬНЫЕ требования для всех интеграций
+  # Bronze
   # ---------------------------------------------------------------------------
   action-setup:
-    status: exempt
-    comment: Интеграция не регистрирует service actions в async_setup — только
-      platform-scoped services в media_player (send_custom_key, send_direction,
-      play_channel). Они работают без глобальной регистрации.
-  appropriate-polling: done
-  brands:
-    status: exempt
-    comment: Sber Smart Home — brand добавлять в home-assistant/brands repo.
-      Для custom_components через HACS не требуется.
-  common-modules: done
-  config-flow: done
-  config-flow-test-coverage:
+    status: todo
+    comment: Действия refresh, send_raw_command, reload_intents, tts_send и
+      ttc_send регистрируются в async_setup_entry (__init__.py,
+      _async_register_services), а не в async_setup — без загруженной записи
+      их нет. Сущностные send_custom_key, send_direction и play_channel
+      регистрируются платформой media_player.py.
+  appropriate-polling:
     status: done
-    comment: tests/test_config_flow.py (14 тестов), tests/test_init.py (14 тестов
-      для migrate/setup/unload lifecycle).
-  dependency-transparency: done
+    comment: Опрос координатора по умолчанию раз в 30 с (const.py,
+      DEFAULT_SCAN_INTERVAL, в настройках 10–3600 с); пока WebSocket подключён —
+      раз в 10 минут. Сценарии, прошивки, хабы и индикатор опрашиваются реже,
+      отдельно.
+  brands:
+    status: done
+    comment: Иконки в custom_components/sberhome/brand/ (icon.png,
+      icon@2x.png), проверка HACS (.github/workflows/hacs.yml) проходит. В
+      репозитории home-assistant/brands записи нет.
+  common-modules:
+    status: done
+    comment: Координатор — coordinator.py (SberHomeCoordinator), базовая
+      сущность — entity.py (SberBaseEntity).
+  config-flow:
+    status: todo
+    comment: Настройка через интерфейс есть (Сбер ID и SMS). У полей phone и otp
+      нет data_description в strings.json (config.step.sms_phone,
+      config.step.sms_otp), а правило требует пояснений к полям.
+  config-flow-test-coverage:
+    status: todo
+    comment: tests/test_config_flow.py покрывает config_flow.py на 81% (полный
+      прогон 2026-09-15). Не проверены вход по SMS (async_step_sms_phone,
+      async_step_sms_otp, _csafront_*, включая ошибки отправки SMS и неверный
+      код) и форма настроек SberHomeOptionsFlow.
+  dependency-transparency:
+    status: done
+    comment: Зависимости из manifest.json (httpx, websockets) — открытые пакеты
+      на PyPI с публичными репозиториями и тегами релизов. Клиент API Сбера
+      (aiosber) встроен в пакет интеграции и отдельно не публикуется.
   docs-actions:
-    status: exempt
-    comment: Platform-scoped services описаны в services.yaml.
-  docs-high-level-description: done
+    status: done
+    comment: USAGE.md, «Сервисы HA» (refresh, reload_intents, send_raw_command) и
+      «Телевизоры (tv)» (send_custom_key, send_direction, play_channel);
+      README.md, «Выбор колонок» (tts_send, ttc_send).
+  docs-high-level-description:
+    status: done
+    comment: README.md — вступление и «Как это работает».
   docs-installation-instructions:
     status: done
-    comment: README.md содержит полную инструкцию установки через HACS.
-  docs-removal-instructions: done
-  entity-event-setup: done
+    comment: README.md, «Установка» (HACS и вручную) и «Настройка».
+  docs-removal-instructions:
+    status: todo
+    comment: Инструкции по удалению интеграции нет ни в README.md, ни в USAGE.md.
+  entity-event-setup:
+    status: done
+    comment: Подписки на события оформляются в async_added_to_hass через
+      async_on_remove (event.py).
   entity-unique-id: done
-  has-entity-name: done
-  runtime-data: done
+  has-entity-name:
+    status: done
+    comment: _attr_has_entity_name = True у всех классов сущностей.
+  runtime-data:
+    status: done
+    comment: entry.runtime_data = coordinator, тип SberHomeConfigEntry
+      (__init__.py, модули платформ, diagnostics.py).
   test-before-configure:
-    status: exempt
-    comment: OAuth flow валидирует сам — authorize_by_url возвращает False
-      при любой ошибке, entry создаётся только при наличии token.
+    status: todo
+    comment: Вход по SMS получает токен умного дома (get_smart_home_token) до
+      создания записи. Вход через Сбер ID проверяет только обмен кода на токены
+      id.sber.ru (api.py, authorize_by_url) — обмен на companion-токен и первый
+      запрос к шлюзу умного дома выполняются уже в async_setup_entry.
   test-before-setup:
     status: done
-    comment: async_setup_entry ловит ConfigEntryAuthFailed + SberSmartHomeError,
-      мапит в ConfigEntryNotReady / ConfigEntryAuthFailed.
+    comment: async_setup_entry вызывает async_config_entry_first_refresh.
+      Ошибки авторизации дают ConfigEntryAuthFailed, сетевые и ошибки API —
+      UpdateFailed (HA превращает в ConfigEntryNotReady), SberSmartHomeError
+      вне координатора — ConfigEntryNotReady; без токенов SMS-входа —
+      ConfigEntryAuthFailed.
   unique-config-entry:
     status: done
-    comment: config_flow.async_set_unique_id(sub) из JWT id_token (3.5.0+).
-      _abort_if_unique_id_configured для нового flow, _mismatch для reauth.
+    comment: В manifest.json single_config_entry — вторую запись Home Assistant
+      добавить не даёт. unique_id (sub из id_token или csafront:<телефон>)
+      используется для проверки аккаунта при повторном входе; если sub в
+      id_token нет, unique_id не ставится (config_flow.py, _extract_sub).
 
   # ---------------------------------------------------------------------------
-  # Silver — повышенные требования
+  # Silver
   # ---------------------------------------------------------------------------
-  action-exceptions: todo
-  config-entry-unloading: done
-  docs-configuration-parameters: done
-  docs-installation-parameters: done
+  action-exceptions:
+    status: todo
+    comment: При ошибке send_raw_command, reload_intents, tts_send и ttc_send не
+      поднимают исключение, а возвращают {"ok" false, "error" ...} в ответе
+      (__init__.py, _async_register_services). Без запроса ответа пользователь
+      ошибку не видит.
+  config-entry-unloading:
+    status: done
+    comment: async_unload_entry выгружает платформы и останавливает координатор
+      (HTTP-клиент, WebSocket, фоновые задачи).
+  docs-configuration-parameters:
+    status: todo
+    comment: Из параметров формы настроек описан только интервал опроса, и с
+      неверным диапазоном (в README.md и USAGE.md 10–300 с, в форме
+      10–3600 с). Размер буферов DevTools (devtools_buffer_size) и таймаут
+      подтверждения команд (command_timeout) не описаны.
+  docs-installation-parameters:
+    status: todo
+    comment: README.md, «Настройка», описывает только вход через Сбер ID. Вход по
+      SMS (номер телефона и код) в инструкции не описан.
   entity-unavailable:
+    status: todo
+    comment: SberBaseEntity.available учитывает успех опроса координатора,
+      наличие устройства в state_cache и reported_state["online"] (entity.py);
+      сущности сценариев, групп, присутствия и индикатора — на CoordinatorEntity.
+      Исключение — notify.py (SberHomeTtsNotify, SberHomeTtcNotify) — они
+      наследуют только NotifyEntity и остаются доступными, когда облако Сбера
+      недоступно.
+  integration-owner:
     status: done
-    comment: entity.available учитывает coordinator.last_update_success +
-      state_cache + reported_state["online"] (с 3.6.0).
-  integration-owner: done
+    comment: codeowners в manifest.json.
   log-when-unavailable:
-    status: done
-    comment: coordinator логирует connection/auth/api errors через LOGGER.warning.
+    status: todo
+    comment: Координатор пишет WARNING на каждом неудачном опросе
+      (coordinator.py, _async_update_data), то есть на каждом цикле, пока облако
+      недоступно. Правило требует одну запись при потере связи и одну при
+      восстановлении.
   parallel-updates:
-    status: exempt
-    comment: DataUpdateCoordinator сам сериализует updates через asyncio.Lock.
-  reauthentication-flow: done
-  test-coverage:
+    status: todo
+    comment: PARALLEL_UPDATES не задан ни в одном модуле платформы. Прежнее
+      обоснование «координатор сериализует обновления» не подходит — правило
+      требует явную константу в каждом модуле платформы, в том числе для
+      вызовов действий.
+  reauthentication-flow:
     status: done
-    comment: 764 passed, 13 skipped, ~90% overall coverage.
+    comment: async_step_reauth в config_flow.py, для Сбер ID и для SMS; вход в
+      чужой аккаунт отклоняется (wrong_account).
+  test-coverage:
+    status: todo
+    comment: Полный прогон 2026-09-15 — 2112 тестов, покрытие 86.5% (порог
+      fail_under = 86 в pyproject.toml). Нужно выше 95%.
 
   # ---------------------------------------------------------------------------
-  # Gold — опциональные best practices
+  # Gold
   # ---------------------------------------------------------------------------
-  devices: done
+  devices:
+    status: done
+    comment: DeviceInfo с производителем, моделью, версией прошивки, серийным
+      номером и комнатой (entity.py).
   diagnostics:
     status: done
     comment: diagnostics.py включает entry (redacted, в т.ч. токены SMS-входа),
@@ -78,48 +160,89 @@ rules:
       данные DevTools (журнал, изменения, команды, проверка) с маскировкой.
   discovery:
     status: exempt
-    comment: Sber Smart Home — cloud-only, device discovery не применима.
+    comment: Настройка — это вход в аккаунт облака Сбера. Обнаружение устройства
+      в локальной сети не даёт данных для настройки, сетевые адреса интеграция
+      не использует.
   discovery-update-info:
     status: exempt
-    comment: См. discovery.
-  docs-data-update: done
-  docs-examples: done
-  docs-known-limitations: done
-  docs-supported-devices: done
-  docs-supported-functions: done
-  docs-troubleshooting: done
-  docs-use-cases: done
-  dynamic-devices: todo
+    comment: Сетевых адресов устройств интеграция не хранит — обновлять нечего.
+  docs-data-update:
+    status: done
+    comment: README.md, «Как это работает» и «Возможности» (адаптивный опрос);
+      USAGE.md, «Введение».
+  docs-examples:
+    status: done
+    comment: Примеры автоматизаций в README.md и USAGE.md.
+  docs-known-limitations:
+    status: done
+    comment: README.md — «Disclaimer» и «Лимиты» (TTS); USAGE.md — «Ограничения»
+      (TTS), ограничения слушателей и колонок Sber.
+  docs-supported-devices:
+    status: done
+    comment: README.md, «Поддерживаемые устройства (полный список)».
+  docs-supported-functions:
+    status: done
+    comment: README.md, «Типы сущностей в Home Assistant»; USAGE.md, справочник
+      сущностей по категориям.
+  docs-troubleshooting:
+    status: todo
+    comment: Раздела о типичных проблемах и их решении нет ни в README.md, ни в
+      USAGE.md.
+  docs-use-cases:
+    status: done
+    comment: README.md, разделы «Use-case» (голосовые команды, TTS, TTC).
+  dynamic-devices:
+    status: todo
+    comment: Платформы создают сущности только в async_setup_entry (например
+      sensor.py). Устройства, сценарии и группы, появившиеся позже, добавляются
+      только после перезагрузки записи.
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default: done
   entity-translations:
     status: todo
-    comment: Текущие entities полагаются на device_class → HA builtin перевод.
-      Кастомных keys пока нет, нужно будет при расширении.
-  exception-translations: todo
+    comment: Сущности устройств называются через translation_key (entity.py),
+      но часть имён задана в коде по-английски — update.py («Firmware»),
+      light.py («LED indicator»), switch.py и binary_sensor.py («At home»),
+      notify.py («Sber TTS», «Sber TTC»); у настроек колонок — русские суффиксы
+      в sbermap/transform/staros_settings.py.
+  exception-translations:
+    status: todo
+    comment: HomeAssistantError поднимается с текстом из кода
+      (tts_surrogate/service.py, ttc_surrogate/service.py, intents/service.py)
+      без translation_key; секции exceptions в strings.json нет.
   icon-translations:
-    status: exempt
-    comment: Все entities используют device_class-based icons или материал-иконки
-      из sbermap — кастомные SVG не нужны.
-  reconfiguration-flow: todo
+    status: todo
+    comment: icons.json нет. Иконки заданы в коде через _attr_icon (button.py,
+      event.py, sensor.py, light.py, update.py, switch.py, binary_sensor.py) и
+      через icon в sbermap/transform/feature_specs.py.
+  reconfiguration-flow:
+    status: todo
+    comment: async_step_reconfigure нет — сменить способ входа (Сбер ID или SMS)
+      можно только удалив и заново добавив запись.
   repair-issues:
     status: done
-    comment: conflicting_integration, update_failing, background_poll_disabled
-      (conflict.py, repairs.py).
+    comment: conflicting_integration, update_failing, background_poll_disabled,
+      несколько записей SberHome (conflict.py, repairs.py, single_entry.py).
   stale-devices:
     status: done
     comment: registry_maintenance.prune_stale_devices удаляет устройства после
       PRUNE_MIN_CONSECUTIVE_MISSES пропусков в выдаче Sber API.
 
   # ---------------------------------------------------------------------------
-  # Platinum — самые высокие требования
+  # Platinum
   # ---------------------------------------------------------------------------
-  async-dependency: done
-  inject-websession:
+  async-dependency:
     status: done
-    comment: aiohttp WS session инжектится через make_aiohttp_factory(hass) в
-      _ws_adapter.py. httpx shared по entry с verify=ssl_ctx.
+    comment: httpx и websockets асинхронные, встроенный клиент aiosber написан на
+      asyncio.
+  inject-websession:
+    status: todo
+    comment: WebSocket идёт через общую сессию aiohttp Home Assistant
+      (coordinator.py, _run_ws). REST — через собственный httpx.AsyncClient
+      (__init__.py async_setup_entry, config_flow.py) — нужен корневой
+      сертификат Russian Trusted Root CA, а общий httpx-клиент Home Assistant
+      свой SSL-контекст не принимает.
   strict-typing:
     status: todo
     comment: mypy (без --strict) проверяется в CI, но 25 модулей с известными

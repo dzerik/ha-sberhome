@@ -54,7 +54,7 @@ Best-effort, проект ведётся в свободное время:
 - **SSRF / RCE** — через payload в HA service-call или WS endpoint.
 - **Auth bypass** — обход OAuth-flow / pin code в panel.
 - **Privilege escalation** в HA через интеграцию.
-- **Dependency vulnerabilities** — CVE в `Authlib`, `httpx`,
+- **Dependency vulnerabilities** — CVE в `httpx`,
   `websockets`, других зависимостях.
 
 Out of scope:
