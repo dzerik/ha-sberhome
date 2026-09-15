@@ -244,7 +244,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         phone = self._csafront_phone or ""
         await self._csafront_cleanup()
 
-        # Unique ID по телефону — один entry на номер.
+        # Unique ID по телефону — по нему reauth отличает чужой номер.
         await self.async_set_unique_id(f"csafront:{phone}")
         if self.source == config_entries.SOURCE_REAUTH:
             self._abort_if_unique_id_mismatch(reason="wrong_account")
@@ -282,8 +282,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._client = None
 
             # Unique ID из JWT id_token `sub` claim — уникален per Sber
-            # ID аккаунт. Без этого можно создать 2 записи для одного
-            # аккаунта, а reauth не защищён от `wrong_account` случая.
+            # ID аккаунт. Главное назначение — reauth: без него нельзя
+            # отличить вход в чужой аккаунт (`wrong_account`). Вторую запись
+            # HA не даёт создать и так (`single_config_entry` в манифесте);
+            # проверка на дубль остаётся страховкой.
             sub = self._extract_sub(token)
             if sub is not None:
                 await self.async_set_unique_id(sub)

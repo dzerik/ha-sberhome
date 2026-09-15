@@ -111,6 +111,10 @@
     "background_poll_disabled": {
       "title": "SberHome stopped some background updates",
       "description": "These background updates were turned off after an error: {polls}. Device control still works, but scenarios, firmware or speaker data may be out of date. Press Refresh in the SberHome panel or reload the integration to turn them back on."
+    },
+    "multiple_config_entries": {
+      "title": "Several SberHome entries: the panel manages only one",
+      "description": "SberHome supports one Sber account per Home Assistant, but there are {count} SberHome entries now. The SberHome panel works only with the \"{active}\" entry. The other entries ({others}) cannot be managed from the panel: you cannot pick their devices and they are not shown there. Entities they already have keep working until you delete those entries. Home Assistant does not remove extra entries by itself and no longer lets you add a new one. Delete the extra entries in Settings → Devices & services → SberHome. If you need a different account, delete all SberHome entries and add the integration again, signing in with that account."
     }
   },
   "entity": {

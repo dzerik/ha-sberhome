@@ -112,6 +112,10 @@
     "background_poll_disabled": {
       "title": "SberHome ayrim fon yangilanishlarini o'chirdi",
       "description": "Xatodan keyin quyidagi fon yangilanishlari o'chirildi: {polls}. Qurilmalarni boshqarish ishlaydi, lekin ssenariylar, proshivkalar yoki kolonka ma'lumotlari eskirgan bo'lishi mumkin. Ularni qayta yoqish uchun SberHome panelida «Yangilash» tugmasini bosing yoki integratsiyani qayta yuklang."
+    },
+    "multiple_config_entries": {
+      "title": "Bir nechta SberHome yozuvi: panel faqat bittasini boshqaradi",
+      "description": "SberHome bitta Home Assistant uchun bitta Sber akkauntini qo'llab-quvvatlaydi, hozir esa integratsiya yozuvlari {count} ta. SberHome paneli faqat «{active}» yozuvi bilan ishlaydi. Qolgan yozuvlar ({others}) paneldan boshqarilmaydi: ular uchun qurilmalarni tanlab bo'lmaydi va ular panelda ko'rinmaydi. Ulardagi mavjud obyektlar siz bu yozuvlarni o'chirmaguningizcha ishlashda davom etadi. Home Assistant ortiqcha yozuvlarni o'zi o'chirmaydi va yangisini qo'shishga endi ruxsat bermaydi. Ortiqcha yozuvlarni «Sozlamalar → Qurilmalar va xizmatlar → SberHome» bo'limida o'chiring. Boshqa akkaunt kerak bo'lsa, SberHome'ning barcha yozuvlarini o'chiring va kerakli akkaunt bilan kirib, integratsiyani qaytadan qo'shing."
     }
   },
   "entity": {

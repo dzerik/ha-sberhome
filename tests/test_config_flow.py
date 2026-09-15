@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -14,6 +15,19 @@ from custom_components.sberhome.config_flow import (
     _normalize_phone,
 )
 from custom_components.sberhome.const import CONF_AUTH_METHOD, CONF_SCAN_INTERVAL
+
+
+@pytest.fixture(autouse=True)
+def _restore_flow_source() -> Iterator[None]:
+    """Снять PropertyMock ``source`` с класса после теста.
+
+    ``_make_flow_with_source`` подменяет свойство на самом классе ``ConfigFlow``;
+    без отката настоящие flow в других тестах того же процесса (xdist-воркера)
+    видят чужой ``source`` — например, reauth считает себя ``user``.
+    """
+    yield
+    if "source" in vars(ConfigFlow):
+        delattr(ConfigFlow, "source")
 
 
 def _make_flow_with_source(source: str = "user") -> ConfigFlow:

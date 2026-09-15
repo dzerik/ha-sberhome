@@ -49,6 +49,7 @@ from .listeners import LISTENERS_SCHEMA, load_listeners_from_config
 from .repairs import async_update_repair_issues
 from .selection_migration import async_migrate_selection
 from .settings import only_live_settings_changed
+from .single_entry import async_setup_multiple_entries_issue
 from .unique_id_repair import async_repair_rotated_unique_ids
 from .websocket_api import async_setup_websocket_api
 
@@ -161,6 +162,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 len(listener_specs),
             )
     hass.data[_HASS_DATA_YAML_LISTENERS] = listener_specs
+
+    # Вторую запись добавить уже нельзя (single_config_entry), но созданные
+    # до этого остаются — замечание в Repairs говорит, какой из них управляет
+    # панель. Подписка до настройки записей, живёт вместе с hass.
+    async_setup_multiple_entries_issue(hass)
 
     return True
 
