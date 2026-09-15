@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [6.0.0] — 2026-09-15
 
 ### Changed — сервисы SberHome сообщают об ошибках, а не отвечают `{"ok": false}`
 
