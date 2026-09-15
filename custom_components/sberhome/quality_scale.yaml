@@ -81,9 +81,9 @@ rules:
     status: done
     comment: async_setup_entry вызывает async_config_entry_first_refresh.
       Ошибки авторизации дают ConfigEntryAuthFailed, сетевые и ошибки API —
-      UpdateFailed (HA превращает в ConfigEntryNotReady), SberSmartHomeError
-      вне координатора — ConfigEntryNotReady; без токенов SMS-входа —
-      ConfigEntryAuthFailed.
+      UpdateFailed (HA превращает в ConfigEntryNotReady); без токенов
+      SMS-входа — ConfigEntryAuthFailed. При любой ошибке настройка
+      откатывается (_async_abort_setup) — платформы, координатор, hass.data.
   unique-config-entry:
     status: done
     comment: В manifest.json single_config_entry — вторую запись Home Assistant
