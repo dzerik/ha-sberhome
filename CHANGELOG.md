@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [5.42.0] — 2026-09-15
 
 ### Security — страница входа через Сбер ID
 
