@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..dto import AttributeValueDto, AttrKey
+from ..exceptions import RateLimitError
 
 if TYPE_CHECKING:
     from ..api.devices import DeviceAPI
@@ -146,6 +147,10 @@ class DeviceService:
                 groups_api.list(group_type="GROUP"),
                 self._fetch_devices_with_raw(),
             )
+        except RateLimitError:
+            # 429: облако просит подождать. Запасной запрос дерева лишь добавит
+            # нагрузки и получит тот же отказ — отдаём ошибку вызывающему.
+            raise
         except Exception:
             # Запасной путь отдаёт только дом по умолчанию: устройства прочих
             # домов пропадут из кэша, хотя в аккаунте они есть.

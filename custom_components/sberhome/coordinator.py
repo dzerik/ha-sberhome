@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import contextvars
 import dataclasses
+import inspect
 import time
 from collections.abc import Callable
 from datetime import timedelta
@@ -45,6 +46,7 @@ from .aiosber.dto.settings import StarosDeviceDto
 from .aiosber.dto.union import UnionDto
 from .aiosber.exceptions import ApiError as CoreApiError
 from .aiosber.exceptions import AuthError as CoreAuthError
+from .aiosber.exceptions import RateLimitError
 from .aiosber.exceptions import SberError as CoreSberError
 from .aiosber.transport import HttpTransport
 from .api import SberAPI
@@ -64,12 +66,6 @@ from .const import (
     SELECTION_SCHEMA_VERSION,
     WS_CONNECTED_SCAN_INTERVAL,
     entry_data_key,
-)
-from .exceptions import (
-    SberApiError,
-    SberAuthError,
-    SberConnectionError,
-    SberSmartHomeError,
 )
 from .identity import device_match_keys, resolve_enabled_ids, to_uids
 from .intent_dispatcher import (
@@ -115,6 +111,27 @@ COMMAND_SWEEP_INTERVAL = timedelta(seconds=5)
 # обработанный параллельно в другой задаче, не должен получить метку replay.
 _INJECT_DIRECTION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "sberhome_inject_direction", default=None
+)
+
+# Пауза после ответа 429 без заголовка Retry-After: облако ограничило частоту,
+# но не сказало, на сколько. Минута — не долбим облако штатным 30-секундным
+# интервалом и не пропадаем надолго.
+RATE_LIMIT_DEFAULT_BACKOFF_SEC = 60.0
+
+# Верхняя граница паузы по Retry-After: ошибочный заголовок («через неделю»)
+# не должен выключить опрос надолго.
+RATE_LIMIT_MAX_BACKOFF_SEC = 3600.0
+
+# Допуск на неточность планировщика HA: плановый опрос ставится на
+# ``int(loop.time()) + доля_секунды + интервал``, то есть может сработать почти
+# на секунду раньше конца паузы. Без допуска такой опрос считался бы «внутри
+# паузы», и облако ждало бы лишний полный интервал.
+RATE_LIMIT_SCHEDULE_SLACK_SEC = 1.0
+
+# `UpdateFailed(retry_after=)` есть только в новых HA; на более старых пауза
+# делается растягиванием `update_interval` до конца окна.
+_UPDATE_FAILED_SUPPORTS_RETRY_AFTER: bool = (
+    "retry_after" in inspect.signature(UpdateFailed.__init__).parameters
 )
 
 # Интервал между poll'ами /scenario/v2/scenario + /scenario/v2/home/variable/at_home.
@@ -167,7 +184,15 @@ class ThrottledPoll:
     if/try/except/finally в coordinator (~80 строк) — см. SOLID-аудит.
     """
 
-    __slots__ = ("disabled", "interval", "last_error", "last_poll_at", "name", "unsupported")
+    __slots__ = (
+        "disabled",
+        "interval",
+        "last_error",
+        "last_poll_at",
+        "name",
+        "retry_at",
+        "unsupported",
+    )
 
     def __init__(self, interval: float, name: str) -> None:
         self.interval = interval
@@ -179,12 +204,18 @@ class ThrottledPoll:
         # любой другой сбой — повод показать пользователю.
         self.unsupported: bool = False
         self.last_error: str | None = None
+        # Не раньше этого момента (epoch seconds): облако ответило 429.
+        self.retry_at: float = 0.0
 
     def due(self, now: float) -> bool:
-        """True если пора поллить (не disabled и интервал прошёл)."""
-        if self.disabled:
+        """True если пора поллить (не disabled, интервал и пауза 429 прошли)."""
+        if self.disabled or now < self.retry_at:
             return False
         return self.last_poll_at is None or now - self.last_poll_at >= self.interval
+
+    def defer(self, now: float, delay: float) -> None:
+        """Отложить опрос на ``delay`` секунд от ``now`` (ответ 429), не отключая его."""
+        self.retry_at = now + delay
 
     def reset(self) -> None:
         """Manual refresh — снять disable-флаг."""
@@ -214,6 +245,13 @@ def _staros_access_denied(err: Exception) -> bool:
     return isinstance(err, CoreApiError) and err.status_code == 403
 
 
+def _rate_limit_delay(retry_after: float | None) -> float:
+    """Пауза в секундах по ``RateLimitError.retry_after``: умолчание и верхняя граница."""
+    if retry_after is None:
+        return RATE_LIMIT_DEFAULT_BACKOFF_SEC
+    return min(max(retry_after, 0.0), RATE_LIMIT_MAX_BACKOFF_SEC)
+
+
 def _as_float(value: Any) -> float:
     """Best-effort приведение к float (для полос эквалайзера)."""
     try:
@@ -238,6 +276,12 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     полезно, а свежесть видна по ``at``."""
 
     config_entry: SberHomeConfigEntry
+
+    _rate_limited_until: float = 0.0
+    """``time.monotonic()``, раньше которого опрос не обращается к облаку (ответ 429)."""
+
+    _rate_limit_episode: bool = False
+    """Идёт серия ответов 429 — предупреждение в лог уже записано."""
 
     def __init__(
         self,
@@ -605,6 +649,20 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the SberHome API."""
+        remaining = min(self._rate_limited_until - time.monotonic(), RATE_LIMIT_MAX_BACKOFF_SEC)
+        if remaining > RATE_LIMIT_SCHEDULE_SLACK_SEC:
+            # Облако просило подождать: внеплановый опрос («Обновить» в панели,
+            # переподключение WebSocket) тоже не уходит раньше срока. Следующий
+            # опрос — ровно к концу паузы, а не через полный интервал после неё.
+            raise self._rate_limited_failure(remaining)
+        # Опрос действительно идёт в облако: на HA без
+        # ``UpdateFailed(retry_after=)`` пауза могла растянуть или сжать
+        # интервал. Возвращаем штатный сразу, а не после первого успеха —
+        # иначе ошибка 5xx/сети после короткого отказа внутри паузы оставила
+        # бы опрос раз в пару секунд. Новый 429 снова выставит паузу.
+        desired_interval = self._desired_update_interval()
+        if self.update_interval != desired_interval:
+            self.update_interval = desired_interval
         try:
             # Multi-home aware refresh через aiosber — 4 параллельных flat-list
             # запроса + naполняет state_cache, raw_devices, enums.
@@ -616,6 +674,10 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.last_polling_at = time.time()
             self.polling_count += 1
             self.consecutive_failures = 0
+            self._rate_limited_until = 0.0
+            if self._rate_limit_episode:
+                self._rate_limit_episode = False
+                LOGGER.info("Облако Сбера сняло ограничение частоты запросов")
             # Параллельно строим типизированные DTO + кэш sbermap-сущностей.
             self._rebuild_entities_from_state_cache()
             # DevTools #1 state-diff: record per-device deltas for this
@@ -665,24 +727,16 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             desired_interval = self._desired_update_interval()
             if self.update_interval != desired_interval:
                 self.update_interval = desired_interval
-        except SberAuthError as err:
+        # Запросы идут через aiosber: его иерархия SberError →
+        # AuthError/NetworkError/ApiError. Без явного перехвата транзиентная
+        # DNS-икота (`[Errno -3] Try again`) утекала бы как «Unexpected error
+        # fetching data» ERROR+traceback (issue #35).
+        except RateLimitError as err:
             self._record_update_error(err)
-            LOGGER.warning("Authentication failed during update: %s", err)
-            raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
-        except SberApiError as err:
-            self._record_update_error(err)
-            if err.retry_after:
-                LOGGER.warning("Rate limited, retry after %ds: %s", err.retry_after, err)
-                self.update_interval = timedelta(seconds=err.retry_after)
-            raise UpdateFailed(f"API error: {err}") from err
-        except (SberConnectionError, SberSmartHomeError) as err:
-            self._record_update_error(err)
-            LOGGER.warning("API communication error during update: %s", err)
-            raise UpdateFailed(f"Error communicating with API: {err}") from err
-        # core-слой aiosber (запросы идут через него) кидает свою иерархию
-        # SberError → AuthError/NetworkError/ApiError. Ловим её тоже, иначе
-        # транзиентная DNS-икота (`[Errno -3] Try again`) утекает как
-        # «Unexpected error fetching data» ERROR+traceback (issue #35).
+            delay = self._start_rate_limit_window(err.retry_after)
+            # Короткий Retry-After не делает опрос чаще штатного интервала.
+            wait = max(delay, self._desired_update_interval().total_seconds())
+            raise self._rate_limited_failure(wait, err) from err
         except CoreAuthError as err:
             self._record_update_error(err)
             LOGGER.warning("Authentication failed during update: %s", err)
@@ -705,6 +759,48 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._start_ws_task()
 
         return self._derive_data()
+
+    def _start_rate_limit_window(self, retry_after: float | None) -> float:
+        """Начать паузу после ответа 429 и один раз за серию предупредить в лог.
+
+        Args:
+            retry_after: Секунды из заголовка ``Retry-After`` или None.
+
+        Returns:
+            Длительность паузы в секундах.
+        """
+        delay = _rate_limit_delay(retry_after)
+        self._rate_limited_until = time.monotonic() + delay
+        if not self._rate_limit_episode:
+            self._rate_limit_episode = True
+            LOGGER.warning(
+                "Облако Сбера ограничило частоту запросов — следующий опрос "
+                "не раньше чем через %.0f с",
+                delay,
+            )
+        return delay
+
+    def _rate_limited_failure(self, wait: float, err: Exception | None = None) -> UpdateFailed:
+        """``UpdateFailed``, откладывающий следующий плановый опрос на ``wait``.
+
+        На HA без ``UpdateFailed(retry_after=)`` растягивается
+        ``update_interval``; штатный интервал возвращает следующий опрос, ушедший
+        в облако.
+
+        Args:
+            wait: Секунды до следующего планового опроса.
+            err: Исходный ``RateLimitError`` (для текста ошибки).
+
+        Returns:
+            Исключение для ``raise``.
+        """
+        message = f"Rate limited by Sber cloud, next update in {wait:.0f}s"
+        if err is not None:
+            message = f"{message}: {err}"
+        if _UPDATE_FAILED_SUPPORTS_RETRY_AFTER:
+            return UpdateFailed(message, retry_after=wait)
+        self.update_interval = timedelta(seconds=wait)
+        return UpdateFailed(message)
 
     # ------------------------------------------------------------------
     # Sbermap entities cache — typed DeviceDto + HaEntityData
@@ -813,13 +909,18 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Generic best-effort poll: не чаще ``poll.interval``, disable-on-error.
 
         Схлопывает 4 бывшие копии одинакового if/try/except/finally
-        (scenarios / OTA / discovery / indicator).
+        (scenarios / OTA / discovery / indicator). Ответ 429 — не сбой
+        эндпоинта: опрос не отключается, а откладывается по Retry-After.
         """
         now = time.time()
         if not poll.due(now):
             return
         try:
             await action()
+        except RateLimitError as err:
+            delay = _rate_limit_delay(err.retry_after)
+            LOGGER.debug("%s polling rate limited — retry in %.0f s", poll.name, delay)
+            poll.defer(now, delay)
         except Exception as err:
             LOGGER.debug(
                 "%s polling failed — disabling until manual refresh",
@@ -950,7 +1051,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # 405 Method Not Allowed = endpoint не поддерживает GET на этом
                 # аккаунте/прошивке. Пробрасываем — _throttled_poll отключит
                 # discovery-poll, чтобы не спамить hourly-tracebacks (issue #35).
-                if err.status_code == 405:
+                # 429 — тоже пробрасываем: остальные хабы под ограничением
+                # получат тот же отказ, а _throttled_poll отложит опрос.
+                if err.status_code == 405 or isinstance(err, RateLimitError):
                     raise
                 LOGGER.debug("Discovery failed for %s — skipping", dev_id, exc_info=True)
                 continue
@@ -1014,6 +1117,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         try:
             await self._refresh_staros()
+        except RateLimitError as err:
+            self._staros_poll.defer(now, _rate_limit_delay(err.retry_after))
+            LOGGER.debug("Staros settings polling rate limited", exc_info=True)
         except Exception as err:
             if _staros_access_denied(err):
                 LOGGER.warning(

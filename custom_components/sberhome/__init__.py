@@ -14,7 +14,7 @@ from homeassistant.components.frontend import (
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.loader import async_get_integration
 
 from ._ha_token_store import HACsafrontTokenStore, HATokenStore
@@ -45,7 +45,6 @@ from .const import (
     entry_data_key,
 )
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
-from .exceptions import SberSmartHomeError
 from .intents.reconciler import reconcile_intents
 from .intents.service import IntentService
 from .intents.yaml_loader import INTENTS_SCHEMA, load_intents_from_config
@@ -182,11 +181,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -> 
     платформы форвардятся только после того, как `coordinator.devices`
     заполнен, иначе `async_forward_entry_setups` создавал бы 0 entities.
 
-    При ошибках refresh (`SberAuthError`/network/rate-limit) coordinator
-    уже маппит их в `ConfigEntryAuthFailed` / `UpdateFailed`. HA-фреймворк
-    из `UpdateFailed` первого refresh сам делает `ConfigEntryNotReady` и
-    планирует retry. Дополнительно ловим голые SberSmartHomeError на
-    случай ошибок до полноценного `_async_update_data`.
+    При ошибках refresh (auth/network/rate-limit) coordinator маппит их в
+    `ConfigEntryAuthFailed` / `UpdateFailed`. HA-фреймворк из `UpdateFailed`
+    первого refresh сам делает `ConfigEntryNotReady` и планирует retry.
 
     Настройка безопасна к исключениям: при ЛЮБОЙ ошибке после создания
     httpx-клиента (`ConfigEntryNotReady`, `ConfigEntryAuthFailed`, отмена
@@ -334,13 +331,10 @@ async def _async_start_entry(
     async_setup_websocket_api(hass)
     await _async_register_panel(hass)
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except SberSmartHomeError as err:
-        # Сырые aiosber/Sber ошибки в обход coordinator mapping
-        # (SberConnectionError/SberApiError тоже сюда попадают — они subclass'ы)
-        # — превращаем в ConfigEntryNotReady для HA retry.
-        raise ConfigEntryNotReady(str(err)) from err
+    # Ошибки опроса координатор сам переводит в ConfigEntryAuthFailed /
+    # UpdateFailed, а HA превращает UpdateFailed первого опроса в
+    # ConfigEntryNotReady и повторяет настройку.
+    await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
     entry.async_on_unload(coordinator.async_start_command_sweep())

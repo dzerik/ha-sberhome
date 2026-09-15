@@ -15,15 +15,15 @@ from custom_components.sberhome.aiosber.dto.state import (
     AttributeValueDto,
     StateDto,
 )
+from custom_components.sberhome.aiosber.exceptions import (
+    AuthError,
+    NetworkError,
+    RateLimitError,
+)
 from custom_components.sberhome.aiosber.transport import HttpTransport
 from custom_components.sberhome.api import SberAPI
 from custom_components.sberhome.const import PRUNE_MIN_CONSECUTIVE_MISSES
 from custom_components.sberhome.coordinator import SberHomeCoordinator
-from custom_components.sberhome.exceptions import (
-    SberApiError,
-    SberAuthError,
-    SberConnectionError,
-)
 
 
 @pytest.fixture
@@ -173,7 +173,7 @@ async def test_update_data_success(coordinator, mock_client):
 @pytest.mark.asyncio
 async def test_update_data_auth_error(coordinator, mock_client):
     """Test auth error raises ConfigEntryAuthFailed."""
-    mock_client.device_service.refresh.side_effect = SberAuthError("expired")
+    mock_client.device_service.refresh.side_effect = AuthError("expired")
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
@@ -181,20 +181,20 @@ async def test_update_data_auth_error(coordinator, mock_client):
 @pytest.mark.asyncio
 async def test_update_data_connection_error(coordinator, mock_client):
     """Test connection error raises UpdateFailed."""
-    mock_client.device_service.refresh.side_effect = SberConnectionError("timeout")
-    with pytest.raises(UpdateFailed):
+    mock_client.device_service.refresh.side_effect = NetworkError("timeout")
+    with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
+    assert exc.value.retry_after is None
 
 
 @pytest.mark.asyncio
 async def test_update_data_rate_limited(coordinator, mock_client):
-    """Test rate limiting adjusts update_interval."""
-    mock_client.device_service.refresh.side_effect = SberApiError(
-        code=429, status_code=429, message="rate limited", retry_after=120
-    )
-    with pytest.raises(UpdateFailed):
+    """429 от облака откладывает следующий опрос на Retry-After."""
+    mock_client.device_service.refresh.side_effect = RateLimitError(retry_after=120)
+    with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
-    assert coordinator.update_interval.total_seconds() == 120
+    assert exc.value.retry_after == 120
+    assert coordinator.consecutive_failures == 1
 
 
 @pytest.mark.asyncio
@@ -824,20 +824,20 @@ def test_prune_stale_devices_unknown_home_id_still_removed(coordinator):
 @pytest.mark.asyncio
 async def test_failed_updates_are_counted_in_a_row_and_remembered(coordinator, mock_client):
     """Панель показывает, сколько обновлений подряд упало и чем именно."""
-    mock_client.device_service.refresh.side_effect = SberConnectionError("dns: try again")
+    mock_client.device_service.refresh.side_effect = NetworkError("dns: try again")
     for _ in range(2):
         with pytest.raises(UpdateFailed):
             await coordinator._async_update_data()
 
     assert coordinator.consecutive_failures == 2
-    assert coordinator.last_error["kind"] == "SberConnectionError"
+    assert coordinator.last_error["kind"] == "NetworkError"
     assert "dns: try again" in coordinator.last_error["message"]
     assert coordinator.last_error["at"] > 0
 
     mock_client.device_service.refresh.side_effect = None
     await coordinator._async_update_data()
     assert coordinator.consecutive_failures == 0
-    assert coordinator.last_error["kind"] == "SberConnectionError", (
+    assert coordinator.last_error["kind"] == "NetworkError", (
         "the last error stays visible after recovery"
     )
 
@@ -864,7 +864,7 @@ async def test_health_hook_runs_after_failed_and_successful_updates(coordinator,
     calls: list[int] = []
     coordinator.on_health_changed = lambda: calls.append(coordinator.consecutive_failures)
 
-    mock_client.device_service.refresh.side_effect = SberConnectionError("timeout")
+    mock_client.device_service.refresh.side_effect = NetworkError("timeout")
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
     mock_client.device_service.refresh.side_effect = None

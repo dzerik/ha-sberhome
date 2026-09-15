@@ -107,13 +107,11 @@ class TestSendAttrsFeedsTheTimeline:
 
     @pytest.mark.asyncio
     async def test_failed_send_is_recorded_then_raised(self):
-        from custom_components.sberhome.exceptions import SberConnectionError
+        from custom_components.sberhome.aiosber.exceptions import NetworkError
 
         entity = self._entity()
-        entity.coordinator.async_send_device_state.side_effect = SberConnectionError(
-            "gateway timeout"
-        )
-        with pytest.raises(SberConnectionError):
+        entity.coordinator.async_send_device_state.side_effect = NetworkError("gateway timeout")
+        with pytest.raises(NetworkError):
             await entity._async_send_attrs(self._attrs())
         [record] = entity.coordinator.command_tracker.snapshot()
         assert record["status"] == "send_failed"

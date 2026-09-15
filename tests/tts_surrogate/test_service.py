@@ -188,34 +188,6 @@ async def test_send_skips_non_speaker_devices_in_home():
     assert "lamp-1" not in pd["device_ids"]
 
 
-async def test_send_404_on_update_triggers_recreate_and_retry():
-    from custom_components.sberhome.exceptions import SberApiError
-
-    coord = _make_coord_with_home("home-1")
-    coord.tts_surrogates["home-1"] = "stale-sc-id"
-
-    # Recreate path тоже использует _all_speakers_in_home — нужен speaker.
-    spk = MagicMock()
-    spk.id = "spk-1"
-    spk.image_set_type = "dt_boom"
-    spk.full_categories = None
-    coord.state_cache.get_all_devices.return_value = {"spk-1": spk}
-    coord.state_cache.device_home_id = MagicMock(return_value="home-1")
-
-    err_404 = SberApiError(code=0, status_code=404, message="not found")
-    coord.client.scenarios.update = AsyncMock(side_effect=[err_404, {"ok": True}])
-    coord.client.scenarios.list = AsyncMock(return_value=[])
-    coord.client.scenarios.create = AsyncMock(return_value={"id": "new-sc"})
-
-    svc = TtsSurrogateService(coord)
-    await svc.send("home-1", "retry", ["spk-1"])
-
-    assert coord.client.scenarios.update.await_count == 2
-    assert coord.tts_surrogates["home-1"] == "new-sc"
-    coord.client.scenarios.create.assert_awaited_once()
-    coord.client.scenarios.run.assert_awaited_once_with("new-sc")
-
-
 async def test_concurrent_get_surrogate_id_does_not_double_create():
     """Race regression: 2 concurrent get_surrogate_id → 1 create, не 2."""
     import asyncio

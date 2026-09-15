@@ -17,10 +17,6 @@ from custom_components.sberhome import (
     async_unload_entry,
 )
 from custom_components.sberhome.const import DOMAIN
-from custom_components.sberhome.exceptions import (
-    SberAuthError,
-    SberConnectionError,
-)
 
 # -----------------------------------------------------------------------------
 # CONFIG_SCHEMA — listeners block (v5.5.0)
@@ -259,7 +255,7 @@ async def test_async_setup_entry_waits_for_first_refresh() -> None:
 @pytest.mark.asyncio
 async def test_async_setup_entry_raises_config_entry_auth_failed() -> None:
     """Если `first_refresh` поднимает `ConfigEntryAuthFailed` (в норме это
-    coordinator._async_update_data мапит SberAuthError), `async_setup_entry`
+    coordinator._async_update_data мапит AuthError), `async_setup_entry`
     пробрасывает его — HA запускает reauth flow."""
     hass = _make_hass()
     entry = _make_entry()
@@ -274,46 +270,6 @@ async def test_async_setup_entry_raises_config_entry_auth_failed() -> None:
         _stop_patchers(patchers)
 
     # Откат настройки останавливает координатор, а он закрывает shared http.
-    coord_mock.async_shutdown.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_raises_config_entry_not_ready_on_sber_error() -> None:
-    """Сырой `SberConnectionError` из `first_refresh` (в обход coordinator
-    mapping) превращается в `ConfigEntryNotReady` — HA автоматически
-    retry setup."""
-    hass = _make_hass()
-    entry = _make_entry()
-
-    patchers, _, coord_mock = _patch_setup_dependencies(
-        first_refresh_side_effect=SberConnectionError("connection refused"),
-    )
-    try:
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, entry)
-    finally:
-        _stop_patchers(patchers)
-
-    coord_mock.async_shutdown.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_sber_auth_error_also_closes_clients() -> None:
-    """Любой SberSmartHomeError (base class) → ConfigEntryNotReady +
-    cleanup клиентов. Это защита на случай, если coordinator не поймал
-    исключение сам."""
-    hass = _make_hass()
-    entry = _make_entry()
-
-    patchers, _, coord_mock = _patch_setup_dependencies(
-        first_refresh_side_effect=SberAuthError("generic"),
-    )
-    try:
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, entry)
-    finally:
-        _stop_patchers(patchers)
-
     coord_mock.async_shutdown.assert_awaited_once()
 
 

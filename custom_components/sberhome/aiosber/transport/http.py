@@ -18,7 +18,11 @@ gateway. Никакой бизнес-логики, только транспор
 from __future__ import annotations
 
 import logging
+import math
+import time
 import uuid
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from typing import Any, Final
 
 import httpx
@@ -259,14 +263,9 @@ class HttpTransport:
         # (опросы coordinator'а) считают его «не поддерживается», а не reauth.
 
         if resp.status_code == 429:
-            retry_after = resp.headers.get("Retry-After")
-            try:
-                retry_after_s = float(retry_after) if retry_after else None
-            except ValueError:
-                retry_after_s = None
             raise RateLimitError(
                 message=str(payload or resp.text[:200] or "rate limited"),
-                retry_after=retry_after_s,
+                retry_after=parse_retry_after(resp.headers.get("Retry-After")),
                 payload=payload,
             )
 
@@ -294,6 +293,39 @@ def _is_inband_token_expired(resp: httpx.Response) -> bool:
     if data is None:
         return False
     return data.get("code") == _CODE_TOKEN_EXPIRED
+
+
+def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
+    """Разобрать заголовок ``Retry-After`` в секунды ожидания.
+
+    RFC 9110 допускает две формы: число секунд (``120``) и дату HTTP
+    (``Wed, 21 Oct 2026 07:28:00 GMT``). Дата в прошлом — ждать не нужно (0).
+
+    Args:
+        value: Значение заголовка или None, если его нет.
+        now: Текущее время (epoch seconds); по умолчанию ``time.time()``.
+
+    Returns:
+        Секунды до повтора (>= 0) или None, если заголовка нет или он не разобран.
+    """
+    if value is None or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        seconds = float(text)
+    except ValueError:
+        pass
+    else:
+        return max(seconds, 0.0) if math.isfinite(seconds) else None
+    try:
+        retry_at = parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        # «-0000» в дате — время в UTC без указания пояса.
+        retry_at = retry_at.replace(tzinfo=UTC)
+    current = time.time() if now is None else now
+    return max(retry_at.timestamp() - current, 0.0)
 
 
 def _safe_json(resp: httpx.Response) -> dict | None:

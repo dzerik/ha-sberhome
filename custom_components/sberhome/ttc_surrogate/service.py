@@ -25,7 +25,6 @@ from homeassistant.helpers.template import Template
 
 from ..aiosber.exceptions import ApiError as _AiosberApiError
 from ..aiosber.exceptions import AuthError as _AiosberAuthError
-from ..exceptions import SberApiError
 from ..intents.encoder import encode_scenario
 from ..intents.spec import IntentAction, IntentSpec
 from ..sbermap.spec.ha_mapping import resolve_category
@@ -120,7 +119,7 @@ class TtcSurrogateService:
 
             try:
                 await self._coord.client.scenarios.update(scenario_id, body)
-            except (SberApiError, _AiosberApiError, _AiosberAuthError) as err:
+            except (_AiosberApiError, _AiosberAuthError) as err:
                 if not self._is_scenario_gone(err):
                     raise
                 _LOGGER.warning(

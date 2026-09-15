@@ -242,6 +242,35 @@ async def test_refresh_falls_back_to_tree_on_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_rate_limited_does_not_fall_back_to_tree(monkeypatch):
+    """429 — облако просит подождать: не шлём ещё и запасной запрос дерева."""
+    from custom_components.sberhome.aiosber.exceptions import RateLimitError
+
+    cache = StateCache()
+    api = MagicMock()
+    api._transport = MagicMock()
+
+    async def fake_list(self, *, group_type=None, limit=1000):
+        return []
+
+    monkeypatch.setattr("custom_components.sberhome.aiosber.api.groups.GroupAPI.list", fake_list)
+
+    requested: list[str] = []
+
+    async def fake_transport_get(path, params=None, **kwargs):
+        requested.append(path)
+        raise RateLimitError(retry_after=60)
+
+    api._transport.get = AsyncMock(side_effect=fake_transport_get)
+
+    svc = DeviceService(api=api, cache=cache, transport=api._transport)
+    with pytest.raises(RateLimitError):
+        await svc.refresh()
+
+    assert requested == ["/devices"]
+
+
+@pytest.mark.asyncio
 async def test_refresh_enums_fetch_failure_does_not_break_refresh(monkeypatch):
     """Если /devices/enums падает — refresh всё равно успешен (best-effort)."""
     cache = StateCache()

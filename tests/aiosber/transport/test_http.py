@@ -544,6 +544,46 @@ async def test_429_without_retry_after():
     assert exc.value.retry_after is None
 
 
+async def test_429_retry_after_http_date_is_converted_to_seconds():
+    """Retry-After в виде даты HTTP — секунды до этой даты, а не None."""
+    from email.utils import formatdate
+
+    retry_at = time.time() + 90
+
+    def h(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": formatdate(retry_at, usegmt=True)})
+
+    transport, _, _ = _build(h)
+    async with transport:
+        with pytest.raises(RateLimitError) as exc:
+            await transport.get("/devices/")
+    assert exc.value.retry_after is not None
+    assert 85 <= exc.value.retry_after <= 90
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("120", 120.0),
+        (" 7 ", 7.0),
+        ("-5", 0.0),
+        ("nan", None),
+        ("inf", None),
+        ("", None),
+        (None, None),
+        ("soon", None),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),  # дата в прошлом — ждать не нужно
+        ("Wed, 21 Oct 2015 07:30:00 GMT", 120.0),
+        ("Wed, 21 Oct 2015 07:30:00 -0000", 120.0),
+    ],
+)
+def test_parse_retry_after(header, expected):
+    from custom_components.sberhome.aiosber.transport.http import parse_retry_after
+
+    now = 1445412480.0  # Wed, 21 Oct 2015 07:28:00 GMT
+    assert parse_retry_after(header, now=now) == expected
+
+
 async def test_404_raises_api_error():
     def h(req: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"message": "device not found", "code": "NOT_FOUND"})
