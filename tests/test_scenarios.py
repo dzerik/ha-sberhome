@@ -100,7 +100,7 @@ async def test_coordinator_sets_scenario_active_optimistically():
 
     coord = MagicMock(spec=SberHomeCoordinator)
     coord.data = {}
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     coord.scenarios = [
         ScenarioDto(id="sc-1", name="A", is_active=True),
         ScenarioDto(id="sc-2", name="B", is_active=True),
@@ -114,7 +114,7 @@ async def test_coordinator_sets_scenario_active_optimistically():
     # Оптимистично: только sc-2 стал is_active=False.
     by_id = {s.id: s.is_active for s in coord.scenarios}
     assert by_id == {"sc-1": True, "sc-2": False}
-    coord.async_set_updated_data.assert_called_once()
+    coord._async_apply_push_data.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ async def test_coordinator_sets_at_home_optimistically():
     coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
     coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     coord.data = {}
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     coord.at_home = {}
     api = MagicMock()
     api.set_at_home = AsyncMock()
@@ -230,7 +230,7 @@ async def test_coordinator_sets_at_home_optimistically():
     api.set_at_home.assert_awaited_once_with(True, "home-1")
     # Optimistic patch по конкретному дому.
     assert coord.at_home == {"home-1": True}
-    coord.async_set_updated_data.assert_called_once()
+    coord._async_apply_push_data.assert_called_once()
 
 
 async def test_ensure_homes_discovers_all():

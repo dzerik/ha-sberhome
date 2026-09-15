@@ -3,7 +3,8 @@
 Поддерживает два режима получения обновлений:
 - **Polling** (всегда) — periodic refresh через `_async_update_data()`.
 - **WebSocket push** (если доступен) — `wss://ws.iot.sberdevices.ru` с
-  диспетчеризацией DEVICE_STATE → patch локального state + async_set_updated_data.
+  диспетчеризацией DEVICE_STATE → patch локального state + `_async_apply_push_data`
+  (без сдвига таймера опроса).
 
 WS — additive: polling остаётся как fallback при разрыве соединения.
 """
@@ -486,6 +487,33 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return timedelta(seconds=WS_CONNECTED_SCAN_INTERVAL)
         return self._user_update_interval
 
+    @callback
+    def _async_apply_push_data(self, data: dict[str, Any]) -> None:
+        """Опубликовать частичное обновление данных, не сдвигая таймер опроса.
+
+        Для WS-push'ей, optimistic-патчей после команд и точечных перечиток
+        доменов (сценарии, OTA, индикатор, настройки колонок). Штатный
+        ``async_set_updated_data`` переносит следующий плановый опрос на
+        полный интервал от момента вызова и отменяет ожидающий
+        ``async_request_refresh``: при живом WS (интервал 10 мин) любое
+        устройство, присылающее push чаще, навсегда откладывало полный
+        опрос — а с ним фоновые опросы, чистку пропавших устройств и
+        переименования. Здесь данные и ``last_update_success`` меняются так
+        же, слушатели оповещаются так же, но расписание не трогается.
+
+        Если таймер не взведён (например, после сбоя авторизации опрос
+        остановлен), он взводится заново — как делал ``async_set_updated_data``;
+        уже взведённый таймер не переносится.
+
+        Args:
+            data: Новое значение ``coordinator.data``.
+        """
+        self.data = data
+        self.last_update_success = True
+        if self._listeners and self._unsub_refresh is None and not self._shutdown_requested:
+            self._schedule_refresh()
+        self.async_update_listeners()
+
     on_health_changed: Callable[[], None] | None = None
     """Хук после каждого обновления (успешного или нет) — обновляет Repairs.
 
@@ -816,7 +844,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._scenarios_poll.reset()
         await self._refresh_scenarios()
         self._scenarios_poll.last_poll_at = time.time()
-        self.async_set_updated_data(self.data or {})
+        self._async_apply_push_data(self.data or {})
 
     async def async_execute_scenario(self, scenario_id: str) -> None:
         """Запустить Sber-сценарий по id (HA button.press).
@@ -834,7 +862,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             dataclasses.replace(s, is_active=active) if s.id == scenario_id else s
             for s in self.scenarios
         ]
-        self.async_set_updated_data(self.data or {})
+        self._async_apply_push_data(self.data or {})
 
     # ------------------------------------------------------------------
     # OTA polling
@@ -853,7 +881,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ota_poll.reset()
         await self._refresh_ota()
         self._ota_poll.last_poll_at = time.time()
-        self.async_set_updated_data(self.data or {})
+        self._async_apply_push_data(self.data or {})
 
     # ------------------------------------------------------------------
     # Hub discovery polling
@@ -932,7 +960,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 default_colors=self.indicator_colors.default_colors,
                 current_colors=new_current,
             )
-        self.async_set_updated_data(self.data or {})
+        self._async_apply_push_data(self.data or {})
 
     # ------------------------------------------------------------------
     # Настройки умных колонок Сбера (server-driven settings)
@@ -993,7 +1021,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         else:
             self._staros_poll.last_poll_at = time.time()
-            self.async_set_updated_data(self.data)
+            self._async_apply_push_data(self.data)
             return True
 
     async def _refresh_staros(self) -> None:
@@ -1080,7 +1108,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else ent
                 for ent in entities
             ]
-        self.async_set_updated_data(self.data)
+        self._async_apply_push_data(self.data)
 
     async def _write_staros_equalizer(
         self, serial: str, product: str, node_id: str, value: Any
@@ -1156,7 +1184,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return e
 
         self.staros_settings_entities[serial] = [_patched(e) for e in entities]
-        self.async_set_updated_data(self.data)
+        self._async_apply_push_data(self.data)
 
     def has_staros_settings(self) -> bool:
         """Доступен ли домен настроек колонок (есть рабочий api)."""
@@ -1186,7 +1214,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await api.set_at_home(value, home_id)
         # Optimistic — следующий poll подтвердит.
         self.at_home = {**self.at_home, home_id: value}
-        self.async_set_updated_data(self.data or {})
+        self._async_apply_push_data(self.data or {})
 
     def rebuild_caches_and_notify(self) -> None:
         """Публичный hook для entities после optimistic patch.
@@ -1201,7 +1229,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         polling refresh, когда tree уже обновлён.
         """
         self._rebuild_entities_from_state_cache()
-        self.async_set_updated_data(self._derive_data())
+        self._async_apply_push_data(self._derive_data())
 
     async def async_send_device_state(
         self,
@@ -1375,7 +1403,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Обновляем in-memory фильтр coordinator (до reload). Здесь
         # state_cache не трогаем — только entities фильтруются иначе.
         self._rebuild_entities_from_state_cache()
-        self.async_set_updated_data(self._derive_data())
+        self._async_apply_push_data(self._derive_data())
 
         # Inline reload — чтобы WS-caller (toggle_device) возвращался
         # уже с loaded-интеграцией, без race с update_listener'ом.
@@ -1650,7 +1678,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             patched_data: dict[str, Any] = dict(self.data) if self.data else {}
             if new_dto is not None:
                 patched_data[device_id] = new_dto.to_dict()
-            self.async_set_updated_data(patched_data)
+            self._async_apply_push_data(patched_data)
 
         # Колонка прислала push — вероятно, пользователь поменял что-то в
         # приложении Сбера. Режимы (детский/возрастной и т.п.) зеркалятся в

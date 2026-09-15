@@ -254,7 +254,7 @@ async def test_on_ws_device_state_direct_patch(coordinator):
     )
     coordinator.state_cache._devices = {"dev-1": dto}
     coordinator.entities = {}
-    coordinator.async_set_updated_data = MagicMock()
+    coordinator._async_apply_push_data = MagicMock()
     coordinator.hass.async_create_task = MagicMock()
 
     msg = SocketMessageDto(
@@ -279,8 +279,8 @@ async def test_on_ws_device_state_direct_patch(coordinator):
     assert by_key["temperature"].integer_value == 225
     # Entities пересобраны для этого устройства
     assert "dev-1" in coordinator.entities
-    # async_set_updated_data вызван
-    coordinator.async_set_updated_data.assert_called_once()
+    # _async_apply_push_data вызван
+    coordinator._async_apply_push_data.assert_called_once()
 
 
 @pytest.mark.asyncio

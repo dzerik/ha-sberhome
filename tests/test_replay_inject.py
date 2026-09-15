@@ -45,7 +45,7 @@ def coordinator():
     auth = AsyncMock(spec=AuthManager)
 
     coord = SberHomeCoordinator(hass, entry, sber_api, transport, auth)
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     return coord
 
 

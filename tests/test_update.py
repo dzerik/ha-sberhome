@@ -212,7 +212,7 @@ async def test_async_refresh_ota_resets_disabled_and_polls():
     coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     coord._ota_poll.disabled = True
     coord.data = {}
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     api = MagicMock()
     api.list_ota_upgrades = AsyncMock(return_value={"dev-1": {"available_version": "9.0"}})
     coord._inventory_api = MagicMock(return_value=api)
@@ -220,4 +220,4 @@ async def test_async_refresh_ota_resets_disabled_and_polls():
     await SberHomeCoordinator.async_refresh_ota(coord)
     assert coord._ota_poll.disabled is False
     assert coord.ota_upgrades == {"dev-1": {"available_version": "9.0"}}
-    coord.async_set_updated_data.assert_called_once()
+    coord._async_apply_push_data.assert_called_once()

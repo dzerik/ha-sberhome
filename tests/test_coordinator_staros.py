@@ -39,7 +39,7 @@ def _coord(api) -> SberHomeCoordinator:
     coord.state_cache = MagicMock()
     coord.state_cache.get_all_devices = MagicMock(return_value={})
     coord.data = {}
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     return coord
 
 
@@ -142,7 +142,7 @@ async def test_async_refresh_staros_bypasses_throttle():
     assert ok is True
     api.get_settings_deep.assert_awaited()  # опрос всё же выполнен
     assert "SN1" in coord.staros_settings_entities
-    coord.async_set_updated_data.assert_called()
+    coord._async_apply_push_data.assert_called()
 
 
 @pytest.mark.asyncio
@@ -296,7 +296,7 @@ async def test_set_staros_setting_optimistic():
 
     api.set_setting.assert_awaited_once_with("sberboom", "SN1", "child", "TOGGLE", True)
     assert coord.staros_settings_entities["SN1"][0].state == STATE_ON
-    coord.async_set_updated_data.assert_called_once()
+    coord._async_apply_push_data.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -305,7 +305,7 @@ async def test_set_staros_setting_gate_when_api_none():
     coord.staros_settings_entities = {}
     # Без api команда — no-op, без исключений.
     await coord.async_set_staros_setting("SN1", "p", "n", "TOGGLE", True)
-    coord.async_set_updated_data.assert_not_called()
+    coord._async_apply_push_data.assert_not_called()
 
 
 def test_staros_speaker_present_by_settings_device():

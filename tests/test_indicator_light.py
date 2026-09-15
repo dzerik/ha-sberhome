@@ -200,7 +200,7 @@ async def test_async_set_indicator_color_optimistic_update():
     coord._refresh_discovery = lambda: SberHomeCoordinator._refresh_discovery(coord)
     coord._refresh_indicator = lambda: SberHomeCoordinator._refresh_indicator(coord)
     coord.data = {}
-    coord.async_set_updated_data = MagicMock()
+    coord._async_apply_push_data = MagicMock()
     coord.indicator_colors = IndicatorColors(
         default_colors=[],
         current_colors=[IndicatorColor(id="c1", hue=0, brightness=50)],
@@ -215,4 +215,4 @@ async def test_async_set_indicator_color_optimistic_update():
     api.set.assert_awaited_once_with(new)
     # Optimistic patch: same id заменён в current_colors.
     assert coord.indicator_colors.current_colors == [new]
-    coord.async_set_updated_data.assert_called_once()
+    coord._async_apply_push_data.assert_called_once()
