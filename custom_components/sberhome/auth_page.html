@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SberHome — Авторизация</title>
-<style>
+<style nonce="$nonce">
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
@@ -73,7 +73,7 @@
 </style>
 </head>
 <body>
-<div class="card">
+<div class="card" id="authCard" data-flow-id="$flow_id">
   <h1>SberHome — Авторизация</h1>
 
   <ol class="steps">
@@ -84,7 +84,7 @@
     <li>Вернитесь сюда и вставьте URL в поле ниже</li>
   </ol>
 
-  <a id="authBtn" class="btn btn-sber" href="$auth_url" target="_blank" rel="noopener">
+  <a id="authBtn" class="btn btn-sber" href="$auth_url" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
     Войти через Сбер ID
   </a>
 
@@ -105,9 +105,9 @@
   </div>
 </div>
 
-<script>
+<script nonce="$nonce">
 (function() {
-  var flowId = "$flow_id";
+  var flowId = document.getElementById("authCard").dataset.flowId;
   var urlInput = document.getElementById("urlInput");
   var submitBtn = document.getElementById("submitBtn");
   var formArea = document.getElementById("formArea");

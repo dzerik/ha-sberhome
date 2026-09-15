@@ -30,11 +30,13 @@ class PendingFlow:
     """OAuth flow в процессе выполнения.
 
     `client` — SberAPI с открытым httpx, `created_at` — momotonic timestamp
-    для TTL-проверки.
+    для TTL-проверки, `auth_url` — ссылка на Сбер ID, выданная этим flow
+    (страница авторизации берёт её отсюда, а не из query-параметров).
     """
 
     client: SberAPI
     created_at: float = field(default_factory=monotonic)
+    auth_url: str = ""
 
 
 # Shared storage для pending auth flows: flow_id -> PendingFlow.

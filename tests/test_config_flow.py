@@ -80,9 +80,14 @@ async def test_step_sberid_starts_external_flow():
         "ha.local:8123",
         "/auth/sberhome",
     )
-    assert "test-flow-id" in parse_qs(parsed.query).get("flow_id", [])
+    query = parse_qs(parsed.query)
+    assert query.get("flow_id") == ["test-flow-id"]
+    # Ссылка на Сбер ID не передаётся через query (её можно подменить) —
+    # страница берёт её из pending_auth_flows.
+    assert "auth_url" not in query
     assert flow.hass.http.register_view.call_count == 2
     assert "test-flow-id" in pending_auth_flows
+    assert pending_auth_flows["test-flow-id"].auth_url == "https://example.com/auth"
 
     pending_auth_flows.pop("test-flow-id", None)
 

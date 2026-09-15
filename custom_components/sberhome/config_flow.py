@@ -105,7 +105,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._client = SberAPI(http=http, owns_http=True)
         self._register_views()
         auth_url = self._client.create_authorization_url()
-        pending_auth_flows[self.flow_id] = PendingFlow(client=self._client)
+        pending_auth_flows[self.flow_id] = PendingFlow(client=self._client, auth_url=auth_url)
         # HA-фронт (2024.x+) прогоняет external_step.url через `new URL(url)`
         # без base — относительный `/auth/sberhome?...` бросает TypeError, и
         # ни попап, ни кнопка «Открыть сайт» не появляются. Отдаём абсолютный.
@@ -113,9 +113,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             base = get_url(self.hass, prefer_external=True, allow_internal=True, allow_ip=True)
         except NoURLAvailableError:
             return self.async_abort(reason="no_url_available")
+        # Ссылку на Сбер ID в query не кладём: страница берёт её из
+        # pending_auth_flows, иначе её можно подменить в чужой ссылке.
         return self.async_external_step(
             step_id=step_id,
-            url=f"{base}/auth/sberhome?flow_id={self.flow_id}&auth_url={quote(auth_url, safe='')}",
+            url=f"{base}/auth/sberhome?flow_id={quote(self.flow_id, safe='')}",
         )
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
