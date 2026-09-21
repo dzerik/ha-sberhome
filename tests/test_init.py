@@ -494,13 +494,13 @@ async def test_async_unload_entry_without_forwarded_platforms() -> None:
 @pytest.mark.asyncio
 async def test_async_migrate_entry_v1_to_v2_converts_expires_at() -> None:
     """Legacy authlib-токен (`expires_at` absolute) конвертится в
-    aiosber-стиль (`obtained_at`). Это убирает необходимость в
-    `_normalize_legacy_token` runtime compat-слое."""
+    aiosber-стиль (`obtained_at`). Migrate идёт цепочкой v1→v2→v3."""
     hass = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
 
     entry = MagicMock()
     entry.version = 1
+    entry.title = "SberHome"
     entry.data = {
         "token": {
             "access_token": "at",
@@ -513,24 +513,24 @@ async def test_async_migrate_entry_v1_to_v2_converts_expires_at() -> None:
     result = await async_migrate_entry(hass, entry)
 
     assert result is True
-    hass.config_entries.async_update_entry.assert_called_once()
-    call = hass.config_entries.async_update_entry.call_args
-    new_data = call.kwargs["data"]
-    token = new_data["token"]
-    assert "obtained_at" in token
+    # v1→v2 (нормализация токена) и v2→v3 (чистка) — два обновления.
+    calls = hass.config_entries.async_update_entry.call_args_list
+    v2_call = calls[0]
+    token = v2_call.kwargs["data"]["token"]
     assert token["obtained_at"] == 1_700_000_000  # expires_at - expires_in
     assert "expires_at" not in token
-    assert call.kwargs["version"] == 2
+    assert v2_call.kwargs["version"] == 2
+    assert calls[-1].kwargs["version"] == 3  # финально доведён до v3
 
 
 @pytest.mark.asyncio
-async def test_async_migrate_entry_v2_is_noop() -> None:
-    """Если entry уже v2 — migrate ничего не делает."""
+async def test_async_migrate_entry_v3_is_noop() -> None:
+    """Если entry уже v3 — migrate ничего не делает."""
     hass = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
 
     entry = MagicMock()
-    entry.version = 2
+    entry.version = 3
     entry.data = {"token": {"access_token": "at", "obtained_at": 1_700_000_000}}
 
     result = await async_migrate_entry(hass, entry)
@@ -540,26 +540,88 @@ async def test_async_migrate_entry_v2_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_migrate_entry_v1_without_expires_at_still_bumps() -> None:
-    """Если legacy entry уже имеет obtained_at (повторная миграция),
-    бамп версии всё равно происходит, token не перезаписывается."""
+async def test_async_migrate_entry_v4_downgrade_guard() -> None:
+    """entry новее нашего handler'а (v4) → миграция не даёт молча сломаться."""
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.version = 4
+
+    assert await async_migrate_entry(hass, entry) is False
+
+
+@pytest.mark.asyncio
+async def test_migrate_v2_to_v3_sberid_drops_csafront_traces() -> None:
+    """SberID-вход: следы SMS-входа (csafront_tokens, companion_settings_tokens,
+    телефон в title) вычищаются; рабочие токены остаются."""
     hass = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
 
     entry = MagicMock()
-    entry.version = 1
+    entry.version = 2
+    entry.title = "SberHome (SMS · 78001234567)"
     entry.data = {
-        "token": {
-            "access_token": "at",
-            "obtained_at": 1_700_000_000,  # уже нормализован
-            "expires_in": 3600,
-        }
+        "auth_method": "sberid",
+        "token": {"access_token": "sid"},
+        "companion_tokens": {"access_token": "comp"},
+        "csafront_tokens": {"phone": "78001234567", "smart_home_token": "x"},
+        "companion_settings_tokens": {"access_token": "old"},
     }
 
     result = await async_migrate_entry(hass, entry)
 
     assert result is True
-    # update вызван для bump версии, но token не менялся
     call = hass.config_entries.async_update_entry.call_args
-    assert call.kwargs["version"] == 2
-    assert call.kwargs["data"]["token"]["obtained_at"] == 1_700_000_000
+    new_data = call.kwargs["data"]
+    assert "csafront_tokens" not in new_data
+    assert "companion_settings_tokens" not in new_data
+    assert new_data["token"] == {"access_token": "sid"}  # рабочие — на месте
+    assert new_data["companion_tokens"] == {"access_token": "comp"}
+    assert call.kwargs["title"] == "SberHome"  # телефон убран
+    assert call.kwargs["version"] == 3
+
+
+@pytest.mark.asyncio
+async def test_migrate_v2_to_v3_csafront_drops_sberid_traces() -> None:
+    """SMS-вход: следы SberID (`token`, `companion_tokens`) вычищаются;
+    csafront_tokens и канал настроек остаются."""
+    hass = MagicMock()
+    hass.config_entries.async_update_entry = MagicMock()
+
+    entry = MagicMock()
+    entry.version = 2
+    entry.title = "SberHome (SMS · 78001234567)"
+    entry.data = {
+        "auth_method": "csafront",
+        "csafront_tokens": {"phone": "78001234567", "smart_home_token": "x"},
+        "companion_settings_tokens": {"access_token": "settings"},
+        "token": {"access_token": "stale"},
+        "companion_tokens": {"access_token": "stale"},
+    }
+
+    result = await async_migrate_entry(hass, entry)
+
+    assert result is True
+    new_data = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert "token" not in new_data
+    assert "companion_tokens" not in new_data
+    assert new_data["csafront_tokens"]["smart_home_token"] == "x"
+    assert new_data["companion_settings_tokens"] == {"access_token": "settings"}
+
+
+@pytest.mark.asyncio
+async def test_migrate_v2_to_v3_clean_sberid_bump_only() -> None:
+    """Чистая SberID-запись без чужих ключей → просто bump до v3, без правки data."""
+    hass = MagicMock()
+    hass.config_entries.async_update_entry = MagicMock()
+
+    entry = MagicMock()
+    entry.version = 2
+    entry.title = "SberHome"
+    entry.data = {"auth_method": "sberid", "token": {"access_token": "sid"}}
+
+    result = await async_migrate_entry(hass, entry)
+
+    assert result is True
+    call = hass.config_entries.async_update_entry.call_args
+    assert call.kwargs["version"] == 3
+    assert "data" not in call.kwargs  # data не трогали

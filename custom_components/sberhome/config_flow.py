@@ -136,7 +136,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     любом исходе, включая закрытие диалога посреди входа (``async_remove``).
     """
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""

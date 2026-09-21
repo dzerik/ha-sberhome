@@ -147,8 +147,8 @@ async def test_token_rotation_in_entry_data_does_not_reload(
 async def test_entry_from_newer_version_is_not_downgraded(
     hass: HomeAssistant, setup_sberhome, caplog: pytest.LogCaptureFixture
 ) -> None:
-    entry = await setup_sberhome(options={}, version=3)
+    entry = await setup_sberhome(options={}, version=4)
 
     assert entry.state is ConfigEntryState.MIGRATION_ERROR
-    assert entry.version == 3
+    assert entry.version == 4
     assert "Cannot downgrade" in caplog.text

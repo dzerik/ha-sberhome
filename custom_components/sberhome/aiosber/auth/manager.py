@@ -88,6 +88,15 @@ class AuthManager:
         # Single-flight: N параллельных refresh дают один обмен; задача, ждавшая
         # lock, пока соседняя безуспешно обновляла токен, получает ту же ошибку.
         self._single_flight = SingleFlightRefresh(self._lock, self._refresh_companion)
+        # Отдельный single-flight для ротации ТОЛЬКО SberID-токена (без обмена
+        # на companion). Каналы, которым нужен сырой SberID access_token
+        # (настройки колонок), делят с companion-веткой один и тот же
+        # одноразовый refresh_token. Поэтому ротация обязана идти через ЕДИНОГО
+        # владельца — этот AuthManager: иначе два независимых refresh'а гонятся
+        # за один refresh_token и тот, что обновляется вторым, ловит
+        # invalid_grant. Общий `self._lock` сериализует обе ветки, а skip-проверка
+        # под lock не даёт двойной ротации.
+        self._sberid_single_flight = SingleFlightRefresh(self._lock, self._refresh_sberid_only)
 
     # ----- Public API -----
     async def access_token(self) -> str:
@@ -136,10 +145,56 @@ class AuthManager:
             )
         )
 
+    async def sberid_access_token(self) -> str:
+        """Вернуть валидный СЫРОЙ SberID access_token (клиент b1f0f0c6).
+
+        Для каналов, которым нужен сам SberID-токен, а не обменянный на него
+        companion smart_home-токен (например домен настроек колонок). Делит
+        ОДИН экземпляр SberID-токенов и один refresh с companion-веткой —
+        единый владелец ротации, без гонки за одноразовый refresh_token.
+
+        Raises:
+            InvalidGrant: SberID-токенов нет или refresh невозможен — reauth.
+        """
+        if self._sberid is not None and not self._sberid.is_expired(self._leeway):
+            return self._sberid.access_token
+        await self._sberid_single_flight.run(
+            skip=lambda: self._sberid is not None and not self._sberid.is_expired(self._leeway)
+        )
+        if self._sberid is None:
+            raise InvalidGrant("No SberID tokens — full re-auth required")
+        return self._sberid.access_token
+
+    async def force_refresh_sberid(self, stale_token: str | None = None) -> None:
+        """Принудительно ротировать SberID-токен (для 401 в канале настроек).
+
+        Args:
+            stale_token: SberID access_token, получивший 401. Если к моменту
+                захвата lock он уже заменён (companion-ветка или соседний
+                запрос успели ротировать) — refresh не выполняется.
+        """
+        await self._sberid_single_flight.run(
+            skip=lambda: (
+                stale_token is not None
+                and self._sberid is not None
+                and self._sberid.access_token != stale_token
+            )
+        )
+
+    def sberid_bearer(self) -> _SberIdBearerView:
+        """Адаптер под `AuthManagerProtocol`, отдающий сырой SberID access_token.
+
+        Плагается в `HttpTransport` для каналов, которым нужен SberID-токен, а
+        не companion. Делегирует в этот же AuthManager — единый владелец
+        ротации SberID (см. `sberid_access_token`).
+        """
+        return _SberIdBearerView(self)
+
     def set_sberid_tokens(self, tokens: SberIdTokens) -> None:
         """Установить новые SberID-токены (например, после первого OAuth-flow)."""
         self._sberid = tokens
         self._single_flight.reset()  # новые учётные данные — refresh снова возможен
+        self._sberid_single_flight.reset()
 
     def set_companion_tokens(self, tokens: CompanionTokens) -> None:
         """Установить новые companion-токены (после первого обмена)."""
@@ -241,6 +296,26 @@ class AuthManager:
 
         await self._store.save(self._companion)
 
+    async def _refresh_sberid_only(self) -> None:
+        """Ротировать ТОЛЬКО SberID-токен (без обмена на companion).
+
+        Вызывается через `_sberid_single_flight` для канала настроек. Сам
+        обмен на companion не делает — companion-ветка живёт своей жизнью,
+        но обе делят `self._sberid`, поэтому ротация здесь видна и там.
+        """
+        if self._sberid is None:
+            raise InvalidGrant("No SberID tokens — full re-auth required")
+        if not self._sberid.refresh_token:
+            raise InvalidGrant("SberID has no refresh_token — full re-auth required")
+        _LOGGER.debug("Rotating SberID tokens (raw bearer channel)")
+        self._sberid = await refresh_sberid_tokens(
+            self._http,
+            self._sberid.refresh_token,
+            client_id=self._client_id,
+            endpoint=self._token_endpoint,
+        )
+        await self._notify_sberid_refreshed()
+
     async def _notify_sberid_refreshed(self) -> None:
         """Уведомить HA-адаптер о ротации SberID-токенов.
 
@@ -255,3 +330,27 @@ class AuthManager:
             await self._on_sberid_refreshed(self._sberid)
         except Exception:
             _LOGGER.exception("on_sberid_refreshed callback failed")
+
+
+class _SberIdBearerView:
+    """Вью на `AuthManager`, отдающий сырой SberID access_token.
+
+    Реализует `AuthManagerProtocol` (`access_token`/`force_refresh`) поверх
+    `AuthManager`, но возвращает НЕ companion, а сам SberID-токен — для
+    каналов вроде настроек колонок. Своего состояния токенов не держит:
+    делегирует в AuthManager, который остаётся единственным владельцем
+    ротации SberID. Это устраняет гонку двух независимых refresh'ей за один
+    одноразовый refresh_token (симптом: канал настроек «слетал» через время
+    после входа через Сбер ID).
+    """
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: AuthManager) -> None:
+        self._mgr = mgr
+
+    async def access_token(self) -> str:
+        return await self._mgr.sberid_access_token()
+
+    async def force_refresh(self, stale_token: str | None = None) -> None:
+        await self._mgr.force_refresh_sberid(stale_token)

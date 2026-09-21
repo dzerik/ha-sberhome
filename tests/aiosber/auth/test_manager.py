@@ -496,3 +496,102 @@ async def test_set_companion_tokens_persist_and_expiry_properties():
         await mgr.persist()
         assert await store.load() is companion
     assert hits == []
+
+
+# ---- Единый SberID-authority для канала настроек (sberid_bearer) ----
+# Regression: раньше канал настроек колонок поднимал ОТДЕЛЬНЫЙ провайдер на том
+# же одноразовом SberID refresh_token. Два независимых refresh'а гонялись —
+# gateway ротировал токен, канал настроек оставался со старым и ловил
+# invalid_grant, домен настроек гас, а панель ошибочно показывала «вход по SMS».
+# sberid_bearer() делит SberID-токен с основным AuthManager: гонки нет.
+async def test_sberid_bearer_returns_raw_sberid_not_companion_when_fresh():
+    sberid = SberIdTokens(access_token="RAW_SID", refresh_token="RT", expires_in=3600)
+    store = InMemoryTokenStore()
+    client, hits = _client_recording({})
+    async with client as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=sberid)
+        token = await mgr.sberid_bearer().access_token()
+    assert token == "RAW_SID"  # сырой SberID, НЕ обменянный companion
+    assert hits == []  # свежий токен — сети нет
+
+
+async def test_sberid_bearer_rotates_expired_without_companion_exchange():
+    sberid = SberIdTokens(
+        access_token="OLD_SID", refresh_token="RT", expires_in=10, obtained_at=time.time() - 1000
+    )
+
+    def token_handler(req: httpx.Request) -> httpx.Response:
+        assert "refresh_token=RT" in req.content.decode()
+        return httpx.Response(
+            200, json={"access_token": "NEW_SID", "refresh_token": "NEW_RT", "expires_in": 3600}
+        )
+
+    client, hits = _client_recording({"/v3/token": token_handler})
+    saved: list[SberIdTokens] = []
+
+    async def on_refresh(t: SberIdTokens) -> None:
+        saved.append(t)
+
+    store = InMemoryTokenStore()
+    async with client as http:
+        mgr = AuthManager(
+            http=http, store=store, sberid_tokens=sberid, on_sberid_refreshed=on_refresh
+        )
+        token = await mgr.sberid_bearer().access_token()
+
+    assert token == "NEW_SID"
+    # раздача сырого SberID НЕ трогает companion-эндпоинт
+    assert all("smarthome/token" not in p for p, _ in hits)
+    # ротация персистится через callback (иначе после рестарта — invalid_grant)
+    assert saved and saved[0].access_token == "NEW_SID" and saved[0].refresh_token == "NEW_RT"
+
+
+async def test_settings_channel_shares_sberid_no_race_after_gateway_rotation():
+    """Ядро фикса: gateway-ветка ротирует SberID → канал настроек видит СВЕЖИЙ
+    токен и НЕ шлёт второй refresh. Иначе он бы отправил уже потраченный
+    одноразовый refresh_token → invalid_grant (симптом «слетает» у SberID-входа).
+    """
+    sberid = SberIdTokens(
+        access_token="OLD_SID", refresh_token="RT", expires_in=10, obtained_at=time.time() - 1000
+    )
+    token_calls = 0
+
+    def token_handler(req: httpx.Request) -> httpx.Response:
+        nonlocal token_calls
+        token_calls += 1
+        # всегда исходный RT — потраченный refresh_token в сеть не уходит
+        assert "refresh_token=RT" in req.content.decode()
+        return httpx.Response(
+            200, json={"access_token": "NEW_SID", "refresh_token": "NEW_RT", "expires_in": 3600}
+        )
+
+    def companion_handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["authorization"] == "Bearer NEW_SID"
+        return httpx.Response(200, json={"access_token": "COMP", "expires_in": 3600})
+
+    client, _ = _client_recording(
+        {"/v3/token": token_handler, "/smarthome/token": companion_handler}
+    )
+    store = InMemoryTokenStore()
+    async with client as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=sberid)
+        bearer = mgr.sberid_bearer()
+        comp = await mgr.access_token()  # gateway: ротирует SberID → NEW_SID, обмен на companion
+        raw = await bearer.access_token()  # settings: обязан переиспользовать NEW_SID
+
+    assert comp == "COMP"
+    assert raw == "NEW_SID"
+    assert token_calls == 1  # одна ротация одноразового refresh_token — гонки нет
+
+
+async def test_force_refresh_sberid_skips_when_already_rotated():
+    """force_refresh(stale) не рефрешит, если текущий SberID уже другой
+    (соседний запрос/gateway успели ротировать) — как HttpTransport при 401."""
+    sberid = SberIdTokens(access_token="CURRENT", refresh_token="RT", expires_in=3600)
+    # /v3/token НЕ замокан: если провайдер попытается рефрешнуть — уйдёт в 404
+    client, hits = _client_recording({})
+    store = InMemoryTokenStore()
+    async with client as http:
+        mgr = AuthManager(http=http, store=store, sberid_tokens=sberid)
+        await mgr.force_refresh_sberid(stale_token="A_STALE_ONE")
+    assert hits == []  # skip сработал — рефреша не было

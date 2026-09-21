@@ -27,7 +27,12 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.loader import async_get_integration
 
-from ._ha_token_store import HACsafrontTokenStore, HATokenStore
+from ._ha_token_store import (
+    CONF_COMPANION_TOKENS,
+    CONF_CSAFRONT_TOKENS,
+    HACsafrontTokenStore,
+    HATokenStore,
+)
 from .action_errors import async_translate_cloud_errors, refresh_failure
 from .aiosber.api import StarosSettingsAPI
 from .aiosber.auth import (
@@ -362,25 +367,31 @@ def _create_coordinator(
     transport = HttpTransport(http=http, auth=auth)
 
     # Канал настроек умных колонок Сбера (companion-хост, Authorization: Bearer).
-    # Нужен companion access token от SberID-пользователя. У SberID-входа это
-    # тот же `auth`. У SMS-входа (CSAFront) основной токен сюда не подходит,
-    # но если при входе получен отдельный SberID-набор — поднимаем свой
-    # AuthManager для этого канала. Иначе домен настроек недоступен.
-    # Каналу настроек нужен СЫРОЙ SberID access_token (клиент b1f0f0c6), а не
-    # обменянный на нём companion smart_home-токен (его отдаёт AuthManager для
-    # gateway). Поэтому поднимаем отдельный SberIdBearerAuth из подходящего
-    # набора SberID-токенов: у SberID-входа это основной `token`, у SMS-входа —
-    # отдельный `companion_settings_tokens` (если он получен).
+    # Каналу нужен СЫРОЙ SberID access_token (клиент b1f0f0c6), а не обменянный
+    # на нём companion smart_home-токен (его отдаёт AuthManager для gateway).
+    #
+    # SberID-вход: канал делит SberID-токен с ОСНОВНЫМ `auth` через
+    # `auth.sberid_bearer()`. Единый владелец ротации одноразового
+    # refresh_token — раньше здесь поднимался отдельный SberIdBearerAuth на том
+    # же `token`, и два независимых refresh'а гонялись: тот, что обновлялся
+    # вторым (обычно этот канал), ловил invalid_grant, домен настроек гас
+    # (`_staros_api=None`), и панель ошибочно показывала «вход по SMS —
+    # переавторизуйтесь». Общий authority эту гонку убирает.
+    #
+    # SMS-вход (CSAFront): основной токен сюда не подходит; если при входе
+    # получен ОТДЕЛЬНЫЙ SberID-набор `companion_settings_tokens` — поднимаем
+    # для него свой SberIdBearerAuth (отдельный токен, гонки нет).
     settings_auth: AuthManagerProtocol | None = None
-    settings_token_key = (
-        CONF_TOKEN
-        if auth_method == AUTH_METHOD_SBERID
-        else ("companion_settings_tokens" if entry.data.get("companion_settings_tokens") else None)
-    )
-    if settings_token_key:
-        bundle = entry.data.get(settings_token_key)
+    if auth_method == AUTH_METHOD_SBERID:
+        # duck-typing вместо isinstance: `auth` типизирован протоколом, а
+        # `sberid_bearer` есть только у AuthManager (SberID-вход).
+        bearer_factory = getattr(auth, "sberid_bearer", None)
+        if sber_token.get("access_token") and callable(bearer_factory):
+            settings_auth = bearer_factory()
+    else:
+        bundle = entry.data.get("companion_settings_tokens")
         if bundle and bundle.get("access_token"):
-            settings_store = HATokenStore(hass, entry, sberid_key=settings_token_key)
+            settings_store = HATokenStore(hass, entry, sberid_key="companion_settings_tokens")
             settings_auth = SberIdBearerAuth(
                 http,
                 SberIdTokens.from_dict(bundle),
@@ -1008,9 +1019,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -
     breakage. Это защищает от ситуации "HACS случайно откатил код на
     старую версию, а entry уже мигрирован в новую".
     """
-    if entry.version > 2:
+    if entry.version > 3:
         LOGGER.error(
-            "Cannot downgrade SberHome config entry from v%d to v2. "
+            "Cannot downgrade SberHome config entry from v%d to v3. "
             "Install a newer integration version or remove/re-add the entry.",
             entry.version,
         )
@@ -1030,6 +1041,36 @@ async def async_migrate_entry(hass: HomeAssistant, entry: SberHomeConfigEntry) -
             new_data[CONF_TOKEN] = token
         hass.config_entries.async_update_entry(entry, data=new_data, version=2)
         LOGGER.info("Migration to v2 complete")
+
+    if entry.version < 3:
+        # Вычистить следы ДРУГОГО метода авторизации. При переезде SMS↔SberID
+        # (delete+re-add, либо старые версии интеграции) в entry.data оставались
+        # токены прежнего метода: приватные данные (телефон SMS-входа) и мёртвые
+        # одноразовые refresh_token'ы в .storage. Runtime читает только ключи
+        # своего auth_method, но хранить чужое незачем.
+        new_data = dict(entry.data)
+        method = new_data.get(CONF_AUTH_METHOD, AUTH_METHOD_SBERID)
+        if method == AUTH_METHOD_SBERID:
+            # gateway+настройки на `token`(+companion_tokens); SMS-ключи — мусор.
+            foreign_keys = (CONF_CSAFRONT_TOKENS, "companion_settings_tokens")
+        else:
+            # csafront: gateway на csafront_tokens, настройки — на
+            # companion_settings_tokens; SberID `token`/companion_tokens — мусор.
+            foreign_keys = (CONF_TOKEN, CONF_COMPANION_TOKENS)
+        removed = [k for k in foreign_keys if new_data.pop(k, None) is not None]
+        # Телефон из SMS-входа мог осесть в заголовке SberID-записи.
+        new_title = entry.title
+        if method == AUTH_METHOD_SBERID and entry.title and "SMS" in entry.title:
+            new_title = "SberHome"
+        if removed or new_title != entry.title:
+            LOGGER.info(
+                "Migrating to v3: удалены следы чужого auth-метода (%s)",
+                ", ".join(removed) or "title",
+            )
+            hass.config_entries.async_update_entry(entry, data=new_data, title=new_title, version=3)
+        else:
+            hass.config_entries.async_update_entry(entry, version=3)
+        LOGGER.info("Migration to v3 complete")
     return True
 
 
