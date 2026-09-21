@@ -6,13 +6,13 @@ settings grouped by serial, entity_id resolution).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import STATE_ON, Platform
 
 from custom_components.sberhome.sbermap import StarosSettingEntity
-from custom_components.sberhome.websocket_api.staros import ws_staros_list
+from custom_components.sberhome.websocket_api.staros import ws_staros_dump, ws_staros_list
 
 
 def _band_spec() -> StarosSettingEntity:
@@ -101,5 +101,69 @@ def test_staros_list_not_loaded(connection):
         return_value=None,
     ):
         ws_staros_list(MagicMock(), connection, {"id": 8})
+    connection.send_error.assert_called_once()
+    assert connection.send_result.call_count == 0
+
+
+# ----- sberhome/staros/dump (сырой дамп дерева настроек) -----
+@pytest.mark.asyncio
+async def test_staros_dump_returns_raw_tree(connection):
+    coord = _coordinator()
+    coord.async_dump_staros_raw = AsyncMock(
+        return_value=[
+            {
+                "serial": "SN1",
+                "product": "sberboom-r2",
+                "name": "Кухня",
+                "tree": {"settings": [{"id": "bt", "type": "TOGGLE", "x": 1}]},
+            }
+        ]
+    )
+    with patch(
+        "custom_components.sberhome.websocket_api.staros.get_coordinator",
+        return_value=coord,
+    ):
+        await ws_staros_dump.__wrapped__(MagicMock(), connection, {"id": 9})
+
+    coord.async_dump_staros_raw.assert_awaited_once_with(None)
+    payload = connection.send_result.call_args[0][1]
+    assert payload["dump"][0]["tree"]["settings"][0] == {"id": "bt", "type": "TOGGLE", "x": 1}
+
+
+@pytest.mark.asyncio
+async def test_staros_dump_serial_filter(connection):
+    coord = _coordinator()
+    coord.async_dump_staros_raw = AsyncMock(return_value=[])
+    with patch(
+        "custom_components.sberhome.websocket_api.staros.get_coordinator",
+        return_value=coord,
+    ):
+        await ws_staros_dump.__wrapped__(MagicMock(), connection, {"id": 10, "serial": "SN1"})
+
+    coord.async_dump_staros_raw.assert_awaited_once_with("SN1")
+
+
+@pytest.mark.asyncio
+async def test_staros_dump_unavailable_channel(connection):
+    coord = _coordinator()
+    coord.has_staros_settings.return_value = False
+    with patch(
+        "custom_components.sberhome.websocket_api.staros.get_coordinator",
+        return_value=coord,
+    ):
+        await ws_staros_dump.__wrapped__(MagicMock(), connection, {"id": 11})
+
+    connection.send_error.assert_called_once()
+    assert connection.send_result.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_staros_dump_not_loaded(connection):
+    with patch(
+        "custom_components.sberhome.websocket_api.staros.get_coordinator",
+        return_value=None,
+    ):
+        await ws_staros_dump.__wrapped__(MagicMock(), connection, {"id": 12})
+
     connection.send_error.assert_called_once()
     assert connection.send_result.call_count == 0

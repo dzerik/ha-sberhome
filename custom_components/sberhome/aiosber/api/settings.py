@@ -73,6 +73,58 @@ class StarosSettingsAPI:
         expanded = [await self._expand(product, serial, n, seen, depth=0) for n in root.settings]
         return SettingScreenDto(header=root.header, settings=expanded)
 
+    async def get_settings_raw(
+        self, product: str, serial: str, *, screen: str | None = None
+    ) -> Any:
+        """`POST /v18/devices/settings` → СЫРОЙ JSON экрана (без DTO-парсинга).
+
+        DTO отбрасывает неизвестные поля, поэтому для диагностического дампа
+        (и построения тест-фикстур новых колонок) нужен исходный ответ как есть.
+        """
+        body: dict[str, Any] = {"product": product, "serialNumber": serial}
+        if screen is not None:
+            body["screen"] = screen
+        resp = await self._transport.post(COMPANION_STAROS_SETTINGS_PATH, json=body)
+        return _safe_json(resp)
+
+    async def get_settings_raw_deep(self, product: str, serial: str) -> Any:
+        """Сырой экран настроек с раскрытыми CARD-подэкранами.
+
+        Возвращает JSON как есть; каждый узел с ``action == "openScreen"``
+        догружается запросом ``screen=<id>``, а его настройки кладутся в узел
+        под ключом ``_expandedScreen`` (не затирая исходную структуру). Защита
+        от циклов — ``seen`` по screen-id и ограничение глубины.
+        """
+        root = await self.get_settings_raw(product, serial)
+        if not isinstance(root, dict):
+            return root
+        seen: set[str] = set()
+
+        async def expand(node: Any, depth: int) -> Any:
+            if not isinstance(node, dict):
+                return node
+            for key in ("items", "includedSettings"):
+                kids = node.get(key)
+                if isinstance(kids, list):
+                    node[key] = [await expand(c, depth) for c in kids]
+            node_id = node.get("id")
+            if (
+                node.get("action") == "openScreen"
+                and isinstance(node_id, str)
+                and node_id not in seen
+                and depth < _MAX_SCREEN_DEPTH
+            ):
+                seen.add(node_id)
+                sub = await self.get_settings_raw(product, serial, screen=node_id)
+                if isinstance(sub, dict) and isinstance(sub.get("settings"), list):
+                    node["_expandedScreen"] = [await expand(c, depth + 1) for c in sub["settings"]]
+            return node
+
+        settings = root.get("settings")
+        if isinstance(settings, list):
+            root["settings"] = [await expand(n, 0) for n in settings]
+        return root
+
     async def set_setting(
         self, product: str, serial: str, node_id: str, node_type: str, value: Any
     ) -> None:

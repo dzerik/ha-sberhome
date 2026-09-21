@@ -71,7 +71,7 @@ from .settings import (
     ws_import_config,
     ws_update_settings,
 )
-from .staros import ws_staros_list
+from .staros import ws_staros_dump, ws_staros_list
 from .state_diffs import (
     ws_clear_state_diffs,
     ws_state_diffs,
@@ -164,6 +164,8 @@ _COMMANDS = (
     ws_test_ttc_surrogate,
     # v5.21.0 — настройки умных колонок (канал /v18): таб «Колонки»
     ws_staros_list,
+    # v6.2.0 — сырой дамп дерева настроек колонки (диагностика/фикстуры)
+    ws_staros_dump,
 )
 
 
@@ -210,6 +212,7 @@ __all__ = [
     "ws_set_device_area",
     "ws_set_enabled",
     "ws_staros_list",
+    "ws_staros_dump",
     "ws_state_diffs",
     "ws_status_tts_surrogate",
     "ws_subscribe_commands",

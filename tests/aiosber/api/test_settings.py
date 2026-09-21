@@ -246,3 +246,60 @@ async def test_get_settings_deep_non_json_response_returns_none():
     api, hits = _build(h)
     assert await api.get_settings_deep(PRODUCT, SERIAL) is None
     assert len(hits) == 1
+
+
+# ----- get_settings_raw_deep: сырой дамп с раскрытием подэкранов -----
+@pytest.mark.asyncio
+async def test_get_settings_raw_deep_preserves_raw_and_expands_cards():
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = _json(req)
+        if body.get("screen") == "card1":
+            return httpx.Response(
+                200,
+                json={
+                    "settings": [
+                        {
+                            "id": "bt",
+                            "type": "TOGGLE",
+                            "title": "Bluetooth",
+                            "enabled": True,
+                            "unknownField": 42,  # неизвестное поле сохраняется
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "header": {"title": "Настройки"},
+                "settings": [
+                    {
+                        "id": "card1",
+                        "type": "CARD",
+                        "action": "openScreen",
+                        "title": "Звук",
+                        "brandNewField": "keepme",
+                    },
+                    {"id": "vol", "type": "SLIDER", "value": 5, "min": 0, "max": 10},
+                ],
+            },
+        )
+
+    api, hits = _build(handler)
+    tree = await api.get_settings_raw_deep(PRODUCT, SERIAL)
+
+    assert tree["header"] == {"title": "Настройки"}
+    card = tree["settings"][0]
+    assert card["brandNewField"] == "keepme"  # сырые поля не теряются (в отличие от DTO)
+    expanded = card["_expandedScreen"]
+    assert expanded[0]["id"] == "bt"
+    assert expanded[0]["unknownField"] == 42
+    assert tree["settings"][1]["type"] == "SLIDER"  # обычный узел — как есть
+    # два запроса: корень + раскрытие card1
+    assert len(hits) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_settings_raw_deep_non_dict_root_returned_as_is():
+    api, _ = _build(lambda req: httpx.Response(200, json=[]))
+    assert await api.get_settings_raw_deep(PRODUCT, SERIAL) == []

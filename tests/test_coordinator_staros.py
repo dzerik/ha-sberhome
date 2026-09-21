@@ -495,3 +495,60 @@ async def test_set_staros_equalizer_manual_preset_maps_to_user():
     body = api.set_setting.await_args.args[4]
     assert body["activePreset"] == "user"
     assert body["user"] == [1.0, 2.0, 3.0]  # полосы не тронуты
+
+
+# ----- async_dump_staros_raw (сырой дамп дерева настроек) -----
+def _devs() -> list[StarosDeviceDto]:
+    return [
+        StarosDeviceDto(device_id="d1", serial_number="SN1", product="sberboom", name="Кухня"),
+        StarosDeviceDto(device_id="d2", serial_number="SN2", product="aura", name="Aura"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dump_staros_raw_collects_all_trees():
+    api = AsyncMock()
+    api.get_settings_raw_deep = AsyncMock(
+        return_value={"settings": [{"id": "bt", "type": "TOGGLE"}]}
+    )
+    coord = _coord(api)
+    coord.staros_devices = _devs()
+
+    dump = await coord.async_dump_staros_raw()
+
+    assert [d["serial"] for d in dump] == ["SN1", "SN2"]
+    assert dump[0]["product"] == "sberboom"
+    assert dump[0]["tree"]["settings"][0]["id"] == "bt"
+    assert api.get_settings_raw_deep.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_dump_staros_raw_serial_filter():
+    api = AsyncMock()
+    api.get_settings_raw_deep = AsyncMock(return_value={"ok": True})
+    coord = _coord(api)
+    coord.staros_devices = _devs()
+
+    dump = await coord.async_dump_staros_raw("SN2")
+
+    assert len(dump) == 1 and dump[0]["serial"] == "SN2"
+    api.get_settings_raw_deep.assert_awaited_once_with("aura", "SN2")
+
+
+@pytest.mark.asyncio
+async def test_dump_staros_raw_captures_error_per_device():
+    api = AsyncMock()
+    api.get_settings_raw_deep = AsyncMock(side_effect=RuntimeError("boom"))
+    coord = _coord(api)
+    coord.staros_devices = _devs()[:1]
+
+    dump = await coord.async_dump_staros_raw()
+
+    assert "RuntimeError: boom" in dump[0]["tree"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_dump_staros_raw_empty_when_channel_absent():
+    coord = _coord(None)
+    coord.staros_devices = _devs()
+    assert await coord.async_dump_staros_raw() == []

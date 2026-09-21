@@ -83,3 +83,36 @@ def ws_staros_list(
             "settings": settings,
         },
     )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "sberhome/staros/dump",
+        vol.Optional("serial"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_staros_dump(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Сырой дамп дерева настроек колонок (/v18) — для диагностики/фикстур.
+
+    Живой запрос к каналу настроек: возвращает исходный JSON экрана как есть,
+    чтобы по нему добавлять поддержку новых моделей колонок. Опциональный
+    `serial` ограничивает одной колонкой.
+    """
+    coord = get_coordinator(hass)
+    if coord is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
+    if not coord.has_staros_settings():
+        connection.send_error(
+            msg["id"],
+            "unavailable",
+            "Канал настроек колонок недоступен (вход по SMS или требуется reauth)",
+        )
+        return
+    dump = await coord.async_dump_staros_raw(msg.get("serial"))
+    connection.send_result(msg["id"], {"dump": dump})

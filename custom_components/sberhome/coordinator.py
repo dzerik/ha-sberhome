@@ -1240,6 +1240,35 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._async_apply_push_data(self.data)
             return True
 
+    async def async_dump_staros_raw(self, serial: str | None = None) -> list[dict[str, Any]]:
+        """Сырые /v18-деревья настроек колонок — для диагностического дампа.
+
+        Живой запрос к каналу настроек: возвращает исходный JSON экрана
+        (с раскрытыми подэкранами) по каждой колонке, чтобы по нему строить
+        поддержку новых моделей и тест-фикстуры. `serial` ограничивает одной
+        колонкой. Пустой список — канал настроек недоступен (SMS-вход/reauth).
+        """
+        api = self._staros_api
+        if api is None:
+            return []
+        out: list[dict[str, Any]] = []
+        for dev in self.staros_devices:
+            if serial and dev.serial_number != serial:
+                continue
+            try:
+                tree = await api.get_settings_raw_deep(dev.product, dev.serial_number)
+            except Exception as err:  # noqa: BLE001 — диагностика: не роняем весь дамп
+                tree = {"error": f"{type(err).__name__}: {err}"}
+            out.append(
+                {
+                    "serial": dev.serial_number,
+                    "product": dev.product,
+                    "name": dev.name,
+                    "tree": tree,
+                }
+            )
+        return out
+
     async def _refresh_staros(self) -> None:
         """Загрузить устройства + экраны настроек, перемапить в сущности."""
         api = self._staros_api

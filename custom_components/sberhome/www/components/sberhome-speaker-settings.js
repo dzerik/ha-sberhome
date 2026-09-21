@@ -20,6 +20,7 @@ export class SberhomeSpeakerSettings extends LitElement {
       serial: { attribute: false }, // фильтр по одной колонке; null = все
       _data: { state: true },
       _loading: { state: true },
+      _error: { state: true },
     };
   }
 
@@ -28,6 +29,7 @@ export class SberhomeSpeakerSettings extends LitElement {
     this.serial = null;
     this._data = null;
     this._loading = true;
+    this._error = "";
   }
 
   connectedCallback() {
@@ -55,6 +57,30 @@ export class SberhomeSpeakerSettings extends LitElement {
       console.error("Failed to force refresh", err);
     }
     await this._load();
+  }
+
+  async _downloadDump() {
+    // Сырой дамп дерева настроек колонки (/v18) — для диагностики и добавления
+    // поддержки новых моделей. Скачивается файлом, чтобы приложить к issue.
+    this._error = "";
+    try {
+      const res = await this.hass.callWS({
+        type: "sberhome/staros/dump",
+        ...(this.serial ? { serial: this.serial } : {}),
+      });
+      const json = JSON.stringify(res.dump ?? res, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sberhome-staros-dump-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to dump staros settings", err);
+      const msg = err && err.message ? err.message : String(err);
+      this._error = `Не удалось получить дамп настроек колонки: ${msg}`;
+    }
   }
 
   _toggle(entityId, state) {
@@ -88,8 +114,17 @@ export class SberhomeSpeakerSettings extends LitElement {
         <button class="refresh" @click=${this._refresh} ?disabled=${this._loading}>
           ↻ Обновить
         </button>
+        <button
+          class="refresh"
+          @click=${this._downloadDump}
+          ?disabled=${this._loading}
+          title="Скачать сырой дамп дерева настроек колонки (для диагностики и поддержки новых моделей)"
+        >
+          ⬇ Дамп настроек
+        </button>
         <span class="hint-inline">Правки из приложения Сбера подтягиваются
           по «Обновить», по событию от колонки и раз в 10 минут.</span>
+        ${this._error ? html`<div class="dump-error">${this._error}</div>` : ""}
       </div>
     `;
     if (this._loading && !this._data) return html`${toolbar}<p>Загрузка…</p>`;
@@ -274,6 +309,7 @@ export class SberhomeSpeakerSettings extends LitElement {
         }
         .refresh:disabled { opacity: 0.5; cursor: default; }
         .hint-inline { font-size: 11px; color: var(--secondary-text-color, #888); }
+        .dump-error { flex-basis: 100%; font-size: 12px; color: var(--error-color, #db4437); }
         .card {
           padding: 14px; border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px; background: var(--card-background-color, white);
