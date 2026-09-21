@@ -225,6 +225,12 @@
       },
       "zigbee_ready": {
         "name": "Zigbee tayyor"
+      },
+      "motion_sensor": {
+        "name": "Mavjudlik"
+      },
+      "motion_sensor_enabled": {
+        "name": "Mavjudlikni aniqlash"
       }
     },
     "switch": {
@@ -435,6 +441,9 @@
       },
       "subdevice_count": {
         "name": "Ichki qurilmalar soni"
+      },
+      "call_status": {
+        "name": "Qoʻngʻiroq holati"
       }
     }
   },

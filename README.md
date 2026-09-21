@@ -246,10 +246,13 @@ custom_key/direction/channel IR-style services).
 click/double_click/long_press для до 10 кнопок и directional-вариантов
 + виртуальные c2c-кнопки `cat_button_*` типа «Эмуляция присутствия»),
 домофоны (`intercom`), хабы (`hub`), колонки/портал
-(`sber_speaker` — SberBoom Home/Mini, SberPortal, SberBox, SberSatellite).
-Через REST у Sber-владельных колонок media-control недоступен (это
-архитектурный лимит Gateway), но мы экспонируем connectivity +
-Zigbee/Matter readiness + position select + LED-индикатор.
+(`sber_speaker` — SberBoom Home/Mini, СберБум 2.0/Aura, SberPortal, SberBox,
+SberSatellite). Через REST у Sber-владельных колонок media-control недоступен
+(это архитектурный лимит Gateway), но мы экспонируем connectivity +
+Zigbee/Matter readiness + position select + LED-индикатор. У «СберБум 2.0»
+(Aura) дополнительно есть встроенный радар присутствия
+(`binary_sensor` presence + диагностический флаг его включённости) и статус
+звонка (`sensor`).
 
 ## Типы сущностей в Home Assistant (полный список)
 

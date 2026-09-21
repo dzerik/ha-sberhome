@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from homeassistant.const import Platform
+import json
+from pathlib import Path
+
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 
 from custom_components.sberhome.aiosber.dto import DeviceDto
 from custom_components.sberhome.sbermap.transform.mapper import (
     build_command,
     map_device_to_entities,
 )
+
+_AURA_DUMP = Path(__file__).resolve().parents[3] / "docs" / "aura2.0.json"
 
 
 def _dto(image_set_type: str, reported: list[dict] | None = None, **kw) -> DeviceDto:
@@ -431,6 +437,137 @@ class TestSberBoxTime:
         assert len(sounds) == 1
         assert sounds[0].key == "staros_assistant_sounds_enabled"
         assert sounds[0].bool_value is True
+
+
+class TestAura:
+    """СберБум 2.0 (Aura) — по выгрузке протокола устройства от владельца.
+
+    Колонка на StarOS с двумя новыми gateway-атрибутами:
+    - `motion_sensor` — встроенный радар присутствия, ENUM
+      {no_motion, any_motion, sensor_disabled};
+    - `motion_sensor_enabled` — включён ли радар (BOOL);
+    - `call_status` — статус звонка, ENUM {idle, ringing, calling, talking, hold}.
+
+    Проверяется, что каждый атрибут становится сущностью правильного вида и
+    что ENUM корректно превращается в состояние (а не «залипает» в ON).
+    """
+
+    def _entities(self, reported):
+        return map_device_to_entities(_dto("dt_aura_l", reported))
+
+    def _one(self, reported, suffix):
+        # endswith с ведущим "_" исключает ложные совпадения:
+        # "_motion_sensor" НЕ ловит "..._motion_sensor_enabled".
+        return next(e for e in self._entities(reported) if e.unique_id.endswith(suffix))
+
+    def test_recognised_as_speaker(self):
+        """`dt_aura_l` матчится подстрокой `dt_aura` → категория sber_speaker.
+
+        Без записи в IMAGE_TYPE_MAP устройство не получило бы категории и ни
+        одной сущности — ровно то, с чем пришёл владелец колонки.
+        """
+        assert self._entities([{"key": "motion_sensor", "type": "ENUM", "enum_value": "no_motion"}])
+
+    def test_presence_any_motion_is_on(self):
+        """any_motion → присутствие есть (occupancy, ON)."""
+        ent = self._one(
+            [{"key": "motion_sensor", "type": "ENUM", "enum_value": "any_motion"}],
+            "_motion_sensor",
+        )
+        assert ent.platform is Platform.BINARY_SENSOR
+        assert ent.device_class is BinarySensorDeviceClass.OCCUPANCY
+        assert ent.state == STATE_ON
+
+    def test_presence_no_motion_is_off(self):
+        """no_motion → присутствия нет (OFF), а не ON от непустой enum-строки.
+
+        Это и есть регрессия, ради которой введён EnumBoolCodec: обычный
+        EnumCodec отдал бы строку "no_motion" → маппер сделал бы STATE_ON.
+        """
+        ent = self._one(
+            [{"key": "motion_sensor", "type": "ENUM", "enum_value": "no_motion"}],
+            "_motion_sensor",
+        )
+        assert ent.state == STATE_OFF
+
+    def test_presence_sensor_disabled_is_off(self):
+        """sensor_disabled (радар выключен) → присутствия нет (OFF)."""
+        ent = self._one(
+            [{"key": "motion_sensor", "type": "ENUM", "enum_value": "sensor_disabled"}],
+            "_motion_sensor",
+        )
+        assert ent.state == STATE_OFF
+
+    def test_presence_enabled_flag_is_readonly_diagnostic(self):
+        """motion_sensor_enabled — read-only diagnostic binary_sensor, не switch.
+
+        По прецеденту gateway-зеркал настроек колонки: запись в gateway сервер
+        не применяет (значение «откатывается»), реальное управление радаром —
+        через /v18-сущность. Поэтому флаг экспонируем как датчик, а не тумблер.
+        """
+        ent = self._one(
+            [{"key": "motion_sensor_enabled", "type": "BOOL", "bool_value": True}],
+            "_motion_sensor_enabled",
+        )
+        assert ent.platform is Platform.BINARY_SENSOR
+        assert ent.entity_category is EntityCategory.DIAGNOSTIC
+        assert ent.state == STATE_ON
+
+    def test_presence_selector_does_not_catch_enabled_flag(self):
+        """Селектор «_motion_sensor» не должен цеплять «_motion_sensor_enabled».
+
+        Оба атрибута в одном дампе создают две разные сущности; выбор одной по
+        суффиксу с ведущим подчёркиванием их не путает.
+        """
+        ents = self._entities(
+            [
+                {"key": "motion_sensor", "type": "ENUM", "enum_value": "any_motion"},
+                {"key": "motion_sensor_enabled", "type": "BOOL", "bool_value": True},
+            ]
+        )
+        presence = [e for e in ents if e.unique_id.endswith("_motion_sensor")]
+        assert len(presence) == 1
+        assert presence[0].device_class is BinarySensorDeviceClass.OCCUPANCY
+
+    def test_call_status_is_plain_enum_sensor(self):
+        """call_status — диагностический sensor с сырым enum-значением.
+
+        Сознательно без device_class=ENUM: state = сырая строка "ringing"
+        (device_class=ENUM потребовал бы прокидывания options в sensor.py и
+        ругался бы warning'ом на значения вне списка, напр. "" при инициализации).
+        """
+        ent = self._one(
+            [{"key": "call_status", "type": "ENUM", "enum_value": "ringing"}],
+            "_call_status",
+        )
+        assert ent.platform is Platform.SENSOR
+        assert ent.entity_category is EntityCategory.DIAGNOSTIC
+        assert ent.device_class is None
+        assert ent.state == "ringing"
+
+    def test_full_dump_produces_three_new_entities(self):
+        """Полный дамp владельца: reported перекрывает epoch-desired (junk).
+
+        В дампе motion_sensor=no_motion, motion_sensor_enabled=true,
+        call_status=idle; все desired-зеркала имеют last_sync=1970 → игнор.
+        """
+        dto = DeviceDto.from_dict(json.loads(_AURA_DUMP.read_text(encoding="utf-8")))
+        ents = {
+            e.state_attribute_key: e
+            for e in map_device_to_entities(dto)
+            if e.state_attribute_key in {"motion_sensor", "motion_sensor_enabled", "call_status"}
+        }
+
+        assert ents["motion_sensor"].platform is Platform.BINARY_SENSOR
+        assert ents["motion_sensor"].device_class is BinarySensorDeviceClass.OCCUPANCY
+        assert ents["motion_sensor"].state == STATE_OFF  # дамп = no_motion
+
+        assert ents["motion_sensor_enabled"].platform is Platform.BINARY_SENSOR
+        assert ents["motion_sensor_enabled"].entity_category is EntityCategory.DIAGNOSTIC
+        assert ents["motion_sensor_enabled"].state == STATE_ON  # дамп = true
+
+        assert ents["call_status"].platform is Platform.SENSOR
+        assert ents["call_status"].state == "idle"  # дамп = idle
 
 
 # =============================================================================

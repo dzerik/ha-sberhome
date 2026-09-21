@@ -225,6 +225,12 @@
       },
       "zigbee_ready": {
         "name": "Zigbee ready"
+      },
+      "motion_sensor": {
+        "name": "Presence"
+      },
+      "motion_sensor_enabled": {
+        "name": "Presence detection"
       }
     },
     "switch": {
@@ -435,6 +441,9 @@
       },
       "subdevice_count": {
         "name": "Sub-device count"
+      },
+      "call_status": {
+        "name": "Call status"
       }
     }
   },

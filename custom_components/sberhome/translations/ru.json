@@ -225,6 +225,12 @@
       },
       "zigbee_ready": {
         "name": "Готовность Zigbee"
+      },
+      "motion_sensor": {
+        "name": "Присутствие"
+      },
+      "motion_sensor_enabled": {
+        "name": "Обнаружение присутствия"
       }
     },
     "switch": {
@@ -435,6 +441,9 @@
       },
       "subdevice_count": {
         "name": "Число подустройств"
+      },
+      "call_status": {
+        "name": "Статус звонка"
       }
     }
   },

@@ -251,6 +251,35 @@ class EnumCodec:
 
 
 @dataclass(slots=True, frozen=True)
+class EnumBoolCodec:
+    """ENUM → bool: значение истинно, только если попадает в ``on_values``.
+
+    Нужен там, где прибор отдаёт присутствие/состояние строкой-перечислением,
+    а HA-сущность бинарная (`binary_sensor`/`switch`). Пример — датчик
+    присутствия Aura: ``motion_sensor`` = ``no_motion``/``any_motion``/
+    ``sensor_disabled``; «занято» только при ``any_motion``. Обычный
+    ``EnumCodec`` вернул бы непустую строку и всегда давал бы STATE_ON.
+    """
+
+    on_values: frozenset[str] = frozenset()
+    device_class: Any | None = None
+    entity_category: Any | None = None
+    icon: str | None = None
+    unit_of_measurement: str | None = None
+    state_class: Any | None = None
+    suggested_display_precision: int | None = None
+
+    def to_ha(self, sber_value: Any) -> bool | None:
+        if sber_value is None:
+            return None
+        return str(sber_value) in self.on_values
+
+    def to_sber(self, ha_value: Any) -> None:
+        # Read-only: обратной записи в enum по bool нет.
+        return None
+
+
+@dataclass(slots=True, frozen=True)
 class VolumeCodec:
     """volume_int: API INTEGER 0..100 → HA float 0.0..1.0."""
 
@@ -517,6 +546,7 @@ __all__ = [
     "CURRENT_MILLIAMPS_CODEC",
     "FEATURE_CODECS",
     "BoolCodec",
+    "EnumBoolCodec",
     "EnumCodec",
     "FeatureCodec",
     "FloatCodec",

@@ -225,6 +225,7 @@ IMAGE_TYPE_MAP: Final[dict[str, str]] = {
     # Используется substring-match — покрывает варианты с цветовыми
     # суффиксами (`dt_boom_r2_dark_blue_s` и т.п.).
     "dt_boom": "sber_speaker",
+    "dt_aura": "sber_speaker",
     "dt_portal": "sber_speaker",
     # `dt_sberbox` идёт перед `dt_box`: подстрока `dt_box` не матчит
     # `dt_sberbox_time_m`, поэтому без отдельной записи SberBox Time

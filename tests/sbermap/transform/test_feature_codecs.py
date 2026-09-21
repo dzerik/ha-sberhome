@@ -26,6 +26,7 @@ from homeassistant.const import (
 from custom_components.sberhome.sbermap.transform.feature_codecs import (
     FEATURE_CODECS,
     BoolCodec,
+    EnumBoolCodec,
     EnumCodec,
     FloatCodec,
     IntegerCodec,
@@ -147,6 +148,55 @@ class TestVolumeCodec:
         codec = VolumeCodec()
         assert codec.to_sber(0.75) == 75
         assert codec.to_sber(1.0) == 100
+
+
+class TestEnumBoolCodec:
+    """ENUM→bool codec для радара присутствия Aura (СберБум 2.0).
+
+    `motion_sensor` приходит как ENUM (no_motion/any_motion/sensor_disabled),
+    но HA-сущность — бинарный датчик присутствия. Обычный EnumCodec вернул бы
+    непустую строку (даже для "no_motion"), а `STATE_ON if ha_value else …` в
+    маппере трактует любую непустую строку как истину → датчик залипал бы в ON.
+    EnumBoolCodec явно решает, какие enum-значения считать «присутствие есть».
+    """
+
+    def test_only_listed_values_are_true(self):
+        codec = EnumBoolCodec(on_values=frozenset({"any_motion"}))
+        assert codec.to_ha("any_motion") is True
+        assert codec.to_ha("no_motion") is False
+        # радар выключен пользователем — присутствия нет (а не «ON»)
+        assert codec.to_ha("sensor_disabled") is False
+        # неизвестное значение не считается присутствием
+        assert codec.to_ha("whatever_new_enum") is False
+
+    def test_missing_value_stays_missing(self):
+        codec = EnumBoolCodec(on_values=frozenset({"any_motion"}))
+        assert codec.to_ha(None) is None
+
+    def test_read_only_no_write(self):
+        # Состояние радара только читается: команды на запись присутствия нет.
+        codec = EnumBoolCodec(on_values=frozenset({"any_motion"}))
+        assert codec.to_sber(True) is None
+        assert codec.to_sber(None) is None
+
+    def test_carries_binary_metadata(self):
+        codec = EnumBoolCodec(
+            on_values=frozenset({"any_motion"}),
+            device_class=BinarySensorDeviceClass.OCCUPANCY,
+        )
+        assert codec.device_class is BinarySensorDeviceClass.OCCUPANCY
+
+
+class TestAuraFeatureSpecs:
+    """Дескрипторы новых Aura-атрибутов (СберБум 2.0)."""
+
+    def test_motion_sensor_is_occupancy_binary(self):
+        """motion_sensor — датчик присутствия (mmWave), device_class=occupancy."""
+        codec = FEATURE_SPECS["motion_sensor"].codec
+        assert codec.device_class is BinarySensorDeviceClass.OCCUPANCY
+        # именно EnumBoolCodec: сырой enum "no_motion" не должен стать ON
+        assert codec.to_ha("no_motion") is False
+        assert codec.to_ha("any_motion") is True
 
 
 class TestBoolEnumCodecs:
@@ -324,6 +374,7 @@ _ALL_CODECS = [
     TemperatureCodec(),
     BoolCodec(),
     EnumCodec(),
+    EnumBoolCodec(on_values=frozenset({"any_motion"})),
     VolumeCodec(),
 ]
 

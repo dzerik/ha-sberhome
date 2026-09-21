@@ -35,6 +35,7 @@ from homeassistant.const import (
 from .feature_codecs import (
     CURRENT_MILLIAMPS_CODEC,
     BoolCodec,
+    EnumBoolCodec,
     EnumCodec,
     FeatureCodec,
     FloatCodec,
@@ -171,6 +172,38 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
         codec=EnumCodec(),
         entity_category=_DIAG,
         icon="mdi:speaker-multiple",
+        categories=_cats("sber_speaker"),
+    ),
+    # ---- Aura: встроенный радар присутствия + статус звонка ----
+    # По выгрузке протокола устройства «СберБум 2.0» (StarOS-колонка с
+    # mmWave-датчиком). motion_sensor — ENUM присутствия; «занято» только при
+    # any_motion (no_motion/sensor_disabled → off) через EnumBoolCodec.
+    "motion_sensor": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=EnumBoolCodec(
+            on_values=frozenset({"any_motion"}),
+            device_class=BinarySensorDeviceClass.OCCUPANCY,
+        ),
+        icon="mdi:motion-sensor",
+        categories=_cats("sber_speaker"),
+    ),
+    # Включён ли радар. READ-ONLY diagnostic: в выгрузке есть команда, но, как и
+    # у staros_assistant_sounds_enabled, запись через gateway не применяется —
+    # реальное управление радаром идёт авто-сущностью /v18 (staros_motion_sensor).
+    "motion_sensor_enabled": FeatureSpec(
+        platform=Platform.BINARY_SENSOR,
+        codec=BoolCodec(),
+        entity_category=_DIAG,
+        icon="mdi:motion-sensor",
+        categories=_cats("sber_speaker"),
+    ),
+    # Статус звонка: plain enum-сенсор (сырое idle/ringing/calling/talking/hold),
+    # без device_class=ENUM — как staros_age_mode.
+    "call_status": FeatureSpec(
+        platform=Platform.SENSOR,
+        codec=EnumCodec(),
+        entity_category=_DIAG,
+        icon="mdi:phone-in-talk",
         categories=_cats("sber_speaker"),
     ),
     # ---- Common diagnostic sensors (all categories) ----

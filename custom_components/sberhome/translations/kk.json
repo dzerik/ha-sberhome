@@ -225,6 +225,12 @@
       },
       "zigbee_ready": {
         "name": "Zigbee дайын"
+      },
+      "motion_sensor": {
+        "name": "Қатысу"
+      },
+      "motion_sensor_enabled": {
+        "name": "Қатысуды анықтау"
       }
     },
     "switch": {
@@ -435,6 +441,9 @@
       },
       "subdevice_count": {
         "name": "Ішкі құрылғылар саны"
+      },
+      "call_status": {
+        "name": "Қоңырау күйі"
       }
     }
   },

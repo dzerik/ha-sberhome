@@ -225,6 +225,12 @@
       },
       "zigbee_ready": {
         "name": "Zigbee гатовы"
+      },
+      "motion_sensor": {
+        "name": "Прысутнасць"
+      },
+      "motion_sensor_enabled": {
+        "name": "Выяўленне прысутнасці"
       }
     },
     "switch": {
@@ -435,6 +441,9 @@
       },
       "subdevice_count": {
         "name": "Колькасць прылад"
+      },
+      "call_status": {
+        "name": "Статус званка"
       }
     }
   },
