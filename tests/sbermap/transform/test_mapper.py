@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 
@@ -13,8 +10,6 @@ from custom_components.sberhome.sbermap.transform.mapper import (
     build_command,
     map_device_to_entities,
 )
-
-_AURA_DUMP = Path(__file__).resolve().parents[3] / "docs" / "aura2.0.json"
 
 
 def _dto(image_set_type: str, reported: list[dict] | None = None, **kw) -> DeviceDto:
@@ -546,12 +541,17 @@ class TestAura:
         assert ent.state == "ringing"
 
     def test_full_dump_produces_three_new_entities(self):
-        """Полный дамp владельца: reported перекрывает epoch-desired (junk).
+        """Один набор reported даёт все три новые сущности с верными состояниями.
 
-        В дампе motion_sensor=no_motion, motion_sensor_enabled=true,
-        call_status=idle; все desired-зеркала имеют last_sync=1970 → игнор.
+        motion_sensor=no_motion, motion_sensor_enabled=true, call_status=idle —
+        как в выгрузке протокола устройства от владельца (герметично, без файла).
         """
-        dto = DeviceDto.from_dict(json.loads(_AURA_DUMP.read_text(encoding="utf-8")))
+        reported = [
+            {"key": "motion_sensor", "type": "ENUM", "enum_value": "no_motion"},
+            {"key": "motion_sensor_enabled", "type": "BOOL", "bool_value": True},
+            {"key": "call_status", "type": "ENUM", "enum_value": "idle"},
+        ]
+        dto = _dto("dt_aura_l", reported)
         ents = {
             e.state_attribute_key: e
             for e in map_device_to_entities(dto)
