@@ -33,6 +33,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from ._staros_redact import redact_staros_tree
 from ._ws_adapter import make_aiohttp_factory
 from .aiosber import SberClient, SocketMessageDto, StateCache, Topic, TopicRouter, WebSocketClient
 from .aiosber.api import DeviceAPI, IndicatorAPI, InventoryAPI, ScenarioAPI, StarosSettingsAPI
@@ -1259,12 +1260,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 tree = await api.get_settings_raw_deep(dev.product, dev.serial_number)
             except Exception as err:  # noqa: BLE001 — диагностика: не роняем весь дамп
                 tree = {"error": f"{type(err).__name__}: {err}"}
+            # Дамп предназначен для приложения к issue: вычищаем идентификаторы
+            # устройства/сети из дерева и не отдаём реальный serial (псевдоним).
             out.append(
                 {
-                    "serial": dev.serial_number,
+                    "serial": f"device-{len(out) + 1}",
                     "product": dev.product,
                     "name": dev.name,
-                    "tree": tree,
+                    "tree": redact_staros_tree(tree),
                 }
             )
         return out

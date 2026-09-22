@@ -516,7 +516,7 @@ async def test_dump_staros_raw_collects_all_trees():
 
     dump = await coord.async_dump_staros_raw()
 
-    assert [d["serial"] for d in dump] == ["SN1", "SN2"]
+    assert [d["serial"] for d in dump] == ["device-1", "device-2"]  # псевдонимы
     assert dump[0]["product"] == "sberboom"
     assert dump[0]["tree"]["settings"][0]["id"] == "bt"
     assert api.get_settings_raw_deep.await_count == 2
@@ -531,7 +531,7 @@ async def test_dump_staros_raw_serial_filter():
 
     dump = await coord.async_dump_staros_raw("SN2")
 
-    assert len(dump) == 1 and dump[0]["serial"] == "SN2"
+    assert len(dump) == 1 and dump[0]["serial"] == "device-1"  # псевдоним
     api.get_settings_raw_deep.assert_awaited_once_with("aura", "SN2")
 
 
@@ -552,3 +552,26 @@ async def test_dump_staros_raw_empty_when_channel_absent():
     coord = _coord(None)
     coord.staros_devices = _devs()
     assert await coord.async_dump_staros_raw() == []
+
+
+@pytest.mark.asyncio
+async def test_dump_staros_raw_redacts_ids_and_pseudonymises_serial():
+    api = AsyncMock()
+    api.get_settings_raw_deep = AsyncMock(
+        return_value={
+            "settings": [
+                {"type": "COPY", "id": "deviceId", "value": "472502d68000000e425200001db64461"},
+                {"type": "TOGGLE", "id": "assistant_sounds_enabled", "enabled": True},
+            ]
+        }
+    )
+    coord = _coord(api)
+    coord.staros_devices = _devs()[:1]
+
+    dump = await coord.async_dump_staros_raw()
+
+    assert dump[0]["serial"] == "device-1"  # реальный serial не отдаётся
+    assert dump[0]["product"] == "sberboom"  # product/name — сохраняются
+    settings = dump[0]["tree"]["settings"]
+    assert settings[0]["value"] == "**REDACTED**"  # идентификатор замаскирован
+    assert settings[1]["enabled"] is True  # настройка — на месте
