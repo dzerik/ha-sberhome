@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import ssl
 from collections.abc import Callable
 from typing import Any
 
@@ -58,6 +59,7 @@ class AiohttpWsAdapter:
 def make_aiohttp_factory(
     session: aiohttp.ClientSession,
     heartbeat: float | None = 30.0,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> Callable[..., Any]:
     """Создать `WebSocketFactory`-совместимую функцию на основе aiohttp session.
 
@@ -78,7 +80,12 @@ def make_aiohttp_factory(
     """
 
     async def factory(url: str, headers: dict[str, str]) -> AiohttpWsAdapter:
-        ws = await session.ws_connect(url, headers=headers, heartbeat=heartbeat)
+        ws = await session.ws_connect(
+            url,
+            headers=headers,
+            heartbeat=heartbeat,
+            ssl=ssl_context if ssl_context is not None else True,
+        )
         return AiohttpWsAdapter(ws)
 
     return factory

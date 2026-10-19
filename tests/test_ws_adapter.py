@@ -107,6 +107,7 @@ class TestMakeAiohttpFactory:
             "wss://example/",
             headers={"Authorization": "Bearer X"},
             heartbeat=30.0,
+            ssl=True,
         )
 
     @pytest.mark.asyncio

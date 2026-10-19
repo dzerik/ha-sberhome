@@ -49,7 +49,7 @@ from .aiosber.exceptions import AuthError as CoreAuthError
 from .aiosber.exceptions import RateLimitError
 from .aiosber.exceptions import SberError as CoreSberError
 from .aiosber.transport import HttpTransport
-from .api import SberAPI
+from .api import SberAPI, async_init_ssl
 from .command_tracker import CommandTracker
 from .const import (
     CONF_COMMAND_TIMEOUT,
@@ -1679,7 +1679,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         auth = self._auth_manager
 
         session = async_get_clientsession(self.hass)
-        factory = make_aiohttp_factory(session)
+        ssl_ctx = await async_init_ssl(self.hass)
+        factory = make_aiohttp_factory(session, ssl_context=ssl_ctx)
         router = TopicRouter()
         # Первичные handlers — DTO-aware, делают patch state_cache / fire event.
         router.on(Topic.DEVICE_STATE, self._on_ws_device_state)
