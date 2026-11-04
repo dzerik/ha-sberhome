@@ -1,7 +1,8 @@
 # Validation: сохранность и удаление расписаний
 
-Дата: 2026-11-04. База: **6.4.0b6**. Этап — исследование, без реализации.
-[Предварительный анализ](../../research/2026-11-04-issue-61-api-contracts.md).
+Дата: 2026-11-04. Исследование — **6.4.0b6**; реализованная и выпущенная
+сборка — **6.4.0b7**.
+[Предварительный анализ](../../../research/2026-11-04-issue-61-api-contracts.md).
 
 ## Метод и границы доказательств
 
@@ -15,7 +16,7 @@
 Это не прямой HTTP wire capture: сравнение GET выполнено на нормализованном
 IntentSpec. Сохранность неизвестных time_data/metadata и различий missing/null
 таким GET не доказывается. Контракты других endpoints №61 не исследовались.
-[Источник маршрута](../../../custom_components/sberhome/intents/service.py#L98).
+[Источник маршрута](../../../../custom_components/sberhome/intents/service.py#L98).
 
 Созданы 6 сценариев-целей и 6 сценариев с расписаниями. Действия последних —
 только SCENARIO_SET_ACTIVE на отдельную временную цель. До испытания все
@@ -169,4 +170,22 @@ Node запускает настоящий modal и schedules.js: opaque/missing
 6.4.0b7 повторены CRUD и новые защитные проверки. Полный браузерный сценарий
 и создание одноразового execute_at не заявляются проверенными.
 
-Публикация PR/CI/prerelease и ответы в №61/№62: выполняются.
+### Публикация
+
+- [PR #87](https://github.com/dzerik/ha-sberhome/pull/87) объединён после CI
+  Python 3.13/3.14, Ruff/mypy, HACS/hassfest и CodeQL.
+- [v6.4.0b7](https://github.com/dzerik/ha-sberhome/releases/tag/v6.4.0b7)
+  опубликована как prerelease, тег указывает на
+  `a2729e8d63eff83c9b001dbdb76a3e2deb6be2af`.
+- [Release workflow](https://github.com/dzerik/ha-sberhome/actions/runs/41859659485)
+  повторил CI, собрал и подписал HACS zip. Все 221 файла скачанного архива
+  совпадают по SHA-256 с исходниками и установленной сборкой; Sigstore bundle
+  опубликован. Стабильный Latest остался v6.2.2.
+- Результаты с ограничениями опубликованы в
+  [№61](https://github.com/dzerik/ha-sberhome/issues/61#issuecomment-6634922459) и
+  [№62](https://github.com/dzerik/ha-sberhome/issues/62#issuecomment-6634923199).
+  Оба issue остаются открытыми для оставшегося scope.
+
+Изменение реализовано, проверено и выпущено. Неподтверждённые внешние формы
+execute_at/RRULE и недоступная полная браузерная проверка остаются явно
+отмеченными ограничениями, а не обещанием их поддержки.
