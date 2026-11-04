@@ -367,6 +367,12 @@
       },
       "unlock": {
         "name": "Құлыпты ашу"
+      },
+      "scenario_stop": {
+        "name": "{name} тоқтату"
+      },
+      "scenario_cancel": {
+        "name": "{name} болдырмау"
       }
     },
     "event": {
@@ -529,6 +535,9 @@
     },
     "message_template_error": {
       "message": "Мәтіндегі үлгіні өңдеу мүмкін болмады: {error}"
+    },
+    "scenario_cancel_not_allowed": {
+      "message": "Сбер сценарийдің қазіргі күйінде болдырмауға рұқсат бермейді. Ол орындалып жатса, «Тоқтату» пайдаланыңыз."
     }
   }
 }

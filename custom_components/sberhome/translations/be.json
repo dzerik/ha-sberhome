@@ -367,6 +367,12 @@
       },
       "unlock": {
         "name": "Адчыніць замок"
+      },
+      "scenario_stop": {
+        "name": "Спыніць {name}"
+      },
+      "scenario_cancel": {
+        "name": "Адмяніць {name}"
       }
     },
     "event": {
@@ -529,6 +535,9 @@
     },
     "message_template_error": {
       "message": "Не ўдалося апрацаваць шаблон у тэксце: {error}"
+    },
+    "scenario_cancel_not_allowed": {
+      "message": "Сбер не дазваляе адмену ў бягучым стане сцэнарыя. Калі ён выконваецца, скарыстайцеся «Спыніць»."
     }
   }
 }

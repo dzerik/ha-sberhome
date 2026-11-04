@@ -367,6 +367,12 @@
       },
       "unlock": {
         "name": "Unlock"
+      },
+      "scenario_stop": {
+        "name": "Stop {name}"
+      },
+      "scenario_cancel": {
+        "name": "Cancel {name}"
       }
     },
     "event": {
@@ -529,6 +535,9 @@
     },
     "message_template_error": {
       "message": "Could not render the template in the text: {error}"
+    },
+    "scenario_cancel_not_allowed": {
+      "message": "Sber does not allow cancellation in the current scenario state. If it is running, use Stop."
     }
   }
 }

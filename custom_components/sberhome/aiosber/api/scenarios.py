@@ -127,9 +127,10 @@ class ScenarioAPI:
         )
 
     async def cancel(self, scenario_id: str) -> None:
-        """`POST /scenario/v2/scenario/{id}/cancel` — отменить запланированный/идущий сценарий.
+        """`POST /scenario/v2/scenario/{id}/cancel` — отменить ожидающий запуск сценария.
 
-        Тело — `{is_active: true}` (как у `run`, id в path).
+        Тело — `{is_active: true}` (id в path). Живой API возвращает 409
+        для уже выполняющегося сценария; для прерывания используйте stop.
         """
         await self._transport.post(
             f"/scenario/v2/scenario/{scenario_id}/cancel",

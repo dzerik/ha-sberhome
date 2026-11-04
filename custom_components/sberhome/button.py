@@ -1,21 +1,26 @@
 """Support for SberHome buttons — sbermap-driven (PR #7 + PR #9).
 
-Two flavours of button entities:
+Button entities:
 - `SberSbermapButton` — per-device fire-and-forget actions (intercom unlock,
   reject_call, …) описанные в sbermap CategorySpec.
 - `SberScenarioButton` — отдельная entity на каждый Sber-сценарий из
-  ScenarioAPI; нажатие триггерит scenarios.execute_command(scenario_id).
+  ScenarioAPI; нажатие вызывает запуск сценария.
+- `SberScenarioControlButton` — отдельные stop/cancel операции сценария.
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import EntityCategory, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .action_errors import async_translate_cloud_errors
+from .aiosber.exceptions import ApiError
 from .const import DOMAIN
 from .coordinator import SberHomeConfigEntry, SberHomeCoordinator
 from .entity import SberBaseEntity
@@ -40,11 +45,28 @@ async def async_setup_entry(
         for ent in ha_entities:
             if ent.platform is Platform.BUTTON:
                 entities.append(SberSbermapButton(coordinator, device_id, ent))
-    # Per-scenario buttons — отдельный device-group "scenarios" в HA.
-    for scenario in coordinator.scenarios:
-        if scenario.id and scenario.name:
-            entities.append(SberScenarioButton(coordinator, scenario.id, scenario.name))
     async_add_entities(entities)
+    known: set[str] = set()
+
+    @callback
+    def discover_scenarios() -> None:
+        added: list[ButtonEntity] = []
+        for scenario in coordinator.scenarios:
+            if not scenario.id or not scenario.name or scenario.id in known:
+                continue
+            known.add(scenario.id)
+            added.extend(
+                [
+                    SberScenarioButton(coordinator, scenario.id, scenario.name),
+                    SberScenarioControlButton(coordinator, scenario.id, scenario.name, "stop"),
+                    SberScenarioControlButton(coordinator, scenario.id, scenario.name, "cancel"),
+                ]
+            )
+        if added:
+            async_add_entities(added)
+
+    discover_scenarios()
+    entry.async_on_unload(coordinator.async_add_listener(discover_scenarios))
 
 
 class SberSbermapButton(SberBaseEntity, ButtonEntity):
@@ -80,16 +102,8 @@ class SberSbermapButton(SberBaseEntity, ButtonEntity):
         )
 
 
-class SberScenarioButton(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
-    """Press → executes Sber scenario via ScenarioAPI.execute_command.
-
-    Сценарии — это server-side automations внутри Sber, аналог HA
-    automations. Для каждого активного сценария создаётся отдельная
-    HA button entity, нажатие которой шлёт его id в `/scenario/v2/command`.
-
-    Все entities группируются в один HA Device "Sber Scenarios" чтобы
-    не плодить DeviceEntry на каждую кнопку.
-    """
+class _SberScenarioButtonBase(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
+    """Shared scenario identity, availability and service-device grouping."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
@@ -104,7 +118,6 @@ class SberScenarioButton(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
         super().__init__(coordinator)
         self._scenario_id = scenario_id
         self._attr_unique_id = f"sberhome_scenario_{scenario_id}"
-        self._attr_name = scenario_name
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scenarios")},
             "name": "Sber Scenarios",
@@ -120,6 +133,50 @@ class SberScenarioButton(CoordinatorEntity[SberHomeCoordinator], ButtonEntity):
             s.id == self._scenario_id for s in self.coordinator.scenarios
         )
 
+
+class SberScenarioButton(_SberScenarioButtonBase):
+    """Existing run entity; its name and unique_id remain unchanged."""
+
+    def __init__(
+        self, coordinator: SberHomeCoordinator, scenario_id: str, scenario_name: str
+    ) -> None:
+        super().__init__(coordinator, scenario_id, scenario_name)
+        self._attr_name = scenario_name
+
     async def async_press(self) -> None:
         async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
             await self.coordinator.async_execute_scenario(self._scenario_id)
+
+
+class SberScenarioControlButton(_SberScenarioButtonBase):
+    """Stop/cancel one scenario without conflating execution with trigger enablement."""
+
+    def __init__(
+        self,
+        coordinator: SberHomeCoordinator,
+        scenario_id: str,
+        scenario_name: str,
+        operation: Literal["stop", "cancel"],
+    ) -> None:
+        super().__init__(coordinator, scenario_id, scenario_name)
+        self._operation = operation
+        self._attr_unique_id = f"sberhome_scenario_{operation}_{scenario_id}"
+        self._attr_translation_key = f"scenario_{operation}"
+        self._attr_translation_placeholders = {"name": scenario_name}
+        self._attr_icon = (
+            "mdi:stop-circle-outline" if operation == "stop" else "mdi:calendar-remove"
+        )
+
+    async def async_press(self) -> None:
+        async with async_translate_cloud_errors(self.coordinator, refresh_scenarios=True):
+            if self._operation == "stop":
+                await self.coordinator.async_stop_scenario(self._scenario_id)
+            else:
+                try:
+                    await self.coordinator.async_cancel_scenario(self._scenario_id)
+                except ApiError as err:
+                    if err.status_code != 409:
+                        raise
+                    raise ServiceValidationError(
+                        translation_domain=DOMAIN, translation_key="scenario_cancel_not_allowed"
+                    ) from err
