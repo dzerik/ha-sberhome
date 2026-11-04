@@ -262,3 +262,24 @@ async def test_refetch_device_reports_cloud_error(
 
     assert response["success"] is False
     assert response["error"]["code"] == "fetch_failed"
+
+
+async def test_condition_schema_exposes_read_only_sensor_attributes(
+    hass: HomeAssistant, setup_sberhome, fake_cloud: FakeSberCloud, panel: Panel
+) -> None:
+    """Read-only sensor values can be compared without exposing them as writable actions."""
+    fake_cloud.devices = [
+        device(
+            "sensor",
+            commands=[],
+            reported=[{"key": "water_leak_state", "type": "BOOL", "bool_value": False}],
+            attributes=[{"key": "water_leak_state", "type": "BOOL"}],
+        )
+    ]
+    await setup_sberhome()
+    normal = await panel("device_write_schema", device_id="sensor")
+    condition = await panel("device_write_schema", device_id="sensor", include_readonly=True)
+    assert normal["result"]["fields"] == []
+    assert condition["result"]["fields"] == [
+        {"key": "water_leak_state", "type": "BOOL", "label": "Water leak state", "current": False}
+    ]

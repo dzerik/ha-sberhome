@@ -6,6 +6,10 @@ NEXT_STEPS / probe results).
 
 from __future__ import annotations
 
+from copy import deepcopy
+
+import pytest
+
 from custom_components.sberhome.intents.encoder import (
     DEFAULT_IMAGE,
     DEFAULT_TIMEZONE,
@@ -13,6 +17,63 @@ from custom_components.sberhome.intents.encoder import (
     encode_scenario,
 )
 from custom_components.sberhome.intents.spec import IntentAction, IntentSpec
+
+
+@pytest.mark.parametrize(
+    "order",
+    [(0, 1), (0, 1, 0), (1, 0, 2, 1), (0, 0, 1), (2, 0, 1), (6, 5, 4, 3, 2, 1, 0)],
+)
+def test_action_order_and_delays_survive_round_trip(order):
+    """Loading and saving must preserve execution order, including duplicates/unknown."""
+    tasks = [
+        {
+            "type": "DEVICE_COMMAND",
+            "start_delay": "15s",
+            "device_command_data": {
+                "device_id": "lamp-1",
+                "desired_state": [
+                    {
+                        "state": {"key": "on_off", "type": "BOOL", "bool_value": True},
+                        "relative": False,
+                        "mode": "RANGE_SET",
+                    }
+                ],
+            },
+        },
+        {
+            "type": "PRONOUNCE_COMMAND",
+            "start_delay": "3s",
+            "pronounce_data": {"device_ids": ["speaker-1"], "phrase": "Готово"},
+        },
+        {"type": "FUTURE_COMMAND", "start_delay": "7s", "future_data": {"value": 42}},
+        {"type": "TRIGGER_NOTIFY_COMMAND"},
+        {
+            "type": "HEAD_DIALOG_COMMAND",
+            "head_dialog_command_task_data": {
+                "device_id": "speaker-1",
+                "text": "Привет",
+                "content_id": "",
+                "cinema": "",
+                "action_type": "",
+                "content": "",
+            },
+        },
+        {"type": "SEND_SMS_COMMAND", "send_sms_command_task_data": {"text": "Уведомление"}},
+        {
+            "type": "SCENARIO_SET_ACTIVE",
+            "scenario_set_active_task_data": {"scenario_id": "sc-2", "active": False},
+        },
+    ]
+    original = {"name": "Порядок", "steps": [{"tasks": [deepcopy(tasks[i]) for i in order]}]}
+    snapshot = deepcopy(original)
+
+    decoded = decode_scenario(original)
+    restored = encode_scenario(decoded)
+
+    assert restored["steps"][0]["tasks"] == snapshot["steps"][0]["tasks"]
+    assert decoded.is_ha_managed is (2 not in order)
+    assert original == snapshot
+
 
 # ---------------------------------------------------------------------------
 # Live fixtures from probe

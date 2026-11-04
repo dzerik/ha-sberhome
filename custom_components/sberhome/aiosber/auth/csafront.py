@@ -1,4 +1,4 @@
-"""CSAFront SMS-OTP auth flow (beta path).
+"""CSAFront SMS/email-OTP auth flow (beta path).
 
 **Механизм и алгоритм полностью взят из открытого проекта
 [shuryak/sberdevices](https://github.com/shuryak/sberdevices) (Go, MIT)**.
@@ -10,7 +10,8 @@ refresh-rotation — переиспользованы оттуда без изм
 Альтернативный путь авторизации, минующий Sber ID OAuth (`id.sber.ru`):
 
 1. `send_otp(http, phone, pkce)` — заявка на SMS-OTP, возвращает `ouid`.
-2. `verify_otp(http, ouid, otp)` — обмен OTP на `authcode`.
+2. `verify_otp(http, ouid, otp)` — authcode или EmailOtpChallenge;
+   дополнительный email-фактор инициализируется через `initialize_email_otp`.
 3. `exchange_authcode(http, authcode, pkce)` — `authcode` → CSAFront
    access + refresh токены.
 4. `get_smart_home_token(http, csafront_access)` — CSAFront access →
@@ -24,7 +25,8 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -32,6 +34,7 @@ import httpx
 from ..const import (
     CSAFRONT_AUTHENTICATE_URL,
     CSAFRONT_CLIENT_ID,
+    CSAFRONT_INITIALIZE_URL,
     CSAFRONT_REDIRECT_URI,
     CSAFRONT_SMARTHOME_TOKEN_URL,
     CSAFRONT_VERIFY_URL,
@@ -64,6 +67,58 @@ _CSAFRONT_HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
     "Origin": "https://online.sberbank.ru",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class EmailOtpChallenge:
+    """Email confirmation required within the current CSAFront operation."""
+
+    ouid: str = field(repr=False)
+    initialization_required: bool = True
+
+
+class UnsupportedAuthenticator(AuthError):
+    """The server requires a factor this client cannot complete."""
+
+
+class AuthSessionExpired(AuthError):
+    """The authorization operation no longer exists or has timed out."""
+
+
+async def _post_otp(
+    http: httpx.AsyncClient,
+    url: str,
+    body: dict[str, Any],
+    stage: str,
+    *,
+    checking_code: bool = False,
+) -> dict[str, Any]:
+    """Send an OTP operation without exposing provider payloads in exceptions."""
+    headers = {**_CSAFRONT_HEADERS, "Referer": "SD", "Content-Type": "application/json"}
+    try:
+        resp = await http.post(url, json=body, headers=headers)
+    except httpx.TimeoutException as err:
+        raise NetworkError(f"{stage} timeout") from err
+    except httpx.HTTPError as err:
+        raise NetworkError(f"{stage} transport error") from err
+    if resp.status_code != 200:
+        try:
+            error = resp.json().get("error")
+        except (ValueError, AttributeError):
+            error = None
+        code = error.get("code") if isinstance(error, dict) else None
+        if code in ("no_operation", "operation_timeout"):
+            raise AuthSessionExpired(f"{stage}: authorization session expired")
+        if checking_code and resp.status_code in (400, 401, 403):
+            raise InvalidGrant(f"{stage} rejected: {resp.status_code}")
+        raise AuthError(f"{stage} failed: {resp.status_code}")
+    try:
+        data = resp.json()
+    except ValueError as err:
+        raise AuthError(f"{stage}: invalid JSON") from err
+    if not isinstance(data, dict):
+        raise AuthError(f"{stage}: expected JSON object")
+    return data
 
 
 def _rand_str(n: int) -> str:
@@ -104,32 +159,26 @@ async def send_otp(http: httpx.AsyncClient, phone: str, pkce: PkceParams) -> str
             },
         },
     }
-    headers = {**_CSAFRONT_HEADERS, "Referer": "SD", "Content-Type": "application/json"}
-    try:
-        resp = await http.post(CSAFRONT_AUTHENTICATE_URL, json=body, headers=headers)
-    except httpx.TimeoutException as err:
-        raise NetworkError(f"send_otp timeout: {err}") from err
-    except httpx.HTTPError as err:
-        raise NetworkError(f"send_otp transport error: {err}") from err
-
-    if resp.status_code != 200:
-        raise AuthError(f"send_otp failed: {resp.status_code} {resp.text[:200]}")
-    try:
-        data = resp.json()
-    except ValueError as err:
-        raise AuthError(f"send_otp: invalid JSON in response: {err}") from err
+    data = await _post_otp(http, CSAFRONT_AUTHENTICATE_URL, body, "send_otp")
     ouid = data.get("ouid")
     if not ouid:
-        raise AuthError(f"send_otp: no 'ouid' in response: {data}")
+        raise AuthError("send_otp: no 'ouid' in response")
     return str(ouid)
 
 
-async def verify_otp(http: httpx.AsyncClient, ouid: str, otp: str) -> str:
-    """Шаг 2: проверить OTP, получить `authcode`.
+async def verify_otp(
+    http: httpx.AsyncClient,
+    ouid: str,
+    otp: str,
+    *,
+    authenticator: Literal["sms_otp", "email_otp"] = "sms_otp",
+) -> str | EmailOtpChallenge:
+    """Проверить OTP: вернуть authcode или требование email-подтверждения.
 
     Args:
         ouid: returned by `send_otp`.
-        otp: 6-значный код из SMS.
+        otp: Код из SMS или email.
+        authenticator: Фактор, которому соответствует код.
 
     Raises:
         InvalidGrant: OTP неверный или просрочен. Пользователю показать
@@ -138,32 +187,49 @@ async def verify_otp(http: httpx.AsyncClient, ouid: str, otp: str) -> str:
         NetworkError: проблемы с сетью.
     """
     body = {
-        "authenticator": {"type": "sms_otp", "data": {"value": otp}},
+        "authenticator": {"type": authenticator, "data": {"value": otp}},
         "identifier": {"type": "ouid", "data": {"value": ouid}},
         "channel": {"type": "web", "data": {"rsa_data": _RSA_DATA}},
     }
-    headers = {**_CSAFRONT_HEADERS, "Referer": "SD", "Content-Type": "application/json"}
-    try:
-        resp = await http.post(CSAFRONT_VERIFY_URL, json=body, headers=headers)
-    except httpx.TimeoutException as err:
-        raise NetworkError(f"verify_otp timeout: {err}") from err
-    except httpx.HTTPError as err:
-        raise NetworkError(f"verify_otp transport error: {err}") from err
-
-    if resp.status_code != 200:
-        # Sber отдаёт 4xx для wrong/expired OTP.
-        body_text = resp.text[:200]
-        if resp.status_code in (400, 401, 403):
-            raise InvalidGrant(f"verify_otp rejected: {resp.status_code} {body_text}")
-        raise AuthError(f"verify_otp failed: {resp.status_code} {body_text}")
-    try:
-        data = resp.json()
-    except ValueError as err:
-        raise AuthError(f"verify_otp: invalid JSON: {err}") from err
+    data = await _post_otp(http, CSAFRONT_VERIFY_URL, body, "verify_otp", checking_code=True)
     authcode = _extract_authcode(data)
-    if not authcode:
-        raise AuthError(f"verify_otp: no authcode in response: {data}")
-    return authcode
+    if authcode:
+        return authcode
+    factors = data.get("authenticator")
+    if factors:
+        if (
+            isinstance(factors, list)
+            and len(factors) == 1
+            and isinstance(factors[0], dict)
+            and factors[0].get("type") == "email_otp"
+        ):
+            return EmailOtpChallenge(
+                ouid=ouid,
+                initialization_required=factors[0].get("initialization_required") is not False,
+            )
+        raise UnsupportedAuthenticator("verify_otp: unsupported confirmation factor")
+    raise AuthError("verify_otp: no authcode in response")
+
+
+async def initialize_email_otp(http: httpx.AsyncClient, ouid: str) -> str:
+    """Request an email code and return the possibly rotated operation ID.
+
+    Wire contract: official Sber ID r-97.0.0 initialize request builder.
+    See openspec/changes/add-csafront-email-otp/protocol.md for provenance.
+    """
+    body = {
+        "identifier": {"type": "ouid", "data": {"value": ouid}},
+        "authenticator": {"type": "email_otp"},
+        "channel": {"type": "web", "data": {"rsa_data": _RSA_DATA}},
+    }
+    data = await _post_otp(http, CSAFRONT_INITIALIZE_URL, body, "initialize_email_otp")
+    factor = data.get("authenticator")
+    if not isinstance(factor, dict) or factor.get("type") != "email_otp":
+        raise UnsupportedAuthenticator("initialize_email_otp: unsupported confirmation factor")
+    new_ouid = data.get("ouid", ouid)
+    if not isinstance(new_ouid, str) or not new_ouid:
+        raise AuthError("initialize_email_otp: invalid operation ID")
+    return new_ouid
 
 
 def _extract_authcode(data: Any) -> str | None:
@@ -221,21 +287,20 @@ async def exchange_authcode(
     try:
         resp = await http.post(TOKEN_ENDPOINT, data=body, headers=headers)
     except httpx.TimeoutException as err:
-        raise NetworkError(f"exchange_authcode timeout: {err}") from err
+        raise NetworkError("exchange_authcode timeout") from err
     except httpx.HTTPError as err:
-        raise NetworkError(f"exchange_authcode transport error: {err}") from err
+        raise NetworkError("exchange_authcode transport error") from err
 
     if resp.status_code != 200:
-        body_text = resp.text[:200]
         if resp.status_code in (400, 401):
-            raise InvalidGrant(f"exchange_authcode rejected: {body_text}")
-        raise AuthError(f"exchange_authcode failed: {resp.status_code} {body_text}")
+            raise InvalidGrant(f"exchange_authcode rejected: {resp.status_code}")
+        raise AuthError(f"exchange_authcode failed: {resp.status_code}")
     try:
         data = resp.json()
     except ValueError as err:
-        raise AuthError(f"exchange_authcode: invalid JSON: {err}") from err
+        raise AuthError("exchange_authcode: invalid JSON") from err
     if "access_token" not in data:
-        raise AuthError(f"exchange_authcode: no access_token: {data}")
+        raise AuthError("exchange_authcode: no access_token")
     return data
 
 
@@ -260,25 +325,24 @@ async def get_smart_home_token(
     try:
         resp = await http.get(CSAFRONT_SMARTHOME_TOKEN_URL, headers=headers)
     except httpx.TimeoutException as err:
-        raise NetworkError(f"get_smart_home_token timeout: {err}") from err
+        raise NetworkError("get_smart_home_token timeout") from err
     except httpx.HTTPError as err:
-        raise NetworkError(f"get_smart_home_token transport error: {err}") from err
+        raise NetworkError("get_smart_home_token transport error") from err
 
     if resp.status_code != 200:
-        body_text = resp.text[:200]
         if resp.status_code in (401, 403):
-            raise InvalidGrant(f"smarthome/token rejected: {body_text}")
+            raise InvalidGrant(f"smarthome/token rejected: {resp.status_code}")
         raise ApiError(
             resp.status_code,
-            message=f"smarthome/token: {body_text}",
+            message="smarthome/token failed",
         )
     try:
         data = resp.json()
     except ValueError as err:
-        raise AuthError(f"smarthome/token: invalid JSON: {err}") from err
+        raise AuthError("smarthome/token: invalid JSON") from err
     token = data.get("token")
     if not token:
-        raise AuthError(f"smarthome/token: no 'token' in response: {data}")
+        raise AuthError("smarthome/token: no 'token' in response")
     return str(token)
 
 
@@ -305,22 +369,21 @@ async def refresh_csafront(
     try:
         resp = await http.post(TOKEN_ENDPOINT, data=body, headers=headers)
     except httpx.TimeoutException as err:
-        raise NetworkError(f"refresh_csafront timeout: {err}") from err
+        raise NetworkError("refresh_csafront timeout") from err
     except httpx.HTTPError as err:
-        raise NetworkError(f"refresh_csafront transport error: {err}") from err
+        raise NetworkError("refresh_csafront transport error") from err
 
     if resp.status_code != 200:
-        body_text = resp.text[:200]
         if resp.status_code in (400, 401):
             # 400 invalid_grant — refresh_token уже использован/протух.
-            raise InvalidGrant(f"refresh_csafront rejected: {body_text}")
-        raise AuthError(f"refresh_csafront failed: {resp.status_code} {body_text}")
+            raise InvalidGrant(f"refresh_csafront rejected: {resp.status_code}")
+        raise AuthError(f"refresh_csafront failed: {resp.status_code}")
     try:
         data = resp.json()
     except ValueError as err:
-        raise AuthError(f"refresh_csafront: invalid JSON: {err}") from err
+        raise AuthError("refresh_csafront: invalid JSON") from err
     if "access_token" not in data:
-        raise AuthError(f"refresh_csafront: no access_token: {data}")
+        raise AuthError("refresh_csafront: no access_token")
     return data
 
 

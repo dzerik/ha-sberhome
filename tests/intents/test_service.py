@@ -321,3 +321,28 @@ class TestRenderPhraseTemplates:
         assert exc_info.value.translation_key == "message_template_error"
         # Sber API НЕ должен быть дёрнут — render падает до запроса
         coord.client.transport.post.assert_not_awaited()
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("returned_active", [True, False])
+async def test_disabled_save_applies_dedicated_active_endpoint(operation, returned_active):
+    """Live cloud ignored is_active:false on POST; editing must also keep it disabled."""
+    response = {**SAMPLE_SCENARIO, "is_active": returned_active}
+    service, coord = _build_service(**{f"{operation}_response": response})
+    coord.client.scenarios.set_active = AsyncMock()
+    spec = IntentSpec(name="Отключённый", enabled=False)
+    if operation == "create":
+        result = await service.create_intent(spec)
+    else:
+        result = await service.update_intent("sc-1", spec)
+    coord.client.scenarios.set_active.assert_awaited_once_with("sc-1", False)
+    assert result.enabled is False
+
+
+async def test_disabled_create_cleanup_if_deactivation_fails():
+    """Do not leave a new active scenario behind when the required PATCH fails."""
+    service, coord = _build_service(create_response=SAMPLE_SCENARIO)
+    coord.client.scenarios.set_active = AsyncMock(side_effect=RuntimeError("patch failed"))
+    with pytest.raises(RuntimeError, match="patch failed"):
+        await service.create_intent(IntentSpec(name="Отключённый", enabled=False))
+    coord.client.transport.delete.assert_awaited_once_with("/scenario/v2/scenario/sc-1")

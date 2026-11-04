@@ -25,6 +25,8 @@ export class SberhomeAttrForm extends LitElement {
       hass: { attribute: false },
       deviceId: { attribute: false },
       value: { attribute: false }, // [{key, type, bool_value|integer_value|...}]
+      disabled: {type: Boolean},
+      conditionMode: {type: Boolean},
       allowInvert: { attribute: false }, // BOOL mode-селектор (только для действия)
       _fields: { state: true },
       _loading: { state: true },
@@ -34,6 +36,7 @@ export class SberhomeAttrForm extends LitElement {
   static get styles() {
     return [css`
       :host { display: block; }
+      fieldset {border:0; margin:0; padding:0; min-width:0;}
       .hint { color: var(--secondary-text-color, #888); font-size: 13px; padding: 6px 0; }
       .attr-row {
         display: flex; align-items: center; gap: 10px;
@@ -64,14 +67,22 @@ export class SberhomeAttrForm extends LitElement {
     super();
     this.value = [];
     this.allowInvert = false;
+    this.disabled = false;
+    this.conditionMode = false;
     this._fields = [];
     this._loading = false;
     this._loadedFor = null;
   }
 
   updated(changed) {
-    if (changed.has("deviceId") && this.deviceId && this.deviceId !== this._loadedFor) {
-      this._loadedFor = this.deviceId;
+    if (!this.deviceId) {
+      if (this._fields.length) this._fields = [];
+      this._loadedFor = null;
+      return;
+    }
+    const identity = `${this.deviceId}:${this.conditionMode}`;
+    if ((changed.has("deviceId") || changed.has("conditionMode")) && identity !== this._loadedFor) {
+      this._loadedFor = identity;
       this._fetchSchema();
     }
   }
@@ -82,6 +93,7 @@ export class SberhomeAttrForm extends LitElement {
       const r = await this.hass.callWS({
         type: "sberhome/device_write_schema",
         device_id: this.deviceId,
+        ...(this.conditionMode ? {include_readonly: true} : {}),
       });
       this._fields = r?.fields || [];
     } catch (_e) {
@@ -95,6 +107,7 @@ export class SberhomeAttrForm extends LitElement {
   }
 
   _emit(next) {
+    if (this.disabled) return;
     this.value = next;
     this.dispatchEvent(
       new CustomEvent("attributes-change", {
@@ -144,6 +157,8 @@ export class SberhomeAttrForm extends LitElement {
         return { key: field.key, type: "INTEGER", integer_value: String(c ?? field.range?.min ?? 0) };
       case "FLOAT":
         return { key: field.key, type: "FLOAT", float_value: Number(c ?? field.frange?.min ?? 0) };
+      case "STRING":
+        return {key: field.key, type: "STRING", string_value: String(c ?? "")};
       case "ENUM":
         return { key: field.key, type: "ENUM", enum_value: String(c ?? field.enum?.[0] ?? "") };
       case "COLOR": {
@@ -170,6 +185,8 @@ export class SberhomeAttrForm extends LitElement {
         return { key: field.key, type: "INTEGER", integer_value: String(Math.round(Number(v) || 0)) };
       case "FLOAT":
         return { key: field.key, type: "FLOAT", float_value: Number(v) || 0 };
+      case "STRING":
+        return {key: field.key, type: "STRING", string_value: String(v)};
       case "ENUM":
         return { key: field.key, type: "ENUM", enum_value: String(v) };
       default:
@@ -187,7 +204,7 @@ export class SberhomeAttrForm extends LitElement {
     if (!this.deviceId) return html`<div class="hint">Сначала выберите устройство</div>`;
     if (this._loading) return html`<div class="hint">Загрузка возможностей устройства…</div>`;
     if (!this._fields.length) return html`<div class="hint">У устройства нет управляемых атрибутов</div>`;
-    return html`${this._fields.map((f) => this._renderField(f))}`;
+    return html`<fieldset ?disabled=${this.disabled}>${this._fields.map((f) => this._renderField(f))}</fieldset>`;
   }
 
   _renderField(field) {
@@ -254,6 +271,9 @@ export class SberhomeAttrForm extends LitElement {
           @input=${(e) => this._set(field, e.target.value)}
         />`;
       }
+      case "STRING":
+        return html`<input type="text" .value=${cur?.string_value || ""}
+          @input=${(e) => this._set(field, e.target.value)} />`;
       case "ENUM": {
         const v = cur?.enum_value ?? field.enum?.[0] ?? "";
         return html`<select @change=${(e) => this._set(field, e.target.value)}>

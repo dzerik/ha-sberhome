@@ -92,6 +92,7 @@ DEFAULT_PARTNER_NAME: Final = "Салют! Умный дом"
 # 5. Refresh: POST .../token с grant_type=refresh_token (rotation!).
 CSAFRONT_AUTHENTICATE_URL: Final = "https://online.sberbank.ru/CSAFront/uapi/v2/authenticate"
 CSAFRONT_VERIFY_URL: Final = "https://online.sberbank.ru/CSAFront/uapi/v2/verify"
+CSAFRONT_INITIALIZE_URL: Final = "https://online.sberbank.ru/CSAFront/uapi/v2/initialize"
 # CSAFRONT_TOKEN_URL = TOKEN_ENDPOINT — reused (тот же endpoint).
 CSAFRONT_SMARTHOME_TOKEN_URL: Final = "https://mp-prom.salutehome.ru/v13/smarthome/token"
 

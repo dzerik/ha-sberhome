@@ -4,10 +4,9 @@
 - `ui_label` / `ui_fields` — для UI-формы
 - `encode(action_data, context)` → `list[ScenarioTaskDto-as-dict]` — Sber wire
 - `decode(task_dicts)` → `(IntentAction, leftover_tasks)` — обратное.
-  Encoder вызывает все зарегистрированные decoder'ы по очереди; первый
-  matching берёт «свои» tasks, остальные передаются дальше. Незнакомые
-  tasks остаются в `IntentSpec.raw_extras['steps'][i]['tasks']` и при
-  update мерджатся обратно (forward-compat).
+  Encoder передаёт каждую wire-task decoder'ам по очереди, сохраняя
+  исходный порядок. Первый matching создаёт действие; незнакомая task
+  хранится в `IntentAction(unknown=True).data['raw']` (forward-compat).
 
 Добавление нового action type:
 1. Написать encode/decode pair (~30 строк).
@@ -20,6 +19,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -308,7 +308,7 @@ def _decode_speaker_text(
     matched: IntentAction | None = None
     for t in tasks:
         # Голый top-level HEAD_DIALOG_COMMAND — наша каноничная форма.
-        # REGIME_COMMAND (мультипериод) НЕ забираем → остаётся unknown.
+        # REGIME_COMMAND обрабатывается отдельным decoder ниже.
         if matched is None and t.get("type") == "HEAD_DIALOG_COMMAND":
             hd = t.get("head_dialog_command_task_data") or {}
             matched = IntentAction(
@@ -323,6 +323,111 @@ def _decode_speaker_text(
     if matched is None:
         return None, tasks
     return matched, leftover
+
+
+# ---- regime_command (period-dependent assistant commands) ----
+REGIME_PERIODS = ("morning", "evening", "night")
+_REGIME_FIELDS = (
+    FieldSpec(
+        key="commands",
+        type="regime_commands",
+        label="Команды по периодам суток",
+        required=True,
+        default=[],
+        help_text="Для каждой команды выберите период, колонку и текст.",
+    ),
+)
+
+
+def _valid_regime_command(command: Any) -> bool:
+    return (
+        isinstance(command, dict)
+        and command.get("period") in REGIME_PERIODS
+        and all(
+            isinstance(command.get(key), str) and command[key].strip()
+            for key in ("device_id", "text")
+        )
+    )
+
+
+def _encode_regime_command(data: dict[str, Any]) -> list[dict[str, Any]]:
+    commands = data.get("commands")
+    if (
+        not isinstance(commands, list)
+        or not commands
+        or not all(_valid_regime_command(command) for command in commands)
+        or len({command["period"] for command in commands}) != len(commands)
+    ):
+        raise ValueError("Choose a unique period, speaker and text for every command.")
+    wrapper = deepcopy(data.get("_raw") or {})
+    nested = []
+    for command in commands:
+        task = deepcopy(command.get("_raw") or {})
+        head = task.get("head_dialog_command_task_data") or {}
+        head.update(device_id=command["device_id"], text=command["text"])
+        for key in ("content_id", "cinema", "action_type", "content"):
+            head.setdefault(key, "")
+        condition = task.get("regime_condition") or {}
+        condition["period"] = command["period"]
+        condition.setdefault("daypart", "common")
+        condition.setdefault("calendar", "common")
+        condition.setdefault("rrule", "")
+        task.update(
+            type="HEAD_DIALOG_COMMAND",
+            head_dialog_command_task_data=head,
+            regime_condition=condition,
+        )
+        task.setdefault("start_delay", "0s")
+        nested.append(task)
+    regime = wrapper.get("regime_command_data") or {}
+    regime["tasks"] = nested
+    wrapper.update(type="REGIME_COMMAND", regime_command_data=regime)
+    wrapper.setdefault("start_delay", "0s")
+    return [wrapper]
+
+
+def _decode_regime_command(
+    tasks: list[dict[str, Any]],
+) -> tuple[IntentAction | None, list[dict[str, Any]]]:
+    for index, task in enumerate(tasks):
+        if task.get("type") != "REGIME_COMMAND":
+            continue
+        regime = task.get("regime_command_data")
+        nested = regime.get("tasks") if isinstance(regime, dict) else None
+        if not isinstance(nested, list) or not nested:
+            return None, tasks
+        commands = []
+        for child in nested:
+            if not isinstance(child, dict) or child.get("type") != "HEAD_DIALOG_COMMAND":
+                return None, tasks
+            head = child.get("head_dialog_command_task_data")
+            condition = child.get("regime_condition")
+            if (
+                not isinstance(head, dict)
+                or not isinstance(condition, dict)
+                or condition.get("daypart", "common") != "common"
+                or condition.get("calendar", "common") != "common"
+                or condition.get("rrule", "") != ""
+            ):
+                return None, tasks
+            command = {
+                "period": condition.get("period"),
+                "device_id": head.get("device_id"),
+                "text": head.get("text"),
+                "_raw": deepcopy(child),
+            }
+            if not _valid_regime_command(command):
+                return None, tasks
+            commands.append(command)
+        if len({command["period"] for command in commands}) != len(commands):
+            return None, tasks
+        return (
+            IntentAction(
+                type="regime_command", data={"commands": commands, "_raw": deepcopy(task)}
+            ),
+            tasks[:index] + tasks[index + 1 :],
+        )
+    return None, tasks
 
 
 # ---- scenario_status (SCENARIO_SET_ACTIVE) ----
@@ -416,8 +521,8 @@ def _decode_sms(
 # ---------------------------------------------------------------------------
 
 _DEFAULT_ACTIONS: tuple[ActionRegistration, ...] = (
-    # Order matters для decode: ha_event_only оставляем последним —
-    # он матчит «нет tasks», пустой leftover.
+    # Стабильный порядок типов в UI. ha_event_only оставляем последним:
+    # он представляет сценарий без wire-задач.
     ActionRegistration(
         type="tts",
         ui_label="Произнести через колонку (Sber TTS)",
@@ -445,6 +550,13 @@ _DEFAULT_ACTIONS: tuple[ActionRegistration, ...] = (
         ui_fields=_SPEAKER_TEXT_FIELDS,
         encode=_encode_speaker_text,
         decode=_decode_speaker_text,
+    ),
+    ActionRegistration(
+        type="regime_command",
+        ui_label="Команды ассистенту по периодам суток",
+        ui_fields=_REGIME_FIELDS,
+        encode=_encode_regime_command,
+        decode=_decode_regime_command,
     ),
     ActionRegistration(
         type="scenario_status",

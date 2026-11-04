@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from custom_components.sberhome.aiosber.auth import PkceParams
 from custom_components.sberhome.aiosber.auth.csafront import (
+    AuthSessionExpired,
+    EmailOtpChallenge,
+    UnsupportedAuthenticator,
     _extract_authcode,
     exchange_authcode,
     get_smart_home_token,
+    initialize_email_otp,
     refresh_csafront,
     send_otp,
     verify_otp,
@@ -84,6 +90,128 @@ async def test_verify_otp_extracts_authcode_flat_shape():
     ac = await verify_otp(http, "ouid", "1234")
     assert ac == "ac-123"
     await http.aclose()
+
+
+async def test_verify_sms_returns_email_challenge_instead_of_rejecting_login():
+    """Issue #80: a valid SMS can require another factor rather than return authcode."""
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "authenticator": [{"type": "email_otp", "initialization_required": True}],
+                "response_data": {"toc": "redacted-toc"},
+            },
+        )
+
+    async with _client(handler) as http:
+        result = await verify_otp(http, "sms-session", "123456")
+
+    assert result.ouid == "sms-session"
+    assert result.initialization_required is True
+
+
+@pytest.mark.parametrize("rotated", [True, False])
+async def test_email_initialize_then_verify_uses_current_ouid_and_same_cookies(rotated):
+    """Contract from the official client; responses are sanitized synthetic examples."""
+    ouid = "email-operation" if rotated else "sms-session"
+    requests = []
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        requests.append(req)
+        body = json.loads(req.content)
+        assert body["authenticator"]["type"] == "email_otp"
+        assert body["channel"]["type"] == "web"
+        assert "rsa_data" in body["channel"]["data"]
+        assert req.headers["Referer"] == "SD"
+        if req.url.path.endswith("/initialize"):
+            assert body["identifier"]["data"]["value"] == "sms-session"
+            assert "data" not in body["authenticator"]
+            reply = {"authenticator": {"type": "email_otp", "lifetime": 180, "data": {}}}
+            if rotated:
+                reply["ouid"] = ouid
+            return httpx.Response(200, json=reply, headers={"Set-Cookie": "session=fake; Path=/"})
+        assert body["identifier"]["data"]["value"] == ouid
+        assert body["authenticator"]["data"]["value"] == "654321"
+        assert req.headers["Cookie"] == "session=fake"
+        return httpx.Response(200, json={"response_data": {"authcode": "email-authcode"}})
+
+    async with _client(handler) as http:
+        current = await initialize_email_otp(http, "sms-session")
+        result = await verify_otp(http, current, "654321", authenticator="email_otp")
+    assert result == "email-authcode"
+    assert [r.url.path for r in requests] == [
+        "/CSAFront/uapi/v2/initialize",
+        "/CSAFront/uapi/v2/verify",
+    ]
+
+
+@pytest.mark.parametrize("required", [True, False, None])
+async def test_email_challenge_tracks_initialization(required):
+    async def handler(req):
+        factor = {"type": "email_otp"}
+        if required is not None:
+            factor["initialization_required"] = required
+        return httpx.Response(200, json={"authenticator": [factor]})
+
+    async with _client(handler) as http:
+        result = await verify_otp(http, "private-operation", "123456")
+    assert isinstance(result, EmailOtpChallenge)
+    assert result.initialization_required is (required is not False)
+    assert "private-operation" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "factors",
+    [
+        "email_otp",
+        {"type": "email_otp"},
+        [None],
+        [{"type": "pat_push"}],
+        [{"type": "email_otp"}, {"type": "pat_push"}],
+    ],
+)
+async def test_verify_rejects_unsupported_or_ambiguous_factors(factors):
+    async def handler(req):
+        return httpx.Response(200, json={"authenticator": factors})
+
+    async with _client(handler) as http:
+        with pytest.raises(UnsupportedAuthenticator):
+            await verify_otp(http, "operation", "123456")
+
+
+@pytest.mark.parametrize("factor", [None, [], {"type": "pat_push"}])
+async def test_initialize_rejects_unsupported_factor(factor):
+    async def handler(req):
+        return httpx.Response(200, json={"authenticator": factor})
+
+    async with _client(handler) as http:
+        with pytest.raises(UnsupportedAuthenticator):
+            await initialize_email_otp(http, "operation")
+
+
+@pytest.mark.parametrize("ouid", [None, "", 123])
+async def test_initialize_rejects_invalid_new_operation_id(ouid):
+    async def handler(req):
+        return httpx.Response(200, json={"ouid": ouid, "authenticator": {"type": "email_otp"}})
+
+    async with _client(handler) as http:
+        with pytest.raises(AuthError, match="operation ID"):
+            await initialize_email_otp(http, "operation")
+
+
+@pytest.mark.parametrize("stage", ["initialize", "verify"])
+@pytest.mark.parametrize("code", ["no_operation", "operation_timeout"])
+async def test_expired_otp_operation_is_distinguished_from_wrong_code(stage, code):
+    async def handler(req):
+        return httpx.Response(403, json={"error": {"code": code}})
+
+    async with _client(handler) as http:
+        with pytest.raises(AuthSessionExpired):
+            if stage == "initialize":
+                await initialize_email_otp(http, "operation")
+            else:
+                await verify_otp(http, "operation", "123456", authenticator="email_otp")
 
 
 async def test_verify_otp_extracts_authcode_response_data_shape():
@@ -237,12 +365,37 @@ async def test_refresh_csafront_raises_invalid_grant_on_400():
 _PKCE = PkceParams.generate()
 
 _STEPS = {
+    "initialize_email_otp": lambda http: initialize_email_otp(http, "ouid-1"),
     "send_otp": lambda http: send_otp(http, "78001002030", _PKCE),
     "verify_otp": lambda http: verify_otp(http, "ouid-1", "123456"),
     "exchange_authcode": lambda http: exchange_authcode(http, "ac-1", _PKCE),
     "get_smart_home_token": lambda http: get_smart_home_token(http, "ax"),
     "refresh_csafront": lambda http: refresh_csafront(http, "rx"),
 }
+
+
+@pytest.mark.parametrize("step", sorted(_STEPS))
+@pytest.mark.parametrize("status", [200, 400, 503])
+async def test_auth_failures_do_not_expose_provider_payloads(step, status):
+    private = "fake-otp-authcode-toc-refresh-secret"
+
+    async def handler(req):
+        return httpx.Response(status, json={"debug": private, "response_data": {"toc": private}})
+
+    async with _client(handler) as http:
+        with pytest.raises((AuthError, ApiError)) as exc:
+            await _STEPS[step](http)
+    assert private not in str(exc.value)
+
+
+@pytest.mark.parametrize("payload", [[], "not-object", None])
+async def test_otp_request_rejects_non_object_response(payload):
+    async def handler(req):
+        return httpx.Response(200, json=payload)
+
+    async with _client(handler) as http:
+        with pytest.raises(AuthError, match="JSON object|invalid JSON"):
+            await initialize_email_otp(http, "operation")
 
 
 def _raising(exc: Exception):

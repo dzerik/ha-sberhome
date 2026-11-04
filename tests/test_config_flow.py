@@ -10,6 +10,7 @@ Flow проходит через настоящий менеджер flow Home A
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -34,11 +35,13 @@ from custom_components.sberhome.aiosber.const import (
     COMPANION_BASE_URL,
     COMPANION_TOKEN_PATH,
     CSAFRONT_AUTHENTICATE_URL,
+    CSAFRONT_INITIALIZE_URL,
     CSAFRONT_SMARTHOME_TOKEN_URL,
     CSAFRONT_VERIFY_URL,
     GATEWAY_BASE_URL,
     TOKEN_ENDPOINT,
 )
+from custom_components.sberhome.aiosber.exceptions import AuthError
 from custom_components.sberhome.auth_state import pending_auth_flows
 from custom_components.sberhome.config_flow import (
     ConfigFlow,
@@ -60,6 +63,7 @@ PHONE = "78001234567"
 SUB = "account-sub"
 COMPANION_TOKEN = "companion-access"
 SMART_HOME_TOKEN = "smart-home-token"
+EMAIL_CODE = "654321"
 
 
 def _make_token_with_sub(sub: str | None) -> dict:
@@ -93,6 +97,7 @@ class FakeSberCloud:
         self.sub: str | None = SUB
         self.codes: dict[str, str] = {}
         self.sent = 0
+        self.email_sent = 0
         self.clients: list[httpx.AsyncClient] = []
         self.requests: list[httpx.Request] = []
         self._queued: dict[str, list[Reply]] = {}
@@ -127,6 +132,8 @@ class FakeSberCloud:
             return "send_otp"
         if url == CSAFRONT_VERIFY_URL:
             return "verify"
+        if url == CSAFRONT_INITIALIZE_URL:
+            return "initialize"
         if url == TOKEN_ENDPOINT:
             grant = parse_qs(request.content.decode())["grant_type"][0]
             return "refresh" if grant == "refresh_token" else "token"
@@ -164,6 +171,18 @@ class FakeSberCloud:
             return httpx.Response(400, json={"error": "wrong or expired code"})
         del self.codes[ouid]
         return httpx.Response(200, json={"authcode": f"authcode-{ouid}"})
+
+    def _ok_initialize(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["authenticator"] == {"type": "email_otp"}
+        self.codes.pop(body["identifier"]["data"]["value"], None)
+        self.email_sent += 1
+        ouid = f"email-{self.email_sent}"
+        self.codes[ouid] = EMAIL_CODE
+        return httpx.Response(
+            200,
+            json={"ouid": ouid, "authenticator": {"type": "email_otp", "lifetime": 180}},
+        )
 
     def _tokens(self) -> dict[str, Any]:
         self._issued += 1
@@ -863,6 +882,206 @@ async def test_sms_account_is_not_added_twice(hass: HomeAssistant, cloud) -> Non
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
 
 
+def _queue_email_challenge(cloud, *, required=True):
+    """Replay the response shape in #80; initialize/verify replies are synthetic."""
+
+    def challenge(request):
+        assert json.loads(request.content)["authenticator"]["type"] == "sms_otp"
+        response = cloud._ok_verify(request)
+        assert response.status_code == 200
+        if not required:
+            ouid = json.loads(request.content)["identifier"]["data"]["value"]
+            cloud.codes[ouid] = EMAIL_CODE
+        return httpx.Response(
+            200,
+            json={
+                "authenticator": [{"type": "email_otp", "initialization_required": required}],
+                "response_data": {"toc": "private-context"},
+            },
+        )
+
+    cloud.fail("verify", challenge)
+
+
+async def _start_email_flow(hass, cloud, *, required=True):
+    _queue_email_challenge(cloud, required=required)
+    result = await _sms_login(hass, await _start(hass, "sms"), cloud)
+    assert result["step_id"] == "email_otp"
+    return result
+
+
+@pytest.mark.parametrize("required", [True, False])
+async def test_sms_then_email_completes_same_flow(hass, cloud, required):
+    result = await _start_email_flow(hass, cloud, required=required)
+    assert result["errors"] == {}
+    assert not hass.config_entries.async_entries(DOMAIN)
+    assert cloud.email_sent == int(required)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_CSAFRONT_TOKENS]["smart_home_token"] == SMART_HOME_TOKEN
+    verifies = [json.loads(r.content) for r in cloud.requests if cloud._route(r) == "verify"]
+    assert [v["authenticator"]["type"] for v in verifies] == ["sms_otp", "email_otp"]
+    assert len(cloud.clients) == 1
+    start = json.loads(cloud.calls("send_otp")[0].content)
+    verifier = parse_qs(cloud.calls("token")[0].content.decode())["code_verifier"][0]
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
+    assert start["channel"]["data"]["oidc"]["code_challenge"] == challenge.decode()
+
+
+async def test_email_wrong_and_empty_code_then_correct(hass, cloud):
+    result = await _start_email_flow(hass, cloud)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": "wrong"})
+    assert result["step_id"] == "email_otp"
+    assert result["errors"] == {"base": "invalid_email_otp"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["errors"] == {"otp": "invalid_email_otp"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert cloud.sent == cloud.email_sent == 1
+
+
+async def test_email_resend_updates_operation_without_sending_sms(hass, cloud):
+    result = await _start_email_flow(hass, cloud)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"resend": True, "otp": "ignored"}
+    )
+    assert result["errors"] == {}
+    assert cloud.sent == 1
+    assert cloud.email_sent == 2
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    verify = json.loads([r for r in cloud.requests if cloud._route(r) == "verify"][-1].content)
+    assert verify["identifier"]["data"]["value"] == "email-2"
+
+
+@pytest.mark.parametrize(
+    "failure,error",
+    [
+        (httpx.Response(503, json={"private": "private-context"}), "send_email_otp_failed"),
+        (httpx.ReadTimeout("private-context"), "send_email_otp_failed"),
+        (RuntimeError("synthetic init failure"), "unknown"),
+    ],
+)
+async def test_email_initialize_failure_can_be_retried(hass, cloud, failure, error, caplog):
+    cloud.fail("initialize", failure)
+    result = await _start_email_flow(hass, cloud)
+    assert result["errors"] == {"base": error}
+    assert "private-context" not in caplog.text
+    # A failed send must not verify a code that was never requested.
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["errors"] == {"base": "send_email_otp_failed"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"resend": True})
+    assert result["errors"] == {}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.parametrize("stage", ["verify", "initialize"])
+async def test_email_expired_operation_closes_session(hass, cloud, stage):
+    if stage == "initialize":
+        cloud.fail(stage, httpx.Response(403, json={"error": {"code": "no_operation"}}))
+    result = await _start_email_flow(hass, cloud)
+    if stage == "verify":
+        cloud.fail(stage, httpx.Response(403, json={"error": {"code": "operation_timeout"}}))
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"otp": EMAIL_CODE}
+        )
+    assert result["errors"] == {"base": "auth_session_expired"}
+    assert cloud.clients[0].is_closed
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"resend": True})
+    assert result["errors"] == {"base": "auth_session_expired"}
+
+
+@pytest.mark.parametrize("stage", ["sms", "initialize", "email"])
+async def test_unknown_factor_offers_other_sign_in_method(hass, cloud, stage):
+    if stage == "sms":
+        cloud.fail("verify", httpx.Response(200, json={"authenticator": [{"type": "pat_push"}]}))
+        result = await _sms_login(hass, await _start(hass, "sms"), cloud)
+    else:
+        if stage == "initialize":
+            cloud.fail(
+                "initialize", httpx.Response(200, json={"authenticator": {"type": "pat_push"}})
+            )
+        result = await _start_email_flow(hass, cloud)
+        if stage == "email":
+            cloud.fail(
+                "verify", httpx.Response(200, json={"authenticator": [{"type": "email_otp"}]})
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"otp": EMAIL_CODE}
+            )
+    assert result["errors"] == {"base": "unsupported_authenticator"}
+    assert cloud.clients[0].is_closed
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.parametrize(
+    "failure", [httpx.ReadTimeout("synthetic timeout"), AuthError("synthetic failure")]
+)
+async def test_email_verify_transient_failure_keeps_current_operation(hass, cloud, failure):
+    result = await _start_email_flow(hass, cloud)
+    cloud.fail("verify", failure)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["errors"]["base"] in ("cannot_connect", "invalid_auth")
+    assert not cloud.clients[0].is_closed
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_email_gateway_retry_does_not_repeat_otp_or_exchange(hass, cloud):
+    result = await _start_email_flow(hass, cloud)
+    cloud.fail("gateway", httpx.ReadTimeout("synthetic timeout"))
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["step_id"] == "email_otp"
+    assert result["errors"] == {"base": "cannot_connect"}
+    verifies = len(cloud.calls("verify"))
+    exchanges = len(cloud.calls("token"))
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert len(cloud.calls("verify")) == verifies == 2
+    assert len(cloud.calls("token")) == exchanges == 1
+
+
+async def test_email_token_exchange_failure_requires_new_sign_in(hass, cloud):
+    result = await _start_email_flow(hass, cloud)
+    cloud.fail("token", httpx.Response(403, json={"error": "rejected"}))
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["errors"] == {"base": "invalid_auth"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"otp": EMAIL_CODE})
+    assert result["errors"] == {"base": "auth_session_expired"}
+    assert len(cloud.calls("verify")) == 2
+
+
+async def test_sms_expired_session_is_not_reported_as_wrong_code(hass, cloud):
+    cloud.fail("verify", httpx.Response(403, json={"error": {"code": "no_operation"}}))
+    result = await _sms_login(hass, await _start(hass, "sms"), cloud)
+    assert result["errors"] == {"base": "auth_session_expired"}
+    assert cloud.clients[0].is_closed
+
+
+async def test_email_flow_abort_closes_http(hass, cloud):
+    result = await _start_email_flow(hass, cloud)
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+    assert cloud.clients[0].is_closed
+
+
+async def test_email_reauth_updates_same_entry(hass, cloud):
+    entry = _sms_entry(hass)
+    result = await entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    _queue_email_challenge(cloud)
+    result = await _sms_login(hass, result, cloud)
+    assert result["step_id"] == "email_otp"
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"otp": EMAIL_CODE}
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    reload.assert_called_once_with(entry.entry_id)
+
+
 # --- SMS: reauth ------------------------------------------------------------
 
 
@@ -955,6 +1174,7 @@ def test_every_form_field_is_described_in_every_language() -> None:
     fields = {
         ("config", "sms_phone"): {"phone"},
         ("config", "sms_otp"): {"otp", "resend"},
+        ("config", "email_otp"): {"otp", "resend"},
         ("options", "init"): {CONF_SCAN_INTERVAL, CONF_DEVTOOLS_BUFFER_SIZE, CONF_COMMAND_TIMEOUT},
     }
     for path in [base / "strings.json", *sorted((base / "translations").glob("*.json"))]:

@@ -12,7 +12,10 @@
  * автоматически перерисует шаблоны.
  */
 
-import { DICTS } from "./dicts.js";
+// Keep the dictionary in the caller's release: ESM caches dependencies by URL,
+// independently of the version on the importing component.
+const _version = new URL(import.meta.url).searchParams.get("v") || "";
+const { DICTS } = await import(`./dicts.js${_version ? `?v=${_version}` : ""}`);
 
 export function localize(lang, key, vars) {
   const code = String(lang || "ru").split("-")[0];
