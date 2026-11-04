@@ -564,6 +564,7 @@ def _prepare_intent_modal(tmp_path: Path) -> None:
         WWW / "components/sberhome-condition-editor.js",
         tmp_path / "components/sberhome-condition-editor.js",
     )
+    shutil.copyfile(WWW / "schedules.js", tmp_path / "schedules.js")
     view_path = "components/sberhome-intent-modal.js"
     shutil.copyfile(WWW / view_path, tmp_path / view_path)
     (tmp_path / "components/sberhome-attr-form.js").write_text("export {};", encoding="utf-8")

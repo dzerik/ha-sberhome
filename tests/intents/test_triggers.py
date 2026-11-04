@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from custom_components.sberhome.intents.encoder import (
     _build_condition,
     _collect_triggers,
@@ -17,6 +19,7 @@ from custom_components.sberhome.intents.encoder import (
     encode_scenario,
 )
 from custom_components.sberhome.intents.registry import get_action
+from custom_components.sberhome.intents.schedules import ScheduleError
 from custom_components.sberhome.intents.spec import (
     IntentSpec,
     IntentTrigger,
@@ -138,8 +141,9 @@ class TestBuildCondition:
         assert conds[0]["phrases_data"]["phrases"] == ["hi"]
 
     def test_order_triggers_then_phrases(self):
+        rule = _collect_triggers(_fixture_condition())[0].data["rrule"]
         triggers = [
-            IntentTrigger(type="time", data={"rrule": "RRULE:FREQ=DAILY"}),
+            IntentTrigger(type="time", data={"rrule": rule}),
             IntentTrigger(type="unknown", data={"raw": {"type": "CONDITIONS"}}, unknown=True),
         ]
         c = _build_condition(["hi"], triggers)
@@ -147,13 +151,14 @@ class TestBuildCondition:
         assert [x["type"] for x in conds] == ["TIME", "CONDITIONS", "PHRASES"]
 
     def test_time_encode(self):
-        c = _build_condition([], [IntentTrigger(type="time", data={"rrule": "R"})])
+        rule = _collect_triggers(_fixture_condition())[0].data["rrule"]
+        c = _build_condition([], [IntentTrigger(type="time", data={"rrule": rule})])
         t = c["nested_conditions_data"]["conditions"][0]
-        assert t == {"type": "TIME", "time_data": {"execute_at": None, "rrule": "R"}}
+        assert t == {"type": "TIME", "time_data": {"execute_at": None, "rrule": rule}}
 
-    def test_empty_time_dropped(self):
-        c = _build_condition([], [IntentTrigger(type="time", data={"rrule": "  "})])
-        assert c["nested_conditions_data"]["conditions"] == []
+    def test_empty_time_is_rejected_without_losing_the_trigger(self):
+        with pytest.raises(ScheduleError):
+            _build_condition([], [IntentTrigger(type="time", data={"rrule": "  "})])
 
     def test_unknown_verbatim(self):
         raw = {"type": "CHECK_DEVICE", "foo": [1, 2, 3]}

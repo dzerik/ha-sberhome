@@ -330,7 +330,7 @@ async def test_disabled_save_applies_dedicated_active_endpoint(operation, return
     response = {**SAMPLE_SCENARIO, "is_active": returned_active}
     service, coord = _build_service(**{f"{operation}_response": response})
     coord.client.scenarios.set_active = AsyncMock()
-    spec = IntentSpec(name="Отключённый", enabled=False)
+    spec = IntentSpec(name="Отключённый", phrases=["проверка"], enabled=False)
     if operation == "create":
         result = await service.create_intent(spec)
     else:
@@ -344,5 +344,7 @@ async def test_disabled_create_cleanup_if_deactivation_fails():
     service, coord = _build_service(create_response=SAMPLE_SCENARIO)
     coord.client.scenarios.set_active = AsyncMock(side_effect=RuntimeError("patch failed"))
     with pytest.raises(RuntimeError, match="patch failed"):
-        await service.create_intent(IntentSpec(name="Отключённый", enabled=False))
+        await service.create_intent(
+            IntentSpec(name="Отключённый", phrases=["проверка"], enabled=False)
+        )
     coord.client.transport.delete.assert_awaited_once_with("/scenario/v2/scenario/sc-1")

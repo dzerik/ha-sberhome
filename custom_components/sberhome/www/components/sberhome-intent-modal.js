@@ -22,6 +22,9 @@ await import(`./sberhome-attr-form.js${_attrFormV ? `?v=${_attrFormV}` : ""}`);
 const {conditionError} = await import(
   `./sberhome-condition-editor.js${_attrFormV ? `?v=${_attrFormV}` : ""}`
 );
+const {buildSchedule, editableSchedule, scheduleError} = await import(
+  `../schedules.js${_attrFormV ? `?v=${_attrFormV}` : ""}`
+);
 
 class SberHomeIntentModal extends Localized(LitElement) {
   static get properties() {
@@ -38,6 +41,7 @@ class SberHomeIntentModal extends Localized(LitElement) {
       _codeEditorReady: { type: Boolean, state: true },
       _editingActionIdx: { state: true }, // индекс действия в визарде (null = список)
       _editingTriggerIdx: { state: true }, // индекс триггера time/device в визарде
+      _scheduleDrafts: { state: true },
     };
   }
 
@@ -52,6 +56,7 @@ class SberHomeIntentModal extends Localized(LitElement) {
     this._error = "";
     this._editingActionIdx = null;
     this._editingTriggerIdx = null;
+    this._scheduleDrafts = {};
     this._phraseInput = "";
     this._codeEditorReady = !!customElements.get("ha-code-editor");
   }
@@ -251,7 +256,7 @@ class SberHomeIntentModal extends Localized(LitElement) {
     if (kind === "time") {
       // дефолт: каждый день в 9:00
       data = {
-        rrule: buildRrule(
+        rrule: buildSchedule(
           ["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
           9,
           0,
@@ -276,6 +281,9 @@ class SberHomeIntentModal extends Localized(LitElement) {
   }
 
   _removeTrigger(idx) {
+    this._scheduleDrafts = Object.fromEntries(Object.entries(this._scheduleDrafts)
+      .filter(([key]) => Number(key) !== idx)
+      .map(([key, value]) => [Number(key) > idx ? Number(key) - 1 : Number(key), value]));
     this._draft = {
       ...this._draft,
       triggers: this._triggers().filter((_, i) => i !== idx),
@@ -296,6 +304,24 @@ class SberHomeIntentModal extends Localized(LitElement) {
     this._draft = {...this._draft, triggers: this._triggers().map((t, i) => i === idx ? node : t)};
   }
 
+  _onScheduleChange(idx, changes) {
+    const t = this._triggers()[idx];
+    if (!t || (!this.isNew && !this._draft.is_ha_managed)) return;
+    const parsed = editableSchedule(t, this._tz());
+    if (!parsed) return;
+    const form = {...(this._scheduleDrafts[idx] || {
+      days: parsed.days, time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}`,
+      timezone: parsed.timezone, start: parsed.start,
+    }), ...changes};
+    this._scheduleDrafts = {...this._scheduleDrafts, [idx]: form};
+    const match = /^(\d{2}):(\d{2})$/.exec(form.time);
+    const rule = match && buildSchedule(form.days, Number(match[1]), Number(match[2]), form.timezone, form.start);
+    if (rule) {
+      this._onTriggerFieldChange(idx, "rrule", rule);
+      this._error = "";
+    }
+  }
+
   _tz() {
     return (this._draft.raw_extras && this._draft.raw_extras.timezone) || "Europe/Moscow";
   }
@@ -311,17 +337,26 @@ class SberHomeIntentModal extends Localized(LitElement) {
     }
     const triggers = this._triggers();
     if (!(this._draft.phrases || []).length && !triggers.length) {
-      return "Нужен хотя бы один триггер: фраза, расписание или условие по устройству";
+      return this.t("schedules.trigger_required");
     }
-    for (const t of triggers) {
+    for (const [idx, t] of triggers.entries()) {
       if (["group", "check_device", "check_scenario"].includes(t.type) && conditionError(t)) {
         return this.t("conditions.invalid");
       }
       if (t.type === "device" && (!t.data?.device_id || !t.data?.attribute?.key)) {
         return "В условии по устройству выберите устройство и атрибут";
       }
-      if (t.type === "time" && !t.data?.rrule) {
-        return "В условии по расписанию выберите дни и время";
+      if (t.type === "time") {
+        const form = this._scheduleDrafts[idx];
+        if (form) {
+          if (!form.days.length) return this.t("schedules.days_required");
+          const match = /^(\d{2}):(\d{2})$/.exec(form.time);
+          if (!match || !buildSchedule(form.days, Number(match[1]), Number(match[2]), form.timezone, form.start)) {
+            return this.t("schedules.invalid");
+          }
+        }
+        const error = scheduleError(t, this._tz());
+        if (error) return this.t(error);
       }
     }
     const actions = this._draft.actions || [];
@@ -905,8 +940,10 @@ class SberHomeIntentModal extends Localized(LitElement) {
 
   _triggerDigest(t) {
     if (t.type === "time") {
-      const p = parseRrule(t.data?.rrule || "");
-      return `⏰ ${describeDays(p.days)} в ${pad2(p.hour)}:${pad2(p.minute)}`;
+      const p = editableSchedule(t, this._tz());
+      return p ? this.t("schedules.summary", {
+        days: describeDays(p.days, this.t.bind(this)), time: `${pad2(p.hour)}:${pad2(p.minute)}`,
+      }) : this.t("schedules.read_only");
     }
     if (t.type === "device") {
       const attr = t.data?.attribute || {};
@@ -923,7 +960,7 @@ class SberHomeIntentModal extends Localized(LitElement) {
   }
 
   _renderTriggerDigest(t, idx, readOnly) {
-    if (t.unknown || t.type === "unknown") {
+    if (t.unknown || t.type === "unknown" || (t.type === "time" && !editableSchedule(t, this._tz()))) {
       return html`<div class="digest-row unknown">
         <span class="digest-summary">${this._triggerDigest(t)}</span>
         ${!readOnly
@@ -978,7 +1015,7 @@ class SberHomeIntentModal extends Localized(LitElement) {
       <div class="wizard-overlay" @click=${() => (this._editingTriggerIdx = null)}>
         <div class="wizard" @click=${(e) => e.stopPropagation()}>
           <div class="wizard-header">
-            <strong>${t.type === "time" ? "Триггер по расписанию" : t.type === "device" ? "Триггер по устройству" : this.t("conditions.title")}</strong>
+            <strong>${t.type === "time" ? this.t("schedules.title") : t.type === "device" ? "Триггер по устройству" : this.t("conditions.title")}</strong>
             <button class="btn wizard-x" @click=${() => (this._editingTriggerIdx = null)}>×</button>
           </div>
           <div class="wizard-body">
@@ -999,50 +1036,47 @@ class SberHomeIntentModal extends Localized(LitElement) {
   }
 
   _renderTimeTriggerBody(t, idx, readOnly) {
-    const parsed = parseRrule(t.data?.rrule || "");
-    const setTime = (days, hour, minute) =>
-      this._onTriggerFieldChange(idx, "rrule", buildRrule(days, hour, minute, this._tz()));
+    const parsed = editableSchedule(t, this._tz());
+    if (!parsed) return html`<p>${this.t("schedules.read_only")}</p>`;
+    const form = this._scheduleDrafts[idx] || {days: parsed.days, time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}`};
     const toggleDay = (day, on) => {
       const days = on
-        ? [...parsed.days, day]
-        : parsed.days.filter((d) => d !== day);
-      setTime(days, parsed.hour, parsed.minute);
+        ? [...form.days, day]
+        : form.days.filter((d) => d !== day);
+      this._onScheduleChange(idx, {days});
     };
     return html`
       <div class="field">
-        <label>Дни</label>
+        <label>${this.t("schedules.days")}</label>
         <div class="trig-days">
           ${DAY_ORDER.map(
-            (d) => html`<label class="trig-day ${parsed.days.includes(d.key) ? "on" : ""}">
+            (d) => html`<label class="trig-day ${form.days.includes(d.key) ? "on" : ""}">
               <input
                 type="checkbox"
-                .checked=${parsed.days.includes(d.key)}
+                .checked=${form.days.includes(d.key)}
                 ?disabled=${readOnly}
                 @change=${(e) => toggleDay(d.key, e.target.checked)}
               />
-              ${d.short}
+              ${this.t(`schedules.day_${d.key}`)}
             </label>`,
           )}
         </div>
         <div class="trig-day-presets">
           <button class="btn" ?disabled=${readOnly}
-            @click=${() => setTime(DAY_ORDER.map((d) => d.key), parsed.hour, parsed.minute)}>Каждый день</button>
+            @click=${() => this._onScheduleChange(idx, {days: DAY_ORDER.map((d) => d.key)})}>${this.t("schedules.daily")}</button>
           <button class="btn" ?disabled=${readOnly}
-            @click=${() => setTime(["MO", "TU", "WE", "TH", "FR"], parsed.hour, parsed.minute)}>Будни</button>
+            @click=${() => this._onScheduleChange(idx, {days: ["MO", "TU", "WE", "TH", "FR"]})}>${this.t("schedules.weekdays")}</button>
           <button class="btn" ?disabled=${readOnly}
-            @click=${() => setTime(["SA", "SU"], parsed.hour, parsed.minute)}>Выходные</button>
+            @click=${() => this._onScheduleChange(idx, {days: ["SA", "SU"]})}>${this.t("schedules.weekend")}</button>
         </div>
       </div>
       <div class="field">
-        <label>Время</label>
+        <label>${this.t("schedules.time")}</label>
         <input
           type="time"
-          .value=${`${pad2(parsed.hour)}:${pad2(parsed.minute)}`}
+          .value=${form.time}
           ?disabled=${readOnly}
-          @input=${(e) => {
-            const [h, m] = (e.target.value || "0:0").split(":").map((x) => parseInt(x, 10) || 0);
-            setTime(parsed.days, h, m);
-          }}
+          @input=${(e) => this._onScheduleChange(idx, {time: e.target.value})}
         />
       </div>
     `;
@@ -1770,68 +1804,12 @@ function pad2(n) {
   return String(n ?? 0).padStart(2, "0");
 }
 
-// «Сейчас в tz» в формате YYYYMMDDThhmmss для DTSTART-якоря.
-function nowInTz(tz) {
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    }).formatToParts(new Date());
-    const g = (t) => (parts.find((p) => p.type === t) || {}).value || "00";
-    let hh = g("hour");
-    if (hh === "24") hh = "00";
-    return `${g("year")}${g("month")}${g("day")}T${hh}${g("minute")}${g("second")}`;
-  } catch {
-    return "20260101T000000";
-  }
-}
-
-function buildRrule(days, hour, minute, tz) {
-  const ordered = DAY_ORDER.map((d) => d.key).filter((d) => days.includes(d));
-  const byday = ordered.length ? ordered.join(",") : DAY_ORDER.map((d) => d.key).join(",");
-  return (
-    `DTSTART;TZID=${tz}:${nowInTz(tz)}\n` +
-    `RRULE:FREQ=DAILY;WKST=MO;BYDAY=${byday};BYHOUR=${hour};BYMINUTE=${minute};BYSECOND=0`
-  );
-}
-
-function parseRrule(rrule) {
-  const out = { days: DAY_ORDER.map((d) => d.key), hour: 9, minute: 0 };
-  if (!rrule) return out;
-  const rlLine = rrule.split("\n").find((l) => l.startsWith("RRULE:")) || rrule;
-  const grab = (re) => {
-    const m = rlLine.match(re);
-    return m ? m[1] : null;
-  };
-  const byday = grab(/BYDAY=([^;\n]+)/);
-  if (byday) {
-    const valid = new Set(DAY_ORDER.map((d) => d.key));
-    out.days = byday.split(",").map((x) => x.trim()).filter((x) => valid.has(x));
-  }
-  const byhour = grab(/BYHOUR=(\d+)/);
-  if (byhour !== null) out.hour = parseInt(byhour, 10) || 0;
-  const bymin = grab(/BYMINUTE=(\d+)/);
-  if (bymin !== null) out.minute = parseInt(bymin, 10) || 0;
-  return out;
-}
-
-function describeDays(days) {
-  const set = new Set(days || []);
-  if (set.size === 7) return "каждый день";
-  const weekdays = ["MO", "TU", "WE", "TH", "FR"];
-  const weekend = ["SA", "SU"];
-  if (set.size === 5 && weekdays.every((d) => set.has(d))) return "по будням";
-  if (set.size === 2 && weekend.every((d) => set.has(d))) return "по выходным";
-  if (set.size === 0) return "никогда";
-  return DAY_ORDER.filter((d) => set.has(d.key))
-    .map((d) => d.short)
-    .join(",");
+function describeDays(days, t) {
+  const set = new Set(days);
+  if (set.size === 7) return t("schedules.daily");
+  if (set.size === 5 && ["MO", "TU", "WE", "TH", "FR"].every((d) => set.has(d))) return t("schedules.weekdays");
+  if (set.size === 2 && ["SA", "SU"].every((d) => set.has(d))) return t("schedules.weekend");
+  return DAY_ORDER.filter((d) => set.has(d.key)).map((d) => t(`schedules.day_${d.key}`)).join(", ");
 }
 
 function attrValueText(attr) {
