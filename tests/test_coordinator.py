@@ -366,13 +366,14 @@ async def test_run_ws_creates_client_and_runs(coordinator):
         observed_during_run.append(coordinator._ws_client)
 
     fake_ws_client.run = AsyncMock(side_effect=run_side_effect)
+    coordinator._on_ws_home_variable = AsyncMock()
 
     with (
         patch("custom_components.sberhome.coordinator.async_get_clientsession") as mock_session,
         patch(
             "custom_components.sberhome.coordinator.WebSocketClient",
             return_value=fake_ws_client,
-        ),
+        ) as ws_constructor,
         patch("custom_components.sberhome.coordinator.make_aiohttp_factory") as mock_factory,
     ):
         mock_session.return_value = MagicMock()
@@ -384,6 +385,12 @@ async def test_run_ws_creates_client_and_runs(coordinator):
     fake_ws_client.run.assert_awaited_once()
     # finally сбросил клиент (часть фикса #6 — см. test_run_ws_clears_client_on_completion)
     assert coordinator._ws_client is None
+
+    kwargs = ws_constructor.call_args.kwargs
+    assert "SCENARIO_HOME_CHANGE_VARIABLE" in kwargs["topics"]
+    message = SocketMessageDto.from_dict({"scenario_home_change_variable": {"id": "opaque"}})
+    await kwargs["callback"](message)
+    coordinator._on_ws_home_variable.assert_awaited_once_with(message)
 
 
 @pytest.mark.asyncio

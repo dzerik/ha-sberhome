@@ -367,6 +367,12 @@
       },
       "unlock": {
         "name": "Разблокировать"
+      },
+      "scenario_stop": {
+        "name": "Остановить {name}"
+      },
+      "scenario_cancel": {
+        "name": "Отменить {name}"
       }
     },
     "event": {
@@ -529,6 +535,9 @@
     },
     "message_template_error": {
       "message": "Не удалось обработать шаблон в тексте: {error}"
+    },
+    "scenario_cancel_not_allowed": {
+      "message": "Сбер не разрешает отмену в текущем состоянии сценария. Если он выполняется, используйте «Остановить»."
     }
   }
 }

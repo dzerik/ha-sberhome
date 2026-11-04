@@ -397,6 +397,9 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # и значение своё у каждого дома — поэтому per-home, а не глобально.
         self.homes: list[dict[str, str]] = []
         self.at_home: dict[str, bool] = {}
+        self._home_variable_refresh_task: asyncio.Task[None] | None = None
+        self._home_variable_refresh_pending = False
+        self._home_variable_refresh_shutdown = False
         # Throttle-состояния best-effort polling-доменов. Один общий
         # паттерн (см. ThrottledPoll + _throttled_poll): не чаще interval,
         # disable-on-error до manual refresh.
@@ -1066,6 +1069,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await self._scenario_api().run(scenario_id)
 
+    async def async_stop_scenario(self, scenario_id: str) -> None:
+        """Stop execution of the selected scenario via its dedicated cloud endpoint."""
+        await self._scenario_api().stop(scenario_id)
+
+    async def async_cancel_scenario(self, scenario_id: str) -> None:
+        """Cancel the selected scenario via its dedicated cloud endpoint."""
+        await self._scenario_api().cancel(scenario_id)
+
     async def async_set_scenario_active(self, scenario_id: str, active: bool) -> None:
         """Вкл/выкл автосрабатывание сценария + optimistic update."""
         await self._scenario_api().set_active(scenario_id, active)
@@ -1691,6 +1702,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Handler делает throttled fetch /scenario/v2/event и fire'ит
         # sberhome_intent HA event для каждого нового события.
         router.on(Topic.SCENARIO_WIDGETS, self._on_ws_scenario_widgets)
+        router.on(Topic.SCENARIO_HOME_CHANGE_VARIABLE, self._on_ws_home_variable)
         # Всепоглощающий handler — логирует ВСЕ остальные topic'и, которые
         # не имеют специальной обработки (OTA, LAUNCHER_WIDGETS,
         # SCENARIO_HOME_CHANGE_VARIABLE, HOME_TRANSFER).
@@ -1702,6 +1714,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 Topic.DEVMAN_EVENT,
                 Topic.GROUP_STATE,
                 Topic.SCENARIO_WIDGETS,
+                Topic.SCENARIO_HOME_CHANGE_VARIABLE,
             }:
                 router.on(topic, self._on_ws_other_topic)
 
@@ -1712,7 +1725,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             auth=auth,
             callback=router,
             factory=factory,
-            topics=("DEVICE_STATE", "DEVMAN_EVENT", "GROUP_STATE", "SCENARIO_WIDGETS"),
+            topics=(
+                "DEVICE_STATE",
+                "DEVMAN_EVENT",
+                "GROUP_STATE",
+                "SCENARIO_WIDGETS",
+                "SCENARIO_HOME_CHANGE_VARIABLE",
+            ),
             connection_listener=self._on_ws_connection_change,
         )
         try:
@@ -1847,6 +1866,7 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             Topic.DEVMAN_EVENT: self._on_ws_devman_event,
             Topic.GROUP_STATE: self._on_ws_group_state,
             Topic.SCENARIO_WIDGETS: self._on_ws_scenario_widgets,
+            Topic.SCENARIO_HOME_CHANGE_VARIABLE: self._on_ws_home_variable,
         }
         handler = topic_handlers.get(topic, self._on_ws_other_topic)
         # The handler logs the message itself; tint that row as synthetic.
@@ -2037,6 +2057,34 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.intent_dispatcher.request_dispatch(source="ws-push")
 
+    async def _on_ws_home_variable(self, msg: SocketMessageDto) -> None:
+        """A variable push invalidates the cache; the API resolves its homes and value."""
+        self._record_ws_message(
+            topic="SCENARIO_HOME_CHANGE_VARIABLE", device_id=None, payload=msg.to_dict()
+        )
+        if msg.scenario_home_change_variable is None or getattr(
+            self, "_home_variable_refresh_shutdown", False
+        ):
+            return
+        self._home_variable_refresh_pending = True
+        if getattr(self, "_home_variable_refresh_task", None) is None:
+            self._home_variable_refresh_task = self.hass.async_create_task(
+                self._async_home_variable_refresh(),
+                "sberhome home variable refresh",
+                eager_start=False,
+            )
+
+    async def _async_home_variable_refresh(self) -> None:
+        try:
+            while self._home_variable_refresh_pending:
+                self._home_variable_refresh_pending = False
+                try:
+                    await self.async_refresh_scenarios()
+                except Exception as err:
+                    LOGGER.warning("Home variable refresh failed; polling remains enabled: %s", err)
+        finally:
+            self._home_variable_refresh_task = None
+
     async def _on_ws_other_topic(self, msg: SocketMessageDto) -> None:
         """Логирование для topic'ов без специальной обработки.
 
@@ -2082,6 +2130,14 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         everything.
         """
         await super().async_shutdown()
+        self._home_variable_refresh_shutdown = True
+        variable_task = getattr(self, "_home_variable_refresh_task", None)
+        self._home_variable_refresh_task = None
+        self._home_variable_refresh_pending = False
+        if variable_task is not None:
+            variable_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await variable_task
         ws_client, self._ws_client = self._ws_client, None
         if ws_client is not None:
             with contextlib.suppress(Exception):
