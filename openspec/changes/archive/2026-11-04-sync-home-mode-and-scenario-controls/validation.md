@@ -64,4 +64,17 @@ Read-only replay домашней переменной вызвал перечи
 Повторный вызов cancel во время выполнения показал новую понятную подсказку,
 затем stop прервал тест и cleanup удалил оба cloud ID и шесть HA-сущностей.
 Снова 12 сценариев; polling и WS работают, домашний режим не менялся.
-Публикация PR/CI/prerelease и комментарий в №62: выполняются.
+## Публикация
+
+- [PR #85](https://github.com/dzerik/ha-sberhome/pull/85) объединён после всех
+  проверок CI Python 3.13/3.14, Ruff, mypy, HACS/hassfest и CodeQL.
+- [v6.4.0b6](https://github.com/dzerik/ha-sberhome/releases/tag/v6.4.0b6)
+  опубликована как prerelease, без изменения стабильного канала.
+  Тег указывает на `9dfcd8f70b33942b565ea0946da7ec4eb2a5f608`.
+- [Release workflow](https://github.com/dzerik/ha-sberhome/actions/runs/41837010680)
+  повторил CI, собрал HACS zip и Sigstore bundle. Все 219 файлов скачанного
+  `sberhome.zip` совпадают по SHA-256 с исходниками и установленной сборкой.
+- [Ответ в №62](https://github.com/dzerik/ha-sberhome/issues/62#issuecomment-6631734369)
+  содержит ссылку, подтверждённую семантику и ограничения. Issue остаётся
+  открытым: оставшийся scope групп/расписаний требует отдельного решения;
+  доставка внешнего push настоящего домашнего режима ещё не провоцировалась.
