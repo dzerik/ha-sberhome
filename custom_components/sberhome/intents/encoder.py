@@ -45,6 +45,7 @@ from typing import Any
 from .conditions import decode_condition, encode_condition
 from .conditions import parse_delay_seconds as _parse_delay_seconds
 from .registry import get_action, list_actions
+from .schedules import decode_time, encode_time
 from .spec import IntentAction, IntentSpec, IntentTrigger
 
 # Default timezone — берётся из config_entry если отличается. Sber отвергает
@@ -166,6 +167,8 @@ def _collect_triggers(condition: Any) -> list[IntentTrigger]:
     """Only the outer OR is a flat list; every other group remains a tree."""
     if not isinstance(condition, dict):
         return []
+    if condition.get("type") == "TIME":
+        return [decode_time(condition)]
     nested = condition.get("nested_conditions_data") or {}
     if not isinstance(nested, dict):
         return [decode_condition(condition)]
@@ -183,19 +186,8 @@ def _collect_triggers(condition: Any) -> list[IntentTrigger]:
     for child in children:
         if not isinstance(child, dict) or child.get("type") == "PHRASES":
             continue
-        out.append(
-            _decode_time_trigger(child) if child.get("type") == "TIME" else decode_condition(child)
-        )
+        out.append(decode_time(child) if child.get("type") == "TIME" else decode_condition(child))
     return out
-
-
-def _decode_time_trigger(c: dict[str, Any]) -> IntentTrigger:
-    """TIME-condition → IntentTrigger('time', {'rrule': ...})."""
-    time_data = c.get("time_data") or {}
-    return IntentTrigger(
-        type="time",
-        data={"rrule": str(time_data.get("rrule", ""))},
-    )
 
 
 def _decode_tasks(
@@ -282,12 +274,13 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
 
     # Условие — собираем triggers + phrases в каноничный CONDITIONS/nested
     # top-OR (Sber всё равно обернёт сам, но шлём правильно сразу).
-    condition = _build_condition(spec.phrases, spec.triggers)
+    timezone = spec.raw_extras.get("timezone") or DEFAULT_TIMEZONE
+    condition = _build_condition(spec.phrases, spec.triggers, timezone)
 
     # Базовая структура.
     body: dict[str, Any] = {
         "name": spec.name,
-        "timezone": spec.raw_extras.get("timezone") or DEFAULT_TIMEZONE,
+        "timezone": timezone,
         "is_active": bool(spec.enabled),
         "image": spec.raw_extras.get("image") or DEFAULT_IMAGE,
         "steps": [
@@ -322,7 +315,7 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
 
 
 def _build_condition(
-    phrases: list[str], triggers: list[IntentTrigger] | None = None
+    phrases: list[str], triggers: list[IntentTrigger] | None = None, timezone: Any = None
 ) -> dict[str, Any]:
     """Каноничная Sber-обёртка top-OR: триггеры → одна PHRASES-condition.
 
@@ -333,7 +326,7 @@ def _build_condition(
     """
     conditions: list[dict[str, Any]] = []
     for trig in triggers or []:
-        enc = _encode_trigger(trig)
+        enc = _encode_trigger(trig, timezone)
         if enc is not None:
             conditions.append(enc)
     if phrases:
@@ -344,7 +337,7 @@ def _build_condition(
     }
 
 
-def _encode_trigger(trig: IntentTrigger) -> dict[str, Any] | None:
+def _encode_trigger(trig: IntentTrigger, timezone: Any = None) -> dict[str, Any] | None:
     """IntentTrigger → Sber condition-dict (или None если пустой/невалидный)."""
     if trig.type == "unknown":
         raw = trig.data.get("raw")
@@ -354,10 +347,7 @@ def _encode_trigger(trig: IntentTrigger) -> dict[str, Any] | None:
     ):
         return encode_condition(trig)
     if trig.type == "time":
-        rrule = str(trig.data.get("rrule", "")).strip()
-        if not rrule:
-            return None
-        return {"type": "TIME", "time_data": {"execute_at": None, "rrule": rrule}}
+        return encode_time(trig, timezone)
     if trig.type == "device":
         return _encode_device_trigger(trig)
     return None

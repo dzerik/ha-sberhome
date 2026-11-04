@@ -38,6 +38,11 @@ CLI закреплён на версии 1.16.0 в `scripts/openspec.sh`; нуж
   [проверки](changes/add-csafront-email-otp/validation.md).
   Остаётся живой вход аккаунтом с email-фактором, поэтому change не архивирован.
 
+Текущее исследование №61/№62 —
+[`preserve-scenario-schedules`](changes/preserve-scenario-schedules/proposal.md):
+сохранность TIME и проверка изменения/удаления расписаний. Реализация пока
+не начата; [результаты](changes/preserve-scenario-schedules/validation.md).
+
 `changes/*/specs/` описывают предлагаемое поведение. Пока изменения не
 реализованы и не архивированы, эти требования остаются предложением.
 После реализации и проверки команда `archive <change>` переносит требования

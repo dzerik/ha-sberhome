@@ -61,7 +61,8 @@ class IntentTrigger:
     """Один триггер (условие запуска) в intent'е.
 
     Симметрично `IntentAction`. `type` — discriminator:
-        'time'    — по расписанию (data={'rrule': 'DTSTART;...\\nRRULE:...'})
+        'time'    — по расписанию (data={'rrule': ..., '_raw': исходный TIME});
+                    _raw сохраняет execute_at, unknown fields и missing/null.
         'device'  — по состоянию устройства (data={'device_id', 'attribute',
                     'operator', 'delay_seconds', 'categories_slugs', 'parent_id'})
         'group' — дерево условий data={'relation': 'AND'|'OR', 'conditions': [...]}

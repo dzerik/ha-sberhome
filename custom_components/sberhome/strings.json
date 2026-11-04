@@ -538,6 +538,15 @@
     },
     "scenario_cancel_not_allowed": {
       "message": "Sber does not allow cancellation in the current scenario state. If it is running, use Stop."
+    },
+    "scenario_schedule_invalid": {
+      "message": "Choose days, a time and a valid schedule time zone."
+    },
+    "scenario_schedule_read_only": {
+      "message": "This schedule is read-only. Keep its original format, start and time zone."
+    },
+    "scenario_trigger_required": {
+      "message": "Add a phrase or trigger. To pause the scenario, turn off automatic triggering."
     }
   }
 }

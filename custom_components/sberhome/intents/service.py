@@ -13,6 +13,7 @@ from homeassistant.helpers.template import Template
 
 from ..const import DOMAIN, MESSAGE_TEMPLATE_ERROR
 from .encoder import decode_scenario, encode_scenario
+from .schedules import ScheduleError
 from .spec import IntentSpec
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ class IntentService:
             IntentSpec с заполненным id (из ответа Sber).
         """
         self._render_phrase_templates(spec)
-        body = encode_scenario(spec)
+        body = self._encode_for_write(spec)
         # Sber требует POST без id — encoder его и не выставляет (spec.id
         # игнорируется на encode).
         body.pop("id", None)
@@ -104,7 +105,7 @@ class IntentService:
         home_id и Sber может ответить ошибкой.
         """
         self._render_phrase_templates(spec)
-        body = encode_scenario(spec)
+        body = self._encode_for_write(spec)
         # Sber хочет id внутри body для PUT — encoder его не ставит,
         # но можем добавить из аргумента.
         body["id"] = scenario_id
@@ -155,6 +156,20 @@ class IntentService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _encode_for_write(spec: IntentSpec) -> dict[str, Any]:
+        try:
+            body = encode_scenario(spec)
+        except ScheduleError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key=err.translation_key
+            ) from err
+        if not body["steps"][0]["condition"]["nested_conditions_data"]["conditions"]:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="scenario_trigger_required"
+            )
+        return body
+
     def _render_phrase_templates(self, spec: IntentSpec) -> None:
         """Render-on-save для TTS phrase'ов с Jinja2-шаблонами (issue #25).
 

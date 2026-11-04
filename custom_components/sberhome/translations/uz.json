@@ -538,6 +538,15 @@
     },
     "scenario_cancel_not_allowed": {
       "message": "Sber ssenariyning joriy holatida bekor qilishga ruxsat bermaydi. U ishlayotgan bo‘lsa, «To‘xtatish»dan foydalaning."
+    },
+    "scenario_schedule_invalid": {
+      "message": "Jadval kunlari, vaqti va toʻgʻri vaqt mintaqasini tanlang."
+    },
+    "scenario_schedule_read_only": {
+      "message": "Bu jadval faqat oʻqish uchun. Asl format, boshlanish sanasi va vaqt mintaqasini saqlang."
+    },
+    "scenario_trigger_required": {
+      "message": "Ibora yoki ishga tushirish shartini qoʻshing. Ssenariyni toʻxtatib turish uchun avtomatik ishga tushirishni oʻchiring."
     }
   }
 }
