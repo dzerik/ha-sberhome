@@ -273,6 +273,9 @@
       },
       "switch_led": {
         "name": "Артқы жарық"
+      },
+      "at_home": {
+        "name": "Үйде ({name})"
       }
     },
     "select": {

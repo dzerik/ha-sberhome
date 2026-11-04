@@ -1023,14 +1023,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._throttled_poll(self._scenarios_poll, self._refresh_scenarios)
 
     async def _ensure_homes(self) -> None:
-        """Лениво найти дома аккаунта (id+name) — нужны для at_home.
+        """Обновить инвентарь домов; ошибка сохраняет предыдущий снимок.
 
         `GET /device_groups?group_type=HOME` возвращает все дома аккаунта.
-        Best-effort: при ошибке список остаётся пустым и at_home просто не
-        опрашивается (сущности → unavailable).
+        До первого успешного ответа список пуст; последующие ошибки оставляют
+        последний подтверждённый список. Удалённые дома теряют at_home сразу,
+        даже если следующий запрос сценариев завершится ошибкой.
         """
-        if self.homes:
-            return
         try:
             homes = await self.client.groups.list(group_type="HOME")
         except Exception:
@@ -1040,6 +1039,8 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for h in homes
             if getattr(h, "id", None)
         ]
+        home_ids = {home["id"] for home in self.homes}
+        self.at_home = {hid: value for hid, value in self.at_home.items() if hid in home_ids}
 
     async def _refresh_scenarios(self) -> None:
         await self._ensure_homes()
@@ -1982,6 +1983,13 @@ class SberHomeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if new_dto is not None:
                 patched_data[device_id] = new_dto.to_dict()
             self._async_apply_push_data(patched_data)
+        elif new_dto is not None and any(
+            (group := self.state_cache.get_all_groups().get(group_id)) is not None
+            and group.group_type == "GROUP"
+            for group_id in new_dto.group_ids or []
+        ):
+            # A hidden device still contributes to its Sber group aggregate.
+            self._async_apply_push_data(self.data or {})
 
         # Колонка прислала push — вероятно, пользователь поменял что-то в
         # приложении Сбера. Режимы (детский/возрастной и т.п.) зеркалятся в

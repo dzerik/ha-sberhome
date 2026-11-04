@@ -273,6 +273,9 @@
       },
       "switch_led": {
         "name": "LED indicator"
+      },
+      "at_home": {
+        "name": "At home ({name})"
       }
     },
     "select": {

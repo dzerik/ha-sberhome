@@ -20,6 +20,13 @@
 | [#61: проверка API](https://github.com/dzerik/ha-sberhome/issues/61) | [Анализ](research/2026-11-04-issue-61-api-contracts.md) отделяет моки от живых наблюдений. OpenSpec сохранности TIME подготовлен; живые A/B-контроли подтвердили удаление/перенос и независимость двух TIME. Последний триггер отклонён HTTP 500 | [Change](changes/archive/2026-11-04-preserve-scenario-schedules/proposal.md), [результаты](changes/archive/2026-11-04-preserve-scenario-schedules/validation.md). Исправления выпущены в [v6.4.0b7](https://github.com/dzerik/ha-sberhome/releases/tag/v6.4.0b7), PR #87; ответы в №61/№62 опубликованы. Все временные объекты удалены; прочие URL/методы остаются неподтверждёнными |
 | [#60: SmartApp → HA](https://github.com/dzerik/ha-sberhome/issues/60) | Предложена отдельная opt-in функция; в комментарии отмечена ручная регистрация навыка в Studio | Сначала PoC и актуальная проверка SmartApp-протокола, аутентификации webhook и требований к HTTPS; затем отдельное изменение |
 
+Дополнение №62: для 6.4.0b8 реализован lifecycle существующих automation
+entities — prune групп, discovery switch, имена, disappearance/return,
+home inventory и push невыбранного участника. [Проверки и границы](changes/archive/2026-11-04-sync-automation-entity-lifecycle/validation.md),
+[основной контракт](specs/automation-entity-lifecycle/spec.md).
+Публикация фиксируется в GitHub после CI. Исследование настоящих bulk-команд
+и расширение binary_sensor discovery остаются отдельными задачами.
+
 Для №61 и №63 результат мок-теста не заменяет проверку в облаке/на устройстве.
 Для №78 не переносим URL авторизации из issue в репозиторий: достаточно
 описания симптома без параметров сессии.

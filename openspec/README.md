@@ -44,6 +44,13 @@ CLI закреплён на версии 1.16.0 в `scripts/openspec.sh`; нуж
 [архив и результаты](changes/archive/2026-11-04-preserve-scenario-schedules/validation.md).
 Остальные пункты issues остаются отдельными задачами.
 
+Lifecycle №62 реализован и локально проверен для 6.4.0b8: защита registry
+групп, discovery home/active/group switch, имена, исчезновение/возврат и push
+невыбранного участника. [Контракт](specs/automation-entity-lifecycle/spec.md),
+[архив и результаты](changes/archive/2026-11-04-sync-automation-entity-lifecycle/validation.md).
+Факт публикации и CI фиксируются в GitHub; реальные bulk-команды групп
+и доставка внешнего home push не считаются подтверждёнными этими тестами.
+
 `changes/*/specs/` описывают предлагаемое поведение. Пока изменения не
 реализованы и не архивированы, эти требования остаются предложением.
 После реализации и проверки команда `archive <change>` переносит требования

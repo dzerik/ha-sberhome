@@ -239,6 +239,7 @@ async def test_ensure_homes_discovers_all():
 
     coord = MagicMock(spec=SberHomeCoordinator)
     coord.homes = []
+    coord.at_home = {"home-1": True, "removed-home": False}
     h1 = MagicMock()
     h1.id, h1.name = "home-1", "Мой дом"
     h2 = MagicMock()
@@ -254,6 +255,7 @@ async def test_ensure_homes_discovers_all():
         {"id": "home-1", "name": "Мой дом"},
         {"id": "home-2", "name": "дача"},
     ]
+    assert coord.at_home == {"home-1": True}
     groups.list.assert_awaited_once_with(group_type="HOME")
 
 
