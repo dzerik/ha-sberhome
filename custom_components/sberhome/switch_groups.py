@@ -18,10 +18,12 @@ import contextlib
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .action_errors import async_translate_cloud_errors
 from .aiosber.dto import AttributeValueDto, AttrKey
+from .aiosber.dto.union import UnionType
 from .const import DOMAIN
 
 if TYPE_CHECKING:
@@ -39,6 +41,13 @@ class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
         self._attr_unique_id = f"sber_group_{group_id}"
         group = coordinator.state_cache.get_all_groups().get(group_id)
         self._attr_name = group.name if group and group.name else f"Sber group {group_id}"
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        group = self.coordinator.state_cache.get_all_groups().get(self._group_id)
+        if group is not None and group.name:
+            self._attr_name = group.name
+        super()._handle_coordinator_update()
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -58,18 +67,18 @@ class SberGroupSwitch(CoordinatorEntity["SberHomeCoordinator"], SwitchEntity):
 
     @property
     def available(self) -> bool:
-        """True если облако отвечает и хотя бы один device группы онлайн."""
+        """An existing GROUP with an online member is available."""
         if not super().available:
             return False
         cache = self.coordinator.state_cache
-        for device_id in self._device_ids():
-            dto = cache.get_device(device_id)
-            if dto is None:
-                continue
-            online = dto.reported_value("online")
-            if online is True:
-                return True
-        return False
+        group = cache.get_all_groups().get(self._group_id)
+        if group is None or group.group_type != UnionType.GROUP:
+            return False
+        return any(
+            (dto := cache.get_device(device_id)) is not None
+            and dto.reported_value("online") is True
+            for device_id in self._device_ids()
+        )
 
     @property
     def is_on(self) -> bool | None:

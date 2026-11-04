@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import STATE_ON, EntityCategory, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -38,26 +38,42 @@ async def async_setup_entry(
         for ent in ha_entities:
             if ent.platform is Platform.SWITCH:
                 entities.append(SberSbermapSwitch(coordinator, device_id, ent))
-    for home in coordinator.homes:
-        entities.append(SberAtHomeSwitch(coordinator, home["id"], home["name"]))
-    # Тумблер автосрабатывания на каждый облачный сценарий Sber.
-    for scenario in coordinator.scenarios:
-        if scenario.id and scenario.name:
-            entities.append(SberScenarioActiveSwitch(coordinator, scenario.id, scenario.name))
-    # Sber custom-groups (group_type=GROUP) как bulk-switch entities.
-    # Группы без devices пропускаются — не создаём пустых toggle'ов.
-    for group_id, group in coordinator.state_cache.get_all_groups().items():
-        if group.group_type != UnionType.GROUP:
-            continue
-        if not coordinator.state_cache.get_group_devices(group_id):
-            continue
-        entities.append(SberGroupSwitch(coordinator, group_id))
-    # Настройки-тумблеры умных колонок Сбера (детский режим, звуки и т.п.).
     for specs in coordinator.staros_settings_entities.values():
         for spec in specs:
             if spec.platform is Platform.SWITCH:
                 entities.append(SberStarosSettingSwitch(coordinator, spec))
     async_add_entities(entities)
+    known: set[tuple[str, str]] = set()
+
+    @callback
+    def discover_automation_switches() -> None:
+        added: list[SwitchEntity] = []
+        for home in coordinator.homes:
+            key = ("home", home["id"])
+            if key not in known:
+                known.add(key)
+                added.append(SberAtHomeSwitch(coordinator, home["id"], home["name"]))
+        for scenario in coordinator.scenarios:
+            if not scenario.id or not scenario.name:
+                continue
+            key = ("scenario", scenario.id)
+            if key not in known:
+                known.add(key)
+                added.append(SberScenarioActiveSwitch(coordinator, scenario.id, scenario.name))
+        for group_id, group in coordinator.state_cache.get_all_groups().items():
+            key = ("group", group_id)
+            if (
+                key not in known
+                and group.group_type == UnionType.GROUP
+                and coordinator.state_cache.get_group_devices(group_id)
+            ):
+                known.add(key)
+                added.append(SberGroupSwitch(coordinator, group_id))
+        if added:
+            async_add_entities(added)
+
+    discover_automation_switches()
+    entry.async_on_unload(coordinator.async_add_listener(discover_automation_switches))
 
 
 class SberSbermapSwitch(SberBaseEntity, SwitchEntity):
@@ -121,7 +137,8 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
     def __init__(self, coordinator: SberHomeCoordinator, home_id: str, home_name: str) -> None:
         super().__init__(coordinator)
         self._home_id = home_id
-        self._attr_name = f"At home ({home_name})"
+        self._attr_translation_key = "at_home"
+        self._attr_translation_placeholders = {"name": home_name}
         self._attr_unique_id = f"sberhome_at_home_{home_id}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scenarios")},
@@ -130,6 +147,16 @@ class SberAtHomeSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEntity):
             "model": "Cloud Scenarios",
             "entry_type": "service",
         }
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        home = next((h for h in self.coordinator.homes if h["id"] == self._home_id), None)
+        if home is not None:
+            placeholders = {"name": home["name"]}
+            if self.translation_placeholders != placeholders:
+                self._attr_translation_placeholders = placeholders
+                self.__dict__.pop("name", None)
+        super()._handle_coordinator_update()
 
     @property
     def available(self) -> bool:
@@ -177,6 +204,13 @@ class SberScenarioActiveSwitch(CoordinatorEntity[SberHomeCoordinator], SwitchEnt
             "model": "Cloud Scenarios",
             "entry_type": "service",
         }
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        scenario = self._scenario()
+        if scenario is not None and scenario.name:
+            self._attr_name = scenario.name
+        super()._handle_coordinator_update()
 
     def _scenario(self):
         return next((s for s in self.coordinator.scenarios if s.id == self._scenario_id), None)

@@ -273,6 +273,9 @@
       },
       "switch_led": {
         "name": "Подсветка"
+      },
+      "at_home": {
+        "name": "Дома ({name})"
       }
     },
     "select": {

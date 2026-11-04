@@ -126,6 +126,20 @@ class _SberScenarioButtonBase(CoordinatorEntity[SberHomeCoordinator], ButtonEnti
             "entry_type": "service",
         }
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        scenario = next((s for s in self.coordinator.scenarios if s.id == self._scenario_id), None)
+        if scenario is not None and scenario.name:
+            if self.translation_key:
+                placeholders = {"name": scenario.name}
+                if self.translation_placeholders != placeholders:
+                    self._attr_translation_placeholders = placeholders
+                    # HA caches the substituted name separately from its placeholders.
+                    self.__dict__.pop("name", None)
+            else:
+                self._attr_name = scenario.name
+        super()._handle_coordinator_update()
+
     @property
     def available(self) -> bool:
         # Облако не отвечает или сценария больше нет в списке — недоступен.

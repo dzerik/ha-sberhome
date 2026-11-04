@@ -273,6 +273,9 @@
       },
       "switch_led": {
         "name": "Indikator"
+      },
+      "at_home": {
+        "name": "Uyda ({name})"
       }
     },
     "select": {
