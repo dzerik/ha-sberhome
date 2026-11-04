@@ -28,3 +28,4 @@ uv.lock
 .superpowers/
 
 .playwright-mcp/
+/AGENTS.md

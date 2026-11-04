@@ -14,9 +14,16 @@ import { mobileBase } from "../mobile-css.js";
 // инвалидировали и его. Top-level await регистрирует custom element до
 // первого render'а.
 const _attrFormV = new URL(import.meta.url).searchParams.get("v") || "";
+// An upgraded modal must not reuse i18n already evaluated by the previous release.
+const { Localized } = await import(
+  `../i18n/index.js${_attrFormV ? `?v=${_attrFormV}` : ""}`
+);
 await import(`./sberhome-attr-form.js${_attrFormV ? `?v=${_attrFormV}` : ""}`);
+const {conditionError} = await import(
+  `./sberhome-condition-editor.js${_attrFormV ? `?v=${_attrFormV}` : ""}`
+);
 
-class SberHomeIntentModal extends LitElement {
+class SberHomeIntentModal extends Localized(LitElement) {
   static get properties() {
     return {
       hass: { type: Object },
@@ -162,6 +169,37 @@ class SberHomeIntentModal extends LitElement {
     this._draft = { ...this._draft, actions: newActions };
   }
 
+  _regimeEditable(idx) {
+    const action = this._draft.actions[idx];
+    return (this.isNew || this._draft.is_ha_managed)
+      && action?.type === "regime_command" && !action.unknown;
+  }
+
+  _onRegimeCommandChange(idx, commandIdx, key, value) {
+    if (!this._regimeEditable(idx)) return;
+    const commands = this._draft.actions[idx].data.commands || [];
+    this._onActionFieldChange(idx, "commands", commands.map((command, i) =>
+      i === commandIdx ? {...command, [key]: value} : command));
+  }
+
+  _onAddRegimeCommand(idx) {
+    if (!this._regimeEditable(idx)) return;
+    const commands = this._draft.actions[idx].data.commands || [];
+    const period = ["morning", "evening", "night"].find(
+      (candidate) => !commands.some((command) => command.period === candidate));
+    if (!period) return;
+    this._onActionFieldChange(idx, "commands", [
+      ...commands, {period, device_id: "", text: ""},
+    ]);
+  }
+
+  _onRemoveRegimeCommand(idx, commandIdx) {
+    if (!this._regimeEditable(idx)) return;
+    const commands = this._draft.actions[idx].data.commands || [];
+    if (commands.length <= 1) return;
+    this._onActionFieldChange(idx, "commands", commands.filter((_, i) => i !== commandIdx));
+  }
+
   _onAddAction() {
     const actions = [...(this._draft.actions || []), { type: "ha_event_only", data: {} }];
     this._draft = { ...this._draft, actions };
@@ -180,6 +218,20 @@ class SberHomeIntentModal extends LitElement {
     } else if (this._editingActionIdx > idx) {
       this._editingActionIdx -= 1;
     }
+  }
+
+  _onMoveAction(idx, offset) {
+    const actions = this._draft.actions;
+    const target = idx + offset;
+    if ((!this.isNew && !this._draft.is_ha_managed)
+      || !actions[idx] || !actions[target]
+      || actions[idx].unknown || actions[target].unknown) return;
+
+    const reordered = [...actions];
+    [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
+    this._draft = { ...this._draft, actions: reordered };
+    if (this._editingActionIdx === idx) this._editingActionIdx = target;
+    else if (this._editingActionIdx === target) this._editingActionIdx = idx;
   }
 
   _onEnabledToggle(e) {
@@ -206,6 +258,8 @@ class SberHomeIntentModal extends LitElement {
           this._tz(),
         ),
       };
+    } else if (kind === "group") {
+      data = {relation: "AND", conditions: []};
     } else {
       data = {
         device_id: "",
@@ -237,6 +291,11 @@ class SberHomeIntentModal extends LitElement {
     this._draft = { ...this._draft, triggers };
   }
 
+  _onConditionChange(idx, node) {
+    if ((!this.isNew && !this._draft.is_ha_managed) || this._triggers()[idx]?.unknown) return;
+    this._draft = {...this._draft, triggers: this._triggers().map((t, i) => i === idx ? node : t)};
+  }
+
   _tz() {
     return (this._draft.raw_extras && this._draft.raw_extras.timezone) || "Europe/Moscow";
   }
@@ -255,6 +314,9 @@ class SberHomeIntentModal extends LitElement {
       return "Нужен хотя бы один триггер: фраза, расписание или условие по устройству";
     }
     for (const t of triggers) {
+      if (["group", "check_device", "check_scenario"].includes(t.type) && conditionError(t)) {
+        return this.t("conditions.invalid");
+      }
       if (t.type === "device" && (!t.data?.device_id || !t.data?.attribute?.key)) {
         return "В условии по устройству выберите устройство и атрибут";
       }
@@ -282,6 +344,16 @@ class SberHomeIntentModal extends LitElement {
     }
     for (const action of actions) {
       if (action.unknown) continue;
+      if (action.type === "regime_command") {
+        const commands = action.data?.commands;
+        if (!Array.isArray(commands) || !commands.length || commands.some((command) =>
+          !command || !["morning", "evening", "night"].includes(command.period)
+          || typeof command.device_id !== "string" || !command.device_id.trim()
+          || typeof command.text !== "string" || !command.text.trim())
+          || new Set(commands.map((command) => command.period)).size !== commands.length) {
+          return this.t("intents.regime_invalid");
+        }
+      }
       const reg = this._schema.find((s) => s.type === action.type);
       if (!reg) continue;
       for (const f of reg.fields || []) {
@@ -402,6 +474,10 @@ class SberHomeIntentModal extends LitElement {
         font-size: 24px; color: var(--secondary-text-color);
         padding: 0; line-height: 1;
       }
+      .regime-command {
+        min-width: 0; margin: 0 0 12px; padding: 12px;
+        border: 1px solid var(--divider-color); border-radius: 8px;
+      }
       .field {
         margin-bottom: 16px;
       }
@@ -500,6 +576,15 @@ class SberHomeIntentModal extends LitElement {
         color: var(--secondary-text-color); font-size: 18px; line-height: 1;
         padding: 0 4px;
       }
+      .digest-order { display: inline-flex; gap: 4px; flex-shrink: 0; }
+      .digest-move {
+        min-width: 32px; min-height: 32px; padding: 2px 6px;
+        border: 1px solid var(--divider-color); border-radius: 4px;
+        background: transparent; color: var(--primary-text-color);
+        font-size: 18px; cursor: pointer;
+      }
+      .digest-move:disabled { opacity: 0.35; cursor: default; }
+      .digest-move:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
       /* Визард-оверлей поверх модалки */
       .wizard-overlay {
         position: fixed; inset: 0; z-index: 10;
@@ -760,6 +845,9 @@ class SberHomeIntentModal extends LitElement {
                     <button class="add-btn" @click=${() => this._addTrigger("device")}>
                       + по устройству 📟
                     </button>
+                    <button class="add-btn" @click=${() => this._addTrigger("group")}>
+                      + ${this.t("conditions.group")}
+                    </button>
                   </div>
                 </div>
                 <div class="help">
@@ -826,7 +914,12 @@ class SberHomeIntentModal extends LitElement {
       const val = attrValueText(attr);
       return `📟 ${attr.key || "устройство"} ${op} ${val}`;
     }
-    return `⚠ ${t.type} (Sber, read-only)`;
+    if (t.type === "group") return this.t("conditions.summary", {
+      relation: this.t(`conditions.${(t.data?.relation || "AND").toLowerCase()}`),
+      n: t.data?.conditions?.length || 0,
+    });
+    if (["check_device", "check_scenario"].includes(t.type)) return this.t(`conditions.${t.type}`);
+    return this.t("conditions.unknown", {type: t.data?.raw?.type || t.type});
   }
 
   _renderTriggerDigest(t, idx, readOnly) {
@@ -885,13 +978,17 @@ class SberHomeIntentModal extends LitElement {
       <div class="wizard-overlay" @click=${() => (this._editingTriggerIdx = null)}>
         <div class="wizard" @click=${(e) => e.stopPropagation()}>
           <div class="wizard-header">
-            <strong>${t.type === "time" ? "Триггер по расписанию" : "Триггер по устройству"}</strong>
+            <strong>${t.type === "time" ? "Триггер по расписанию" : t.type === "device" ? "Триггер по устройству" : this.t("conditions.title")}</strong>
             <button class="btn wizard-x" @click=${() => (this._editingTriggerIdx = null)}>×</button>
           </div>
           <div class="wizard-body">
             ${t.type === "time"
               ? this._renderTimeTriggerBody(t, idx, readOnly)
-              : this._renderDeviceTriggerBody(t, idx, readOnly)}
+              : t.type === "device" ? this._renderDeviceTriggerBody(t, idx, readOnly)
+              : html`<sberhome-condition-editor .hass=${this.hass} .node=${t}
+                  .disabled=${readOnly} .excludeScenarioId=${this._draft.id || ""}
+                  @condition-changed=${(e) => this._onConditionChange(idx, e.detail.node)}>
+                </sberhome-condition-editor>`}
           </div>
           <div class="wizard-footer">
             <button class="btn primary" @click=${() => (this._editingTriggerIdx = null)}>Готово</button>
@@ -980,7 +1077,7 @@ class SberHomeIntentModal extends LitElement {
         <sberhome-attr-form
           .hass=${this.hass}
           .deviceId=${t.data?.device_id || ""}
-          .value=${attrArray}
+          .value=${attrArray} .conditionMode=${true} .disabled=${readOnly}
           @attributes-change=${(e) => {
             const arr = e.detail.attributes || [];
             this._onTriggerFieldChange(idx, "attribute", arr.length ? arr[arr.length - 1] : {});
@@ -1006,6 +1103,8 @@ class SberHomeIntentModal extends LitElement {
         return "🔔 уведомление";
       case "speaker_text":
         return `💬 ${d.text ? `«${String(d.text).slice(0, 40)}»` : "команда ассистенту"}`;
+      case "regime_command":
+        return this.t("intents.regime_summary", {n: d.commands?.length || 0});
       case "scenario_status":
         return `🎬 сценарий → ${d.active ? "вкл" : "выкл"}`;
       case "sms":
@@ -1036,6 +1135,32 @@ class SberHomeIntentModal extends LitElement {
           ? html`<span class="digest-delay">⏱ ${this._delayLabel(action.data.delay_seconds)}</span>`
           : ""}
         <span class="digest-edit">✎</span>
+        ${!readOnly && (this._draft.actions || []).length > 1
+          ? html`<span class="digest-order">
+              <button
+                type="button"
+                class="digest-move"
+                title=${this.t("intents.move_up")}
+                aria-label=${this.t("intents.move_up")}
+                ?disabled=${idx === 0}
+                @click=${(e) => {
+                  e.stopPropagation();
+                  this._onMoveAction(idx, -1);
+                }}
+              >↑</button>
+              <button
+                type="button"
+                class="digest-move"
+                title=${this.t("intents.move_down")}
+                aria-label=${this.t("intents.move_down")}
+                ?disabled=${idx === this._draft.actions.length - 1}
+                @click=${(e) => {
+                  e.stopPropagation();
+                  this._onMoveAction(idx, 1);
+                }}
+              >↓</button>
+            </span>`
+          : ""}
         ${!readOnly && (this._draft.actions || []).length > 1
           ? html`<button
               class="digest-del"
@@ -1124,7 +1249,7 @@ class SberHomeIntentModal extends LitElement {
             ${this._schema.map(
               (s) => html`
                 <option value=${s.type} ?selected=${s.type === action.type}>
-                  ${s.ui_label}
+                  ${s.type === "regime_command" ? this.t("intents.regime_title") : s.ui_label}
                 </option>
               `
             )}
@@ -1161,17 +1286,60 @@ class SberHomeIntentModal extends LitElement {
 
   _renderField(actionIdx, action, field, readOnly) {
     const value = action.data?.[field.key];
+    const label = field.type === "regime_commands" ? this.t("intents.regime_commands") : field.label;
+    const help = field.type === "regime_commands" ? this.t("intents.regime_help") : field.help_text;
 
     return html`
       <div class="field">
         <label>
-          ${field.label}${field.required ? " *" : ""}
+          ${label}${field.required ? " *" : ""}
         </label>
         ${this._renderInputForType(actionIdx, field, value, readOnly)}
-        ${field.help_text
-          ? html`<div class="help">${field.help_text}</div>`
+        ${help
+          ? html`<div class="help">${help}</div>`
           : ""}
       </div>
+    `;
+  }
+
+  _renderRegimeCommands(actionIdx, commands, readOnly) {
+    return html`
+      ${commands.map((command, i) => html`
+        <fieldset class="regime-command">
+          <legend>${i + 1}</legend>
+          <div class="field">
+            <label>${this.t("intents.regime_period")}</label>
+            <select ?disabled=${readOnly}
+              @change=${(e) => this._onRegimeCommandChange(actionIdx, i, "period", e.target.value)}>
+              ${["morning", "evening", "night"].map((period) => html`
+                <option value=${period} ?selected=${command.period === period}
+                  ?disabled=${commands.some((other, index) => index !== i && other.period === period)}>
+                  ${this.t(`intents.period_${period}`)}
+                </option>`)}
+            </select>
+          </div>
+          <div class="field">
+            <label>${this.t("intents.regime_speaker")}</label>
+            <sberhome-device-picker-field .hass=${this.hass}
+              .field=${{multiple: false, device_category: ["sber_speaker"]}}
+              .value=${command.device_id} ?disabled=${readOnly}
+              @value-changed=${(e) => this._onRegimeCommandChange(actionIdx, i, "device_id", e.detail.value)}>
+            </sberhome-device-picker-field>
+          </div>
+          <div class="field">
+            <label>${this.t("intents.regime_text")}</label>
+            <input type="text" .value=${command.text || ""} ?disabled=${readOnly}
+              @input=${(e) => this._onRegimeCommandChange(actionIdx, i, "text", e.target.value)} />
+          </div>
+          <button class="btn" ?disabled=${readOnly || commands.length <= 1}
+            @click=${() => this._onRemoveRegimeCommand(actionIdx, i)}>
+            ${this.t("intents.regime_remove")}
+          </button>
+        </fieldset>`)}
+      <button class="btn" ?disabled=${readOnly || commands.length >= 3}
+        @click=${() => this._onAddRegimeCommand(actionIdx)}>
+        ${this.t("intents.regime_add")}
+      </button>
     `;
   }
 
@@ -1180,6 +1348,8 @@ class SberHomeIntentModal extends LitElement {
       this._onActionFieldChange(actionIdx, field.key, newValue);
 
     switch (field.type) {
+      case "regime_commands":
+        return this._renderRegimeCommands(actionIdx, Array.isArray(value) ? value : [], readOnly);
       case "text":
         return html`
           <input

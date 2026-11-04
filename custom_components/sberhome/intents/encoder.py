@@ -42,6 +42,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .conditions import decode_condition, encode_condition
+from .conditions import parse_delay_seconds as _parse_delay_seconds
 from .registry import get_action, list_actions
 from .spec import IntentAction, IntentSpec, IntentTrigger
 
@@ -147,8 +149,10 @@ def _collect_phrases(condition: Any) -> list[str]:
         data = condition.get("phrases_data") or {}
         return [str(p) for p in (data.get("phrases") or [])]
     nested = condition.get("nested_conditions_data") or {}
+    if cond_type != "CONDITIONS" or not isinstance(nested, dict) or nested.get("relation") != "OR":
+        return []
     children = nested.get("conditions")
-    if children is None:
+    if not isinstance(children, list) or not all(isinstance(c, dict) for c in children):
         return []
     out: list[str] = []
     for c in children:
@@ -159,34 +163,29 @@ def _collect_phrases(condition: Any) -> list[str]:
 
 
 def _collect_triggers(condition: Any) -> list[IntentTrigger]:
-    """Собрать триггеры с ВЕРХНЕЙ OR-плоскости условия.
-
-    Ходим только по top-level `nested_conditions_data.conditions` (или по
-    самому condition, если он одиночный без обёртки). Внутрь вложенных
-    AND/CONDITIONS НЕ спускаемся — они уходят целиком в unknown-триггер
-    с дословным `data['raw']` (round-trip lossless).
-
-    PHRASES пропускаем — они живут в `IntentSpec.phrases`.
-    """
+    """Only the outer OR is a flat list; every other group remains a tree."""
     if not isinstance(condition, dict):
         return []
     nested = condition.get("nested_conditions_data") or {}
-    children = nested.get("conditions")
-    if children is None:
-        children = [condition]  # плоский single-condition без обёртки
-    out: list[IntentTrigger] = []
-    for c in children:
-        if not isinstance(c, dict):
+    if not isinstance(nested, dict):
+        return [decode_condition(condition)]
+    if condition.get("type") == "CONDITIONS" and nested.get("relation") == "OR":
+        children = nested.get("conditions")
+        if (
+            not isinstance(children, list)
+            or not children
+            or not all(isinstance(c, dict) for c in children)
+        ):
+            return [decode_condition(condition)]
+    else:
+        children = [condition]
+    out = []
+    for child in children:
+        if not isinstance(child, dict) or child.get("type") == "PHRASES":
             continue
-        c_type = str(c.get("type") or "").upper()
-        if c_type == "PHRASES":
-            continue
-        if c_type == "TIME":
-            out.append(_decode_time_trigger(c))
-        elif c_type == "DEVICE":
-            out.append(_decode_device_trigger(c))
-        else:
-            out.append(IntentTrigger(type="unknown", data={"raw": c}, unknown=True))
+        out.append(
+            _decode_time_trigger(child) if child.get("type") == "TIME" else decode_condition(child)
+        )
     return out
 
 
@@ -199,96 +198,41 @@ def _decode_time_trigger(c: dict[str, Any]) -> IntentTrigger:
     )
 
 
-def _decode_device_trigger(c: dict[str, Any]) -> IntentTrigger:
-    """DEVICE-condition → IntentTrigger('device', {...}).
-
-    Полный `state`-dict сохраняем дословно в `data['attribute']` —
-    device-триггер lossless и не рискует неполным AttributeValue-скелетом
-    при re-encode.
-    """
-    dd = c.get("device_data") or {}
-    inner = dd.get("condition") or {}
-    return IntentTrigger(
-        type="device",
-        data={
-            "device_id": str(dd.get("device_id", "")),
-            "categories_slugs": list(dd.get("categories_slugs") or []),
-            "attribute": inner.get("state") or {},
-            "operator": str(inner.get("condition", "EQUAL")),
-            "delay_seconds": _parse_delay_seconds(inner.get("delay")),
-            "parent_id": str(dd.get("parent_id", "")),
-        },
-    )
-
-
 def _decode_tasks(
     tasks: list[Any],
 ) -> tuple[list[IntentAction], bool]:
     """Список Sber-tasks → список IntentAction.
 
-    Прогоняем все зарегистрированные decoder'ы по очереди (в порядке
-    `list_actions()`). Каждый matching забирает «свои» tasks; leftover
-    идёт следующим. То что не разобрано ни одним decoder'ом
-    оборачивается в IntentAction(type="<sber_task_type>", unknown=True).
+    Встроенные decoder'ы потребляют одну wire-task на действие. Разбираем
+    каждую задачу отдельно: порядок типов в реестре не должен менять порядок
+    исполнения. Неизвестная задача сохраняется на своём месте.
 
     Returns:
         (actions, is_ha_managed) — is_ha_managed=False если есть unknown.
     """
-    remaining = [t for t in tasks if isinstance(t, dict)]
     out: list[IntentAction] = []
     is_ha = True
-
-    # Не дёргаем ha_event_only здесь — он матчит "нет tasks", а у нас
-    # tasks есть. Дёрнем только если remaining=[] на выходе.
-    for reg in list_actions():
-        if reg.type == "ha_event_only":
-            continue
-        # Один тип может встретиться несколько раз — крутим пока match.
-        while True:
-            before = list(remaining)
-            decoded, leftover = reg.decode(remaining)
-            if decoded is None:
-                break
-            # Захватываем start_delay забранного task'а → в data действия.
-            consumed = [t for t in before if t not in leftover]
-            if consumed:
-                delay = _parse_delay_seconds(consumed[0].get("start_delay"))
+    registrations = list_actions()
+    for task in (t for t in tasks if isinstance(t, dict)):
+        for reg in registrations:
+            decoded, _ = reg.decode([task])
+            if decoded is not None:
+                delay = _parse_delay_seconds(task.get("start_delay"))
                 if delay:
                     decoded.data["delay_seconds"] = delay
-            out.append(decoded)
-            remaining = leftover
-            if not remaining:
+                out.append(decoded)
                 break
-        if not remaining:
-            break
-
-    # Что осталось — unknown.
-    for t in remaining:
-        out.append(
-            IntentAction(
-                type=str(t.get("type") or "unknown"),
-                data={"raw": t},
-                unknown=True,
+        else:
+            out.append(
+                IntentAction(
+                    type=str(task.get("type") or "unknown"),
+                    data={"raw": task},
+                    unknown=True,
+                )
             )
-        )
-        is_ha = False
+            is_ha = False
 
     return out, is_ha
-
-
-def _parse_delay_seconds(value: Any) -> int:
-    """Секунды задержки из int или строки вида '240s'. Невалид/0 → 0."""
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, (int, float)):
-        return max(0, int(value))
-    if isinstance(value, str):
-        raw = value.strip().rstrip("s")
-        try:
-            return max(0, int(float(raw)))
-        except ValueError:
-            return 0
-    return 0
 
 
 def _dedup_keep_order(items: list[str]) -> list[str]:
@@ -331,7 +275,7 @@ def encode_scenario(spec: IntentSpec) -> dict[str, Any]:
         encoded = reg.encode(action.data)
         # Пауза перед действием — общее поле `start_delay` на любом task.
         delay = _parse_delay_seconds(action.data.get("delay_seconds"))
-        if delay:
+        if delay or "delay_seconds" in action.data:
             for task in encoded:
                 task["start_delay"] = f"{delay}s"
         tasks.extend(encoded)
@@ -405,6 +349,10 @@ def _encode_trigger(trig: IntentTrigger) -> dict[str, Any] | None:
     if trig.type == "unknown":
         raw = trig.data.get("raw")
         return raw if isinstance(raw, dict) else None
+    if trig.type in ("group", "check_device", "check_scenario") or (
+        trig.type == "device" and "_raw" in trig.data
+    ):
+        return encode_condition(trig)
     if trig.type == "time":
         rrule = str(trig.data.get("rrule", "")).strip()
         if not rrule:

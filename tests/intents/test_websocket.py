@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.sberhome.aiosber.dto.device import DeviceDto
-from custom_components.sberhome.intents.spec import IntentSpec
+from custom_components.sberhome.intents.encoder import decode_scenario, encode_scenario
+from custom_components.sberhome.intents.service import IntentService
+from custom_components.sberhome.intents.spec import IntentAction, IntentSpec
 from custom_components.sberhome.websocket_api.intents import (
     ws_create_intent,
     ws_delete_intent,
@@ -169,6 +174,66 @@ class TestUpdate:
         result = connection.send_result.call_args[0][1]
         assert result["name"] == "Renamed"
 
+    @pytest.mark.parametrize("with_unknown", [False, True])
+    async def test_save_and_reopen_preserves_action_order(self, hass, connection, with_unknown):
+        """Real WS → service → encoder → mocked cloud → decoder, including read-only data."""
+        actions = [
+            IntentAction(
+                type="device_command",
+                data={
+                    "device_id": "lamp-1",
+                    "attributes": [{"key": "on_off", "type": "BOOL", "bool_value": True}],
+                    "delay_seconds": 15,
+                },
+            ),
+            IntentAction(type="tts", data={"phrase": "Готово", "device_ids": ["speaker-1"]}),
+            IntentAction(type="trigger_notify"),
+        ]
+        if with_unknown:
+            actions.insert(
+                1,
+                IntentAction(
+                    type="FUTURE_COMMAND",
+                    unknown=True,
+                    data={"raw": {"type": "FUTURE_COMMAND", "opaque": {"value": 42}}},
+                ),
+            )
+        stored = encode_scenario(IntentSpec(name="Порядок", phrases=["проверка"], actions=actions))
+        stored["id"] = "sc-1"
+        original_tasks = deepcopy(stored["steps"][0]["tasks"])
+        coord = MagicMock()
+        coord.state_cache.get_homes.return_value = []
+
+        async def get(_path):
+            return MagicMock(json=lambda: deepcopy(stored))
+
+        async def put(_path, *, json):
+            stored.clear()
+            stored.update(deepcopy(json))
+            return MagicMock(json=lambda: deepcopy(stored))
+
+        coord.client.transport.get = AsyncMock(side_effect=get)
+        coord.client.transport.put = AsyncMock(side_effect=put)
+        with _patch_service(IntentService(coord)):
+            await ws_get_intent.__wrapped__(hass, connection, {"id": 20, "intent_id": "sc-1"})
+            payload = deepcopy(connection.send_result.call_args.args[1])
+            assert payload["is_ha_managed"] is not with_unknown
+            if not with_unknown:
+                payload["actions"] = [payload["actions"][i] for i in (2, 0, 1)]
+            payload["name"] = "Новый порядок"
+            await ws_update_intent.__wrapped__(
+                hass, connection, {"id": 21, "intent_id": "sc-1", "spec": payload}
+            )
+            assert connection.send_result.call_args.args[1]["actions"] == payload["actions"]
+            await ws_get_intent.__wrapped__(hass, connection, {"id": 22, "intent_id": "sc-1"})
+
+        connection.send_error.assert_not_called()
+        reopened = connection.send_result.call_args.args[1]
+        assert reopened["actions"] == payload["actions"]
+        assert reopened["name"] == "Новый порядок"
+        expected = original_tasks if with_unknown else [original_tasks[i] for i in (2, 0, 1)]
+        assert stored["steps"][0]["tasks"] == expected
+
 
 class TestDelete:
     @pytest.mark.asyncio
@@ -283,3 +348,88 @@ class TestDevicesForPicker:
         ):
             ws_devices_for_picker(hass, connection, {"id": 16})
         assert connection.send_error.call_args[0][1] == "not_loaded"
+
+
+async def test_regime_save_keeps_neighbors_and_unknown_conditions(hass, connection):
+    """Full observed scenario through WS/service; only edited nested commands change."""
+    source = json.loads((Path(__file__).parent / "fixtures/scenario_full_example.json").read_text())
+    stored = encode_scenario(decode_scenario(source))
+    stored["id"] = "test-scenario"
+    original = deepcopy(stored)
+    coord = MagicMock()
+    coord.state_cache.get_homes.return_value = []
+
+    async def get(_path):
+        return MagicMock(json=lambda: deepcopy(stored))
+
+    async def put(_path, *, json):
+        stored.clear()
+        stored.update(deepcopy(json))
+        return MagicMock(json=lambda: deepcopy(stored))
+
+    coord.client.transport.get = AsyncMock(side_effect=get)
+    coord.client.transport.put = AsyncMock(side_effect=put)
+    with _patch_service(IntentService(coord)):
+        await ws_get_intent.__wrapped__(hass, connection, {"id": 1, "intent_id": "test-scenario"})
+        payload = deepcopy(connection.send_result.call_args.args[1])
+        assert payload["is_ha_managed"] is True
+        action = next(a for a in payload["actions"] if a["type"] == "regime_command")
+        action["data"]["commands"].pop(1)
+        action["data"]["commands"][0]["text"] = "Изменённая команда"
+        await ws_update_intent.__wrapped__(
+            hass, connection, {"id": 2, "intent_id": "test-scenario", "spec": payload}
+        )
+        await ws_get_intent.__wrapped__(hass, connection, {"id": 3, "intent_id": "test-scenario"})
+    connection.send_error.assert_not_called()
+    assert connection.send_result.call_args.args[1]["triggers"] == payload["triggers"]
+    expected = original["steps"][0]["tasks"]
+    regime = next(t for t in expected if t["type"] == "REGIME_COMMAND")
+    regime["regime_command_data"]["tasks"].pop(1)
+    regime["regime_command_data"]["tasks"][0]["head_dialog_command_task_data"]["text"] = (
+        "Изменённая команда"
+    )
+    assert stored["steps"][0]["tasks"] == expected
+    assert stored["steps"][0]["condition"] == original["steps"][0]["condition"]
+
+
+async def test_condition_group_ws_edit_preserves_other_branches_and_actions(hass, connection):
+    source = json.loads((Path(__file__).parent / "fixtures/scenario_full_example.json").read_text())
+    stored = encode_scenario(decode_scenario(source))
+    stored["id"] = "test-scenario"
+    original = deepcopy(stored)
+    coord = MagicMock()
+    coord.state_cache.get_homes.return_value = []
+
+    async def get(_path):
+        return MagicMock(json=lambda: deepcopy(stored))
+
+    async def put(_path, *, json):
+        stored.clear()
+        stored.update(deepcopy(json))
+        return MagicMock(json=lambda: deepcopy(stored))
+
+    coord.client.transport.get = AsyncMock(side_effect=get)
+    coord.client.transport.put = AsyncMock(side_effect=put)
+    with _patch_service(IntentService(coord)):
+        await ws_get_intent.__wrapped__(hass, connection, {"id": 1, "intent_id": "test-scenario"})
+        payload = deepcopy(connection.send_result.call_args.args[1])
+        node = next(t for t in payload["triggers"] if t["type"] == "group")
+        node["data"]["conditions"][1]["data"]["attribute"]["bool_value"] = False
+        await ws_update_intent.__wrapped__(
+            hass, connection, {"id": 2, "intent_id": "test-scenario", "spec": payload}
+        )
+        await ws_get_intent.__wrapped__(hass, connection, {"id": 3, "intent_id": "test-scenario"})
+    connection.send_error.assert_not_called()
+    reopened = connection.send_result.call_args.args[1]
+    assert reopened["actions"] == payload["actions"]
+    assert stored["steps"][0]["tasks"] == original["steps"][0]["tasks"]
+    original["steps"][0]["condition"]["nested_conditions_data"]["conditions"][1][
+        "nested_conditions_data"
+    ]["conditions"][1]["check_device_conditions_data"]["condition"]["state"]["bool_value"] = False
+    assert stored["steps"][0]["condition"] == original["steps"][0]["condition"]
+    assert (
+        next(t for t in reopened["triggers"] if t["type"] == "group")["data"]["conditions"][1][
+            "data"
+        ]["attribute"]["bool_value"]
+        is False
+    )

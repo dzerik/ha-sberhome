@@ -22,6 +22,7 @@ class TestRegistry:
             "device_command",
             "trigger_notify",
             "speaker_text",
+            "regime_command",
             "scenario_status",
             "sms",
             "ha_event_only",

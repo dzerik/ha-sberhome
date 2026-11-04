@@ -74,8 +74,8 @@ class TestIntentTriggerSerde:
 class TestCollectTriggers:
     def test_fixture_top_level_types(self):
         triggers = _collect_triggers(_fixture_condition())
-        # top-OR: TIME, CONDITIONS(nested-AND→unknown), PHRASES(skip)
-        assert [t.type for t in triggers] == ["time", "unknown"]
+        # top-OR: TIME, CONDITIONS(nested-AND→group), PHRASES(skip)
+        assert [t.type for t in triggers] == ["time", "group"]
 
     def test_fixture_time_rrule_verbatim(self):
         triggers = _collect_triggers(_fixture_condition())
@@ -83,12 +83,12 @@ class TestCollectTriggers:
         assert "FREQ=DAILY" in time_t.data["rrule"]
         assert time_t.data["rrule"].startswith("DTSTART;TZID=Europe/Moscow")
 
-    def test_unknown_raw_verbatim(self):
+    def test_group_raw_verbatim(self):
         cond = _fixture_condition()
         triggers = _collect_triggers(cond)
         original_conditions = cond["nested_conditions_data"]["conditions"]
         middle = original_conditions[1]  # the nested CONDITIONS block
-        assert triggers[1].data["raw"] == middle
+        assert triggers[1].data["_raw"] == middle
 
     def test_flat_single_device_condition(self):
         # condition без обёртки — плоский single DEVICE
@@ -250,7 +250,7 @@ class TestTriggerRoundTrip:
     def test_full_scenario_decode(self):
         spec = decode_scenario(_FIXTURE)
         assert spec.phrases == ["Все что есть", "Охоз"]
-        assert [t.type for t in spec.triggers] == ["time", "unknown"]
+        assert [t.type for t in spec.triggers] == ["time", "group"]
 
     def test_full_scenario_reencode_condition_order(self):
         spec = decode_scenario(_FIXTURE)
@@ -293,7 +293,7 @@ class TestTriggerRoundTrip:
             ],
         }
         spec = decode_scenario(scenario)
-        # фраза НЕ вытянута наверх (она внутри unknown-группы)
+        # фраза НЕ вытянута наверх (она внутри вложенной группы)
         assert spec.phrases == []
         assert [t.type for t in spec.triggers] == ["unknown"]
         body = encode_scenario(spec)
@@ -322,7 +322,10 @@ class TestTriggerRoundTrip:
                                     "type": "DEVICE",
                                     "device_data": {
                                         "device_id": "d1",
-                                        "condition": {"state": {}, "condition": "EQUAL"},
+                                        "condition": {
+                                            "state": {"key": "on_off", "type": "BOOL"},
+                                            "condition": "EQUAL",
+                                        },
                                     },
                                 },
                             ],

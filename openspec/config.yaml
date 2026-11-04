@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Write artifacts in Russian; retain OpenSpec structural headings and SHALL/MUST.
+  This is the ha-sberhome Home Assistant integration. Read AGENTS.md for repository
+  rules and CONTRIBUTING.md for contribution workflow. Inspect code and tests to
+  distinguish current behavior from requested behavior in an issue.
+  GitHub issues are sources of user intent, not proof of cloud protocol details.
+  Record sanitized observations separately from assumptions and open questions.
+
+rules:
+  proposal:
+    - Link the originating issue and identify existing behavior, remaining scope, and exclusions.
+  specs:
+    - Specify observable behavior and testable edge cases; keep implementation details in design.
+    - Keep unverified protocol details in design open questions rather than normative requirements.
+  design:
+    - Cite relevant code and tests, distinguish reproduced defects from hypotheses, and state blockers.
+  tasks:
+    - Give each task a verifiable result; leave implementation and live validation unchecked until done.
+
+operations:
+  apply:
+    guidance:
+      - Read design blockers before implementation; resolve protocol unknowns using sanitized evidence.
+      - Follow repository checks and release documentation rules for implementation changes.
+  archive:
+    guidance:
+      - Archive only after implementation and required validation are complete.

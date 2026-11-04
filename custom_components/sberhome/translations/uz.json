@@ -34,6 +34,18 @@
           "resend": "Kiritilgan kodni tekshirish o'rniga shu raqamga yangi SMS kod yuborish."
         }
       },
+      "email_otp": {
+        "title": "Elektron pochta orqali tasdiqlash",
+        "description": "Sber elektron pochtadan qo‘shimcha kod so‘radi. Xatdagi kodni kiriting. Qayta yuborish uchun “Yangi kod yuborish”ni belgilang va shaklni yuboring.",
+        "data": {
+          "otp": "Xatdagi kod",
+          "resend": "Yangi kod yuborish"
+        },
+        "data_description": {
+          "otp": "Sber xatidagi kod. Yangi kod so‘raganda maydonni bo‘sh qoldiring.",
+          "resend": "Joriy kirish seansi doirasida elektron pochta orqali yangi kod yuborish."
+        }
+      },
       "sberid_retry": {
         "title": "Aqlli uyga ulanishni tekshirib bo'lmadi",
         "description": "Sber ID orqali kirish bajarildi, lekin Home Assistant u bilan Sber aqlli uyiga ulana olmadi. Qayta urinish uchun formani yuboring: bulut mavjud bo'lmagan bo'lsa, tekshiruv takrorlanadi, kirish rad etilgan bo'lsa, Sber ID orqali kirish qayta ochiladi."
@@ -56,7 +68,11 @@
       "unknown": "Noma'lum xatolik",
       "invalid_phone": "Telefon raqami noto'g'ri. Format: 78001234567.",
       "send_otp_failed": "SMS yuborilmadi. Raqamni tekshirib, keyinroq qaytadan urinib ko'ring.",
-      "invalid_otp": "SMS kodi noto'g'ri yoki muddati tugagan. Uni qayta kiriting yoki «Yangi kod yuborish» belgisini qo'ying."
+      "invalid_otp": "SMS kodi noto'g'ri yoki muddati tugagan. Uni qayta kiriting yoki «Yangi kod yuborish» belgisini qo'ying.",
+      "send_email_otp_failed": "Kod elektron pochtaga yuborilmadi. “Yangi kod yuborish”ni belgilang va qayta urinib ko‘ring.",
+      "invalid_email_otp": "Xatdagi kod noto‘g‘ri yoki muddati o‘tgan. Uni qayta kiriting yoki yangi kod so‘rang.",
+      "auth_session_expired": "Kirish seansi muddati tugadi. Oynani yoping va qaytadan kiring.",
+      "unsupported_authenticator": "Sber qo‘llab-quvvatlanmaydigan tasdiqlash usulini so‘radi. Oynani yoping va Sber ID orqali kirishni tanlang."
     },
     "create_entry": {
       "default": "Avtorizatsiya muvaffaqiyatli o'tdi. **Qurilmalar avtomatik import qilinmadi** — yon menyudan SberHome panelini oching (yoki [/sberhome](/sberhome) manziliga o'ting) va Home Assistant-ga kerakli qurilmalarni tanlang. Shu paytgacha integratsiya ulangan, lekin entitylar yaratmaydi."

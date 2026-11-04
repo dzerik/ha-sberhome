@@ -47,6 +47,12 @@ from .aiosber.auth import (
     send_otp,
     verify_otp,
 )
+from .aiosber.auth.csafront import (
+    AuthSessionExpired,
+    EmailOtpChallenge,
+    UnsupportedAuthenticator,
+    initialize_email_otp,
+)
 from .aiosber.const import AUTH_METHOD_CSAFRONT, AUTH_METHOD_SBERID
 from .aiosber.exceptions import AuthError, InvalidGrant, PkceError, SberError
 from .aiosber.transport import HttpTransport
@@ -149,6 +155,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._csafront_pkce: PkceParams | None = None
         self._csafront_phone: str | None = None
         self._csafront_ouid: str | None = None
+        self._csafront_email_challenge: EmailOtpChallenge | None = None
         self._csafront_tokens: CsafrontTokens | None = None
 
     @staticmethod
@@ -317,6 +324,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     elif error := await self._csafront_login(otp):
                         errors["base"] = error
                 if not errors:
+                    if self._csafront_email_challenge is not None:
+                        return await self.async_step_email_otp()
                     if error := await self._csafront_check_smart_home():
                         errors["base"] = error
                     else:
@@ -336,7 +345,67 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_email_otp(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Continue the same authorization operation with its additional email factor."""
+        errors: dict[str, str] = {}
+        challenge = self._csafront_email_challenge
+        if user_input is None:
+            if (
+                challenge is not None
+                and challenge.initialization_required
+                and (error := await self._csafront_send_email_otp())
+            ):
+                errors["base"] = error
+        elif user_input.get(CONF_RESEND):
+            if error := await self._csafront_send_email_otp():
+                errors["base"] = error
+        else:
+            if self._csafront_tokens is None:
+                otp = (user_input.get(CONF_OTP) or "").strip()
+                if challenge is not None and challenge.initialization_required:
+                    errors["base"] = "send_email_otp_failed"
+                elif not otp:
+                    errors[CONF_OTP] = "invalid_email_otp"
+                elif error := await self._csafront_login(otp, email=True):
+                    errors["base"] = error
+            if not errors:
+                if error := await self._csafront_check_smart_home():
+                    errors["base"] = error
+                else:
+                    return await self._csafront_finalize()
+
+        return self.async_show_form(
+            step_id="email_otp",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_OTP): str,
+                    vol.Optional(CONF_RESEND, default=False): bool,
+                }
+            ),
+            errors=errors,
+        )
+
     # --- CSAFront flow helpers ---
+
+    async def _csafront_send_email_otp(self) -> str | None:
+        """Initialize/re-send email confirmation, retaining cookies and PKCE."""
+        if self._csafront_http is None or self._csafront_ouid is None:
+            return "auth_session_expired"
+        try:
+            ouid = await initialize_email_otp(self._csafront_http, self._csafront_ouid)
+        except AuthSessionExpired:
+            await self._csafront_cleanup()
+            return "auth_session_expired"
+        except UnsupportedAuthenticator:
+            await self._csafront_cleanup()
+            return "unsupported_authenticator"
+        except SberError:
+            return "send_email_otp_failed"
+        except Exception as err:
+            return _flow_error(err, "Email code request")
+        self._csafront_ouid = ouid
+        self._csafront_email_challenge = EmailOtpChallenge(ouid, initialization_required=False)
+        return None
 
     async def _csafront_send_otp(self, phone: str) -> str | None:
         """Готовим httpx + PKCE, шлём запрос на SMS.
@@ -364,11 +433,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         LOGGER.debug("CSAFront SMS sent for phone=***%s", phone[-4:])
         return None
 
-    async def _csafront_login(self, otp: str) -> str | None:
-        """Verify OTP → exchange authcode → fetch SmartHomeToken → CsafrontTokens.
+    async def _csafront_login(self, otp: str, *, email: bool = False) -> str | None:
+        """Verify SMS/email OTP, continue a challenge or exchange the final authcode.
 
         Args:
-            otp: Код из SMS.
+            otp: Код из SMS или email.
 
         Returns:
             None, если токены получены (``self._csafront_tokens``); иначе ключ
@@ -378,25 +447,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._csafront_http is None or self._csafront_ouid is None:
             # Код не был отправлен (повторная отправка не удалась) или уже
             # обменян — нужен новый.
-            return "invalid_otp"
+            return "auth_session_expired" if email else "invalid_otp"
         assert self._csafront_pkce is not None
 
         try:
-            authcode = await verify_otp(self._csafront_http, self._csafront_ouid, otp)
+            result = await verify_otp(
+                self._csafront_http,
+                self._csafront_ouid,
+                otp,
+                authenticator="email_otp" if email else "sms_otp",
+            )
+        except AuthSessionExpired:
+            await self._csafront_cleanup()
+            return "auth_session_expired"
+        except UnsupportedAuthenticator:
+            await self._csafront_cleanup()
+            return "unsupported_authenticator"
         except InvalidGrant:
-            return "invalid_otp"
+            return "invalid_email_otp" if email else "invalid_otp"
         except Exception as err:
-            return _flow_error(err, "SMS code check")
+            return _flow_error(err, "Email code check" if email else "SMS code check")
+        if isinstance(result, EmailOtpChallenge):
+            if email:
+                await self._csafront_cleanup()
+                return "unsupported_authenticator"
+            self._csafront_email_challenge = result
+            return None
         # Код принят и больше не действителен: при сбое дальше нужен новый.
         self._csafront_ouid = None
+        self._csafront_email_challenge = None
 
         try:
-            token_data = await exchange_authcode(self._csafront_http, authcode, self._csafront_pkce)
+            token_data = await exchange_authcode(self._csafront_http, result, self._csafront_pkce)
             smart_home_token = await get_smart_home_token(
                 self._csafront_http, token_data["access_token"]
             )
         except Exception as err:
-            return _flow_error(err, "SMS sign-in")
+            return _flow_error(err, "Email sign-in" if email else "SMS sign-in")
 
         now = time.time()
         self._csafront_tokens = CsafrontTokens(
@@ -443,6 +530,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._csafront_http = None
         self._csafront_pkce = None
         self._csafront_ouid = None
+        self._csafront_email_challenge = None
         self._csafront_tokens = None
 
     async def _csafront_finalize(self) -> FlowResult:

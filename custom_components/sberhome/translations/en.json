@@ -34,6 +34,18 @@
           "resend": "Send a new SMS code to the same number instead of checking the entered one."
         }
       },
+      "email_otp": {
+        "title": "Email confirmation",
+        "description": "Sber requires an additional code from your email. Enter the code. To request another email, tick “Send a new code” and submit.",
+        "data": {
+          "otp": "Email code",
+          "resend": "Send a new code"
+        },
+        "data_description": {
+          "otp": "The code from the email. Leave empty when requesting another code.",
+          "resend": "Send another email code within the same sign-in session."
+        }
+      },
       "sberid_retry": {
         "title": "Sber smart home check failed",
         "description": "Signing in with Sber ID succeeded, but Home Assistant could not reach the Sber smart home with it. Submit the form to try again: if the cloud was unavailable, the check is repeated; if the sign-in was rejected, Sber ID sign-in opens again."
@@ -56,7 +68,11 @@
       "unknown": "Unexpected error",
       "invalid_phone": "Invalid phone number. Use international format like 78001234567.",
       "send_otp_failed": "Could not send the SMS code. Verify the number and try again later.",
-      "invalid_otp": "The SMS code is wrong or expired. Enter it again or tick “Send a new code”."
+      "invalid_otp": "The SMS code is wrong or expired. Enter it again or tick “Send a new code”.",
+      "send_email_otp_failed": "Could not send the email code. Tick “Send a new code” and try again.",
+      "invalid_email_otp": "The email code is wrong or expired. Enter it again or request a new code.",
+      "auth_session_expired": "The sign-in session has expired. Close this dialog and start signing in again.",
+      "unsupported_authenticator": "Sber requested an unsupported confirmation method. Close this dialog and choose Sber ID sign-in."
     },
     "create_entry": {
       "default": "Authorization successful. **No devices were imported automatically** — open the SberHome panel in the sidebar (or go to [/sberhome](/sberhome)) and pick which devices you want in Home Assistant. Until then the integration is connected but exposes no entities."

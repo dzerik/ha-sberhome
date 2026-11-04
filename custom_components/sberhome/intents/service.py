@@ -83,7 +83,17 @@ class IntentService:
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
             payload = payload["result"]
-        return decode_scenario(payload) if isinstance(payload, dict) else spec
+        result = decode_scenario(payload) if isinstance(payload, dict) else spec
+        if not spec.enabled and result.id:
+            # The cloud can ignore is_active:false on POST. Its dedicated
+            # endpoint must confirm deactivation before a disabled create succeeds.
+            try:
+                await self._coord.client.scenarios.set_active(result.id, False)
+            except Exception:
+                await self.delete_intent(result.id)
+                raise
+            result.enabled = False
+        return result
 
     async def update_intent(self, scenario_id: str, spec: IntentSpec) -> IntentSpec:
         """Обновить существующий сценарий.
@@ -104,7 +114,11 @@ class IntentService:
         payload = resp.json()
         if isinstance(payload, dict) and "result" in payload and len(payload) <= 2:
             payload = payload["result"]
-        return decode_scenario(payload) if isinstance(payload, dict) else spec
+        result = decode_scenario(payload) if isinstance(payload, dict) else spec
+        if not spec.enabled:
+            await self._coord.client.scenarios.set_active(scenario_id, False)
+            result.enabled = False
+        return result
 
     async def delete_intent(self, scenario_id: str) -> None:
         await self._coord.client.transport.delete(f"/scenario/v2/scenario/{scenario_id}")

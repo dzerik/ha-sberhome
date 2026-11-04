@@ -40,6 +40,7 @@ def _reported_value(av: dict[str, Any]) -> Any:
     {
         vol.Required("type"): "sberhome/device_write_schema",
         vol.Required("device_id"): str,
+        vol.Optional("include_readonly", default=False): bool,
     }
 )
 @callback
@@ -67,7 +68,7 @@ def ws_device_write_schema(
     fields: list[dict[str, Any]] = []
     for attr in raw.get("attributes") or []:
         key = attr.get("key")
-        if key not in writable:
+        if key not in writable and not msg.get("include_readonly", False):
             continue
         field: dict[str, Any] = {
             "key": key,

@@ -9,8 +9,8 @@ Forward-compat: незнакомые Sber-поля складываются в `
 мерджатся обратно при `update()`. Это значит:
 - Sber добавит новое поле в ScenarioDto → не упадём.
 - Пользователь создал сценарий с action типа который мы не знаем
-  (`regime_command`, новый task type) → UI пометит как
-  «complex / read-only», но `raw_extras` содержит весь оригинал
+  (новый task type) → UI пометит как
+  «complex / read-only», но `data["raw"]` содержит весь оригинал
   — при сохранении ничего не потеряется.
 """
 
@@ -36,8 +36,8 @@ class IntentAction:
         })
 
     `unknown` — флаг от encoder'а: action имеет тип не из registry
-    (например native `regime_command`). UI показывает его read-only,
-    save сохраняет через `raw_extras` сценария.
+    (например неизвестный вариант `REGIME_COMMAND`). UI показывает его read-only,
+    save сохраняет через `data["raw"]`.
     """
 
     type: str
@@ -64,7 +64,10 @@ class IntentTrigger:
         'time'    — по расписанию (data={'rrule': 'DTSTART;...\\nRRULE:...'})
         'device'  — по состоянию устройства (data={'device_id', 'attribute',
                     'operator', 'delay_seconds', 'categories_slugs', 'parent_id'})
-        'unknown' — незнакомый top-level condition (CHECK_DEVICE, geo_time, …);
+        'group' — дерево условий data={'relation': 'AND'|'OR', 'conditions': [...]}
+        'check_device' — проверка состояния устройства, не событие запуска
+        'check_scenario' — проверка data={'scenario_id', 'status'}
+        'unknown' — неподдерживаемый condition (geo_time, …);
                     дословный оригинал в data['raw'], round-trip lossless.
 
     Голосовые фразы (PHRASES) — НЕ триггер этого типа: они живут в
