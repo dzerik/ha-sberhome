@@ -20,6 +20,11 @@ updates:
   # GitHub Actions versions в .github/workflows/*.yml.
   - package-ecosystem: "github-actions"
     directory: "/"
+    # CodeQL steps share configuration and must use the same action version.
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action*"
     schedule:
       interval: "weekly"
       day: "monday"
