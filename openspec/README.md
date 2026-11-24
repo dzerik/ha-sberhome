@@ -59,7 +59,7 @@ Lifecycle №62 реализован и локально проверен для
 Архивация не закрывает GitHub issue.
 
 №95 — исправление неподтверждённого питания Salute TV подготовлено для
-6.4.0b9: unknown/assumed и отдельные штатные power controls HA.
+6.4.0b10: unknown/assumed и отдельные штатные power controls HA.
 [Контракт](specs/tv-power-feedback/spec.md),
 [архив и проверки](changes/archive/2026-11-25-fix-tv-power-feedback/validation.md).
 Результаты публикации фиксируются в issue; физическое выключение телевизора
