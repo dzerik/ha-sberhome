@@ -112,14 +112,27 @@ def map_device_to_entities(dto: DeviceDto) -> list[HaEntityData]:
     reported_ts: dict[str, str | None] = {}
     for av in dto.reported_state:
         if av.key:
-            reported[av.key] = _normalize_value(av, decl_types.get(av.key))
             reported_ts[av.key] = av.last_sync
+            if (
+                category == "tv"
+                and av.key == "on_off"
+                and av.last_sync
+                and av.last_sync.startswith(_EPOCH_PREFIXES)
+            ):
+                # Salute TV reports an uninitialised false even while powered on (#95).
+                continue
+            reported[av.key] = _normalize_value(av, decl_types.get(av.key))
+    power_assumed = False
     for av in dto.desired_state:
         if not av.key:
             continue
         if not _is_fresh_desired(av.last_sync, reported_ts.get(av.key)):
             continue
-        reported[av.key] = _normalize_value(av, decl_types.get(av.key))
+        value = _normalize_value(av, decl_types.get(av.key))
+        if av.key == "on_off":
+            reported_power = reported.get(av.key)
+            power_assumed = not isinstance(reported_power, bool) or reported_power != value
+        reported[av.key] = value
 
     cat_spec = CATEGORY_SPECS.get(category)
     consumed: frozenset[str] = cat_spec.consumed_features if cat_spec else frozenset()
@@ -130,6 +143,8 @@ def map_device_to_entities(dto: DeviceDto) -> list[HaEntityData]:
     if cat_spec and cat_spec.consumed_features:
         primary = build_primary_entity(reported, cat_spec, device_id, name, category)
         if primary is not None:
+            if category == "tv" and power_assumed:
+                primary.attributes["assumed_state"] = True
             entities.append(primary)
 
     # 2. Extra entities — auto-discovered from features

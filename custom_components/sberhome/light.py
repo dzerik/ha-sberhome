@@ -172,9 +172,8 @@ class SberLightEntity(SberBaseEntity, LightEntity):
                 return ColorMode.COLOR_TEMP
             if ColorMode.BRIGHTNESS in supported:
                 return ColorMode.BRIGHTNESS
-        elif light_mode == "colour":
-            if ColorMode.HS in supported:
-                return ColorMode.HS
+        elif light_mode == "colour" and ColorMode.HS in supported:
+            return ColorMode.HS
         # Fallback для устройств только с ONOFF, для "music"-mode,
         # или когда light_mode отсутствует в state.
         if ColorMode.ONOFF in supported and len(supported) == 1:
