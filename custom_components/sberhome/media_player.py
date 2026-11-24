@@ -95,13 +95,17 @@ class SberSbermapMediaPlayer(SberBaseEntity, MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState | None:
-        """Current state. None → HA показывает "unavailable" через
-        `SberBaseEntity.available` (что корректнее чем OFF для недоступного
-        устройства — OFF неотличим от "выключено вручную")."""
+        """Unknown power stays unknown; connectivity is handled by available."""
         ent = self._ent()
-        if ent is None:
+        if ent is None or ent.state not in ("on", "off"):
             return None
         return MediaPlayerState.ON if ent.state == "on" else MediaPlayerState.OFF
+
+    @property
+    def assumed_state(self) -> bool:
+        """Keep both native power controls visible without a confirmed state."""
+        ent = self._ent()
+        return ent is not None and bool(ent.attributes.get("assumed_state"))
 
     @property
     def volume_level(self) -> float | None:

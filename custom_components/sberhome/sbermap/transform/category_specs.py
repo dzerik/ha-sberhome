@@ -190,12 +190,15 @@ def build_primary_entity(
 
     if platform is Platform.MEDIA_PLAYER:
         volume_raw = reported.get("volume_int")
+        power = reported.get("on_off")
+        power_known = isinstance(power, bool)
         return HaEntityData(
             platform=platform,
             unique_id=device_id,
             name=name,
-            state=STATE_ON if reported.get("on_off") else STATE_OFF,
+            state=(STATE_ON if power else STATE_OFF) if power_known else None,
             attributes={
+                "assumed_state": not power_known,
                 "source": reported.get("source"),
                 "volume_level": float(volume_raw) / 100.0 if volume_raw is not None else None,
                 "is_volume_muted": reported.get("mute"),
