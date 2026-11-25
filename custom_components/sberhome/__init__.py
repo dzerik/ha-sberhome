@@ -330,16 +330,19 @@ def _create_coordinator(
         Координатор, который закроет ``http`` в ``async_shutdown``.
 
     Raises:
-        ConfigEntryAuthFailed: У SMS-входа нет сохранённых токенов.
+        ConfigEntryAuthFailed: У выбранного способа входа нет сохранённых токенов.
     """
     # SberAPI инстанс нужен для config_flow PKCE-обновления (reauth) и
     # для legacy SberID flow. Для CSAFront flow SberID-токенов нет —
     # передаём пустой dict.
-    sber_token = entry.data.get(CONF_TOKEN) or {"access_token": ""}
+    auth_method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_SBERID)
+    sber_token = entry.data.get(CONF_TOKEN)
+    if auth_method == AUTH_METHOD_SBERID and not sber_token:
+        raise ConfigEntryAuthFailed("Sber ID tokens missing — reauth required")
+    sber_token = sber_token or {"access_token": ""}
     sber = SberAPI(token=sber_token, http=http)
 
     # Диспатч на нужный auth manager по auth_method (default — legacy SberID).
-    auth_method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_SBERID)
     auth: AuthManagerProtocol
     if auth_method == AUTH_METHOD_CSAFRONT:
         csaf_store = HACsafrontTokenStore(hass, entry)

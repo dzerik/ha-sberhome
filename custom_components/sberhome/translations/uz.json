@@ -60,7 +60,8 @@
       "already_configured": "Qurilma allaqachon sozlangan",
       "reauth_successful": "Qayta avtorizatsiya muvaffaqiyatli yakunlandi",
       "wrong_account": "Boshlang'ich yozuvdan farqli Sber hisob bilan kirildi. To'g'ri hisob bilan qaytadan kiring.",
-      "no_url_available": "Home Assistant uchun ochiq URL sozlanmagan. Sozlamalar → Tizim → Tarmoq bo‘limida tashqi yoki ichki manzilni belgilang va qayta urinib ko‘ring."
+      "no_url_available": "Home Assistant uchun ochiq URL sozlanmagan. Sozlamalar → Tizim → Tarmoq bo‘limida tashqi yoki ichki manzilni belgilang va qayta urinib ko‘ring.",
+      "auth_reset": "Bu kirish seansi bekor qilindi. Qayta kirish haqidagi yangi bildirishnomani oching."
     },
     "error": {
       "cannot_connect": "Ulanib bo'lmadi",
@@ -82,6 +83,13 @@
     "step": {
       "init": {
         "title": "SberHome sozlamalari",
+        "menu_options": {
+          "settings": "Ulanish sozlamalari",
+          "reset_auth": "Avtorizatsiyani tozalash va qayta kirish"
+        }
+      },
+      "settings": {
+        "title": "SberHome sozlamalari",
         "data": {
           "scan_interval": "So'rov oralig'i (soniya)",
           "devtools_buffer_size": "DevTools buferlari hajmi",
@@ -92,7 +100,18 @@
           "devtools_buffer_size": "Paneldagi har bir DevTools jurnali nechta yozuv saqlaydi: xabarlar, holat o'zgarishlari, buyruqlar, tekshiruv izohlari (10 dan 5000 gacha).",
           "command_timeout": "Panel buyruqni tasdiqlanmagan deb belgilashidan oldin qurilma berilgan holatni xabar qilishini qancha kutish kerak (1 dan 120 soniyagacha)."
         }
+      },
+      "reset_auth": {
+        "title": "Avtorizatsiyani tozalash va qayta kirish",
+        "description": "Mahalliy saqlangan barcha Sber ID, SMS, aqlli uy API va karnay sozlamalari tokenlari o‘chiriladi. Xuddi shu hisobga xuddi shu usulda qayta kirguningizcha integratsiya to‘xtaydi. Qurilmalar, obyektlar va sozlamalar saqlanadi. Tozalash uchun shaklni yuboring yoki bekor qilish uchun oynani yoping."
       }
+    },
+    "error": {
+      "cannot_unload": "Integratsiyani to‘xtatib bo‘lmadi. Avtorizatsiya ma’lumotlari o‘chirilmadi. Home Assistant dasturini qayta ishga tushirib, qayta urinib ko‘ring.",
+      "missing_account": "Asl hisobni aniqlab bo‘lmadi. Avtorizatsiya ma’lumotlari o‘chirilmadi: ushbu eski yozuvni tozalash qurilmalarni boshqa hisobga bog‘lashi mumkin."
+    },
+    "abort": {
+      "reauth_started": "Avtorizatsiya ma’lumotlari tozalandi. Qayta kirish uchun SberHome bildirishnomasini oching."
     }
   },
   "services": {
