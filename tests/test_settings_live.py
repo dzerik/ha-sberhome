@@ -114,7 +114,7 @@ async def test_options_flow_offers_every_live_setting() -> None:
     flow.async_show_form = lambda **kw: shown.update(kw) or kw
     flow.add_suggested_values_to_schema = lambda schema, _values: schema
     try:
-        await flow.async_step_init(user_input=None)
+        await flow.async_step_settings(user_input=None)
     finally:
         del type(flow).config_entry
     assert {str(k) for k in shown["data_schema"].schema} == set(SETTINGS_DEFAULTS)

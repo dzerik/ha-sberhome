@@ -30,7 +30,7 @@ async def _options_schema() -> vol.Schema:
     flow.async_show_form = lambda **kwargs: shown.update(kwargs) or kwargs
     flow.add_suggested_values_to_schema = lambda schema, _values: schema
     try:
-        await flow.async_step_init(user_input=None)
+        await flow.async_step_settings(user_input=None)
     finally:
         del type(flow).config_entry
     return shown["data_schema"]

@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from homeassistant import config_entries
 from homeassistant.config_entries import SOURCE_IGNORE, SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
@@ -1130,8 +1131,12 @@ async def test_options_flow(hass: HomeAssistant, cloud) -> None:
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.MENU
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "settings"}
+    )
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "init"
+    assert result["step_id"] == "settings"
     assert _suggested(result["data_schema"], CONF_SCAN_INTERVAL) == 60
 
     with pytest.raises(InvalidData):
@@ -1144,13 +1149,238 @@ async def test_options_flow(hass: HomeAssistant, cloud) -> None:
         {CONF_SCAN_INTERVAL: 120, CONF_DEVTOOLS_BUFFER_SIZE: 300, CONF_COMMAND_TIMEOUT: 15},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    # Форма не знает про выбор устройств — он не стирается.
     assert entry.options == {
         CONF_SCAN_INTERVAL: 120,
         CONF_DEVTOOLS_BUFFER_SIZE: 300,
         CONF_COMMAND_TIMEOUT: 15.0,
         CONF_ENABLED_DEVICE_IDS: ["dev-1"],
     }
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_manual_reset_replaces_pending_login_and_reauthenticates(hass, cloud, method):
+    entry = _sms_entry(hass) if method == AUTH_METHOD_CSAFRONT else _sberid_entry(hass)
+    original_id = entry.entry_id
+    original_unique_id = entry.unique_id
+    original_options = dict(entry.options)
+    # An interrupted login has its own open HTTP/PKCE or SMS session.
+    old = await _reauth(hass, entry)
+    old_flow_id = old["flow_id"]
+    if method == AUTH_METHOD_CSAFRONT:
+        old = await hass.config_entries.flow.async_configure(old_flow_id, {"phone": PHONE})
+        assert old["step_id"] == "sms_otp"
+    clients = list(cloud.clients)
+    assert any(not client.is_closed for client in clients)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "reset_auth"}
+    )
+    await hass.config_entries.options.async_configure(result["flow_id"], {})
+    await hass.async_block_till_done()
+    assert all(client.is_closed for client in clients)
+    assert old_flow_id not in pending_auth_flows
+    assert all(flow["flow_id"] != old_flow_id for flow in hass.config_entries.flow.async_progress())
+    flows = list(entry.async_get_active_flows(hass, {config_entries.SOURCE_REAUTH}))
+    assert len(flows) == 1
+    result = await hass.config_entries.flow.async_configure(flows[0]["flow_id"], {})
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        if method == AUTH_METHOD_CSAFRONT:
+            result = await _sms_login(hass, result, cloud)
+            assert entry.data[CONF_CSAFRONT_TOKENS]["client_uuid"]
+        else:
+            result = await _sberid_login(hass, result)
+        assert result["reason"] == "reauth_successful"
+        reload.assert_called_once_with(original_id)
+    assert entry.entry_id == original_id
+    assert entry.unique_id == original_unique_id
+    assert entry.options == original_options
+    assert entry.data["auth_generation"] == 1
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_old_reauth_cannot_overwrite_reset_generation(hass, cloud, method):
+    entry = _sms_entry(hass) if method == AUTH_METHOD_CSAFRONT else _sberid_entry(hass)
+    result = await _reauth(hass, entry)
+    # Simulate a response racing with reset/new sign-in; leave this flow alive
+    # deliberately so its final credential write must reject the old generation.
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            CONF_AUTH_METHOD: method,
+            "auth_generation": 1,
+        },
+    )
+    if method == AUTH_METHOD_CSAFRONT:
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"phone": PHONE})
+    else:
+        result = await _sberid_login(hass, result)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "auth_reset"
+    assert entry.data == {CONF_AUTH_METHOD: method, "auth_generation": 1}
+
+
+async def test_reset_during_gateway_probe_closes_client_and_rejects_late_result(hass, cloud):
+    import asyncio
+
+    from custom_components.sberhome import config_flow
+
+    entry = _sberid_entry(hass)
+    result = await _reauth(hass, entry)
+    flow_id = result["flow_id"]
+    pending = pending_auth_flows[flow_id]
+    state = parse_qs(urlparse(pending.auth_url).query)["state"][0]
+    await pending.client.authorize_by_url(f"companionapp://host?code=abc&state={state}")
+    result = await hass.config_entries.flow.async_configure(flow_id, {})
+    assert result["type"] is FlowResultType.EXTERNAL_STEP_DONE
+    reached, release = asyncio.Event(), asyncio.Event()
+    probe = config_flow._async_probe_gateway
+
+    async def paused_probe(http, auth):
+        await probe(http, auth)
+        reached.set()
+        await release.wait()
+
+    with patch.object(config_flow, "_async_probe_gateway", paused_probe):
+        task = hass.async_create_task(hass.config_entries.flow.async_configure(flow_id))
+        await reached.wait()
+        clients = list(cloud.clients)
+        reset = await hass.config_entries.options.async_init(entry.entry_id)
+        reset = await hass.config_entries.options.async_configure(
+            reset["flow_id"], {"next_step_id": "reset_auth"}
+        )
+        await hass.config_entries.options.async_configure(reset["flow_id"], {})
+        # Let async_remove's scheduled close run without waiting for the paused probe.
+        await asyncio.sleep(0)
+        try:
+            assert all(client.is_closed for client in clients)
+        finally:
+            release.set()
+            late = await task
+        assert late["type"] is FlowResultType.ABORT
+        assert late["reason"] == "auth_reset"
+    assert entry.data == {CONF_AUTH_METHOD: AUTH_METHOD_SBERID, "auth_generation": 1}
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_reset_while_client_is_created_cannot_restore_pending_login(hass, cloud, method):
+    import asyncio
+
+    from custom_components.sberhome import config_flow
+
+    entry = _sms_entry(hass) if method == AUTH_METHOD_CSAFRONT else _sberid_entry(hass)
+    result = await entry.start_reauth_flow(hass)
+    if method == AUTH_METHOD_CSAFRONT:
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    reached, release = asyncio.Event(), asyncio.Event()
+    create = config_flow.ConfigFlow._async_create_http
+
+    async def paused_create(self):
+        http = await create(self)
+        reached.set()
+        await release.wait()
+        return http
+
+    with patch.object(config_flow.ConfigFlow, "_async_create_http", paused_create):
+        task = hass.async_create_task(
+            hass.config_entries.flow.async_configure(
+                result["flow_id"], {"phone": PHONE} if method == AUTH_METHOD_CSAFRONT else {}
+            )
+        )
+        await reached.wait()
+        reset = await hass.config_entries.options.async_init(entry.entry_id)
+        reset = await hass.config_entries.options.async_configure(
+            reset["flow_id"], {"next_step_id": "reset_auth"}
+        )
+        await hass.config_entries.options.async_configure(reset["flow_id"], {})
+        release.set()
+        try:
+            late = await task
+        finally:
+            # Clean up a leaked old PKCE entry even if the regression fails.
+            for pending in list(pending_auth_flows.values()):
+                await pending.client.aclose()
+            pending_auth_flows.clear()
+    assert late["type"] is FlowResultType.ABORT
+    assert late["reason"] == "auth_reset"
+    assert all(client.is_closed for client in cloud.clients)
+    assert cloud.calls("send_otp") == []
+    assert entry.data == {CONF_AUTH_METHOD: method, "auth_generation": 1}
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_reset_recovers_legacy_identity_before_erasing_credentials(hass, cloud, method):
+    entry = _sms_entry(hass) if method == AUTH_METHOD_CSAFRONT else _sberid_entry(hass)
+    unique_id = entry.unique_id
+    if method == AUTH_METHOD_SBERID:
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                CONF_AUTH_METHOD: method,
+                CONF_TOKEN: _make_token_with_sub(SUB),
+            },
+        )
+    hass.config_entries.async_update_entry(entry, unique_id=None)
+    reset = await hass.config_entries.options.async_init(entry.entry_id)
+    reset = await hass.config_entries.options.async_configure(
+        reset["flow_id"], {"next_step_id": "reset_auth"}
+    )
+    await hass.config_entries.options.async_configure(reset["flow_id"], {})
+    assert entry.unique_id == unique_id
+    assert entry.data == {CONF_AUTH_METHOD: method, "auth_generation": 1}
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_reset_unknown_legacy_account_keeps_credentials(hass, cloud, method):
+    entry = _sberid_entry(hass, unique_id=None)
+    if method == AUTH_METHOD_CSAFRONT:
+        hass.config_entries.async_update_entry(
+            entry, data={CONF_AUTH_METHOD: method, CONF_CSAFRONT_TOKENS: {"phone": None}}
+        )
+    before = dict(entry.data)
+    reset = await hass.config_entries.options.async_init(entry.entry_id)
+    reset = await hass.config_entries.options.async_configure(
+        reset["flow_id"], {"next_step_id": "reset_auth"}
+    )
+    result = await hass.config_entries.options.async_configure(reset["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "missing_account"}
+    assert entry.data == before
+    assert entry.unique_id is None
+    assert not list(entry.async_get_active_flows(hass, {config_entries.SOURCE_REAUTH}))
+
+
+@pytest.mark.parametrize("method", [AUTH_METHOD_SBERID, AUTH_METHOD_CSAFRONT])
+async def test_reset_during_reauth_creation_starts_current_generation(hass, cloud, method):
+    import asyncio
+
+    entry = _sms_entry(hass) if method == AUTH_METHOD_CSAFRONT else _sberid_entry(hass)
+    options = hass.config_entries.options
+    form = await options.async_init(entry.entry_id)
+    form = await options.async_configure(form["flow_id"], {"next_step_id": "reset_auth"})
+    manager = hass.config_entries.flow
+    create = manager.async_create_flow
+    reached, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed(*args, **kwargs):
+        if not reached.is_set():
+            reached.set()
+            await release.wait()
+        return await create(*args, **kwargs)
+
+    with patch.object(manager, "async_create_flow", delayed):
+        entry.async_start_reauth(hass)
+        await reached.wait()
+        await options.async_configure(form["flow_id"], {})
+        release.set()
+        await hass.async_block_till_done()
+    flows = list(entry.async_get_active_flows(hass, {config_entries.SOURCE_REAUTH}))
+    assert len(flows) == 1
+    flow = manager._progress[flows[0]["flow_id"]]
+    assert flow._auth_generation == entry.data["auth_generation"]
+    assert CONF_TOKEN not in flow.init_data
+    assert CONF_CSAFRONT_TOKENS not in flow.init_data
+    manager.async_abort(flow.flow_id)
 
 
 def test_options_flow_does_not_self_reload() -> None:
@@ -1175,7 +1405,11 @@ def test_every_form_field_is_described_in_every_language() -> None:
         ("config", "sms_phone"): {"phone"},
         ("config", "sms_otp"): {"otp", "resend"},
         ("config", "email_otp"): {"otp", "resend"},
-        ("options", "init"): {CONF_SCAN_INTERVAL, CONF_DEVTOOLS_BUFFER_SIZE, CONF_COMMAND_TIMEOUT},
+        ("options", "settings"): {
+            CONF_SCAN_INTERVAL,
+            CONF_DEVTOOLS_BUFFER_SIZE,
+            CONF_COMMAND_TIMEOUT,
+        },
     }
     for path in [base / "strings.json", *sorted((base / "translations").glob("*.json"))]:
         strings = json.loads(path.read_text(encoding="utf-8"))

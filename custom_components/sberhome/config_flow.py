@@ -13,7 +13,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import AbortFlow, FlowResult
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 # ``OptionsFlowWithReload`` landed in HA 2025.12.  Older HA versions (still
@@ -29,7 +29,12 @@ except ImportError:  # pragma: no cover — exercised only on old HA builds
         OptionsFlow as OptionsFlowWithReload,  # type: ignore[assignment]
     )
 
-from ._ha_token_store import CONF_COMPANION_TOKENS, CONF_CSAFRONT_TOKENS
+from ._ha_token_store import (
+    CONF_AUTH_GENERATION,
+    CONF_COMPANION_TOKENS,
+    CONF_CSAFRONT_TOKENS,
+    async_clear_auth_data,
+)
 from .aiosber.api import GroupAPI
 from .aiosber.auth import (
     AuthManager,
@@ -157,6 +162,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._csafront_ouid: str | None = None
         self._csafront_email_challenge: EmailOtpChallenge | None = None
         self._csafront_tokens: CsafrontTokens | None = None
+        self._auth_generation: int = 0
+        self._removed = False
+        self._http_clients: set[httpx.AsyncClient] = set()
+
+    def _abort_if_auth_reset(self) -> None:
+        """Reject an old login response after credentials have been reset."""
+        if (
+            self._removed
+            or self.source == config_entries.SOURCE_REAUTH
+            and self._auth_generation != self._get_reauth_entry().data.get(CONF_AUTH_GENERATION, 0)
+        ):
+            raise AbortFlow("auth_reset")
 
     @staticmethod
     @callback
@@ -168,22 +185,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @callback
     def async_remove(self) -> None:
-        """Закрыть httpx-клиенты, когда Home Assistant убирает flow.
-
-        Вызывается и после завершения flow (запись создана, flow прерван), и
-        когда пользователь закрыл диалог посреди входа: на внешнем шаге Сбер ID
-        или на форме SMS-кода. Без этого клиент жил бы до истечения
-        ``pending_auth_flows`` или до перезапуска Home Assistant.
-        """
+        """Forget pending auth and close every client, including gateway probes."""
+        self._removed = True
         pending_auth_flows.pop(self.flow_id, None)
-        client, http = self._client, self._csafront_http
+        client = self._client
+        clients = self._http_clients
+        self._http_clients = set()
+        if self._csafront_http is not None:
+            clients.add(self._csafront_http)
         self._client = None
         self._csafront_http = None
-        if client is None and http is None:
-            return
-        self.hass.async_create_task(
-            _async_close_clients(client, http), f"{DOMAIN} config flow cleanup"
-        )
+        self.init_data = None
+        self._sberid_tokens = None
+        self._companion_tokens = None
+        self._csafront_pkce = None
+        self._csafront_phone = None
+        self._csafront_ouid = None
+        self._csafront_email_challenge = None
+        self._csafront_tokens = None
+        if client is not None or clients:
+            self.hass.async_create_task(
+                _async_close_clients(client, *clients), f"{DOMAIN} config flow cleanup"
+            )
 
     def _register_views(self) -> None:
         """Register auth helper views (once per HA instance)."""
@@ -193,9 +216,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.hass.data[_VIEWS_REGISTERED_KEY] = True
 
     async def _async_create_http(self) -> httpx.AsyncClient:
-        """Создать httpx-клиент с общим SSL-контекстом интеграции."""
+        """Create and track a client only while the login is still current."""
+        self._abort_if_auth_reset()
         ssl_ctx = await async_init_ssl(self.hass)
-        return httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
+        self._abort_if_auth_reset()
+        http = httpx.AsyncClient(verify=ssl_ctx, timeout=REQUEST_TIMEOUT)
+        self._http_clients.add(http)
+        return http
 
     def _abort_if_other_account(self) -> None:
         """Прервать flow, если вход выполнен не в тот аккаунт.
@@ -208,6 +235,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             AbortFlow: Аккаунт не тот или уже настроен.
         """
         if self.source == config_entries.SOURCE_REAUTH:
+            self._abort_if_auth_reset()
             if self._get_reauth_entry().unique_id is not None:
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
         else:
@@ -226,6 +254,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Без этого каждый brought-up-but-not-finished flow оставлял
         # живой httpx.AsyncClient до рестарта HA (P1 #11).
         await cleanup_expired()
+        self._abort_if_auth_reset()
 
         # HA-фронт (2024.x+) прогоняет external_step.url через `new URL(url)`
         # без base — относительный `/auth/sberhome?...` бросает TypeError, и
@@ -242,7 +271,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Вход не завершён за отведённое время: cleanup_expired уже
                 # закрыл этот клиент, начинаем заново.
                 await self._client.aclose()
-            self._client = SberAPI(http=await self._async_create_http(), owns_http=True)
+            http = await self._async_create_http()
+            self._abort_if_auth_reset()
+            self._client = SberAPI(http=http, owns_http=True)
             self._register_views()
             auth_url = self._client.create_authorization_url()
             pending_auth_flows[self.flow_id] = PendingFlow(client=self._client, auth_url=auth_url)
@@ -403,6 +434,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return "send_email_otp_failed"
         except Exception as err:
             return _flow_error(err, "Email code request")
+        self._abort_if_auth_reset()
         self._csafront_ouid = ouid
         self._csafront_email_challenge = EmailOtpChallenge(ouid, initialization_required=False)
         return None
@@ -419,17 +451,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         # Предыдущий клиент (повторная отправка, возврат к номеру) закрываем.
         await self._csafront_cleanup()
-        self._csafront_http = await self._async_create_http()
+        http = await self._async_create_http()
+        self._abort_if_auth_reset()
+        self._csafront_http = http
         self._csafront_pkce = PkceParams.generate()
         self._csafront_phone = phone
         try:
-            self._csafront_ouid = await send_otp(self._csafront_http, phone, self._csafront_pkce)
+            ouid = await send_otp(self._csafront_http, phone, self._csafront_pkce)
         except Exception as err:
             await self._csafront_cleanup()
             if isinstance(err, SberError):
                 LOGGER.warning("CSAFront send_otp failed: %s", err)
                 return "send_otp_failed"
             return _flow_error(err, "SMS code request")
+        self._abort_if_auth_reset()
+        self._csafront_ouid = ouid
         LOGGER.debug("CSAFront SMS sent for phone=***%s", phone[-4:])
         return None
 
@@ -467,6 +503,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return "invalid_email_otp" if email else "invalid_otp"
         except Exception as err:
             return _flow_error(err, "Email code check" if email else "SMS code check")
+        self._abort_if_auth_reset()
         if isinstance(result, EmailOtpChallenge):
             if email:
                 await self._csafront_cleanup()
@@ -479,12 +516,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             token_data = await exchange_authcode(self._csafront_http, result, self._csafront_pkce)
+            self._abort_if_auth_reset()
             smart_home_token = await get_smart_home_token(
                 self._csafront_http, token_data["access_token"]
             )
+        except AbortFlow:
+            raise
         except Exception as err:
             return _flow_error(err, "Email sign-in" if email else "SMS sign-in")
 
+        self._abort_if_auth_reset()
         now = time.time()
         self._csafront_tokens = CsafrontTokens(
             csafront_access_token=token_data["access_token"],
@@ -515,11 +556,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await _async_probe_gateway(self._csafront_http, auth)
         except Exception as err:
+            self._abort_if_auth_reset()
             error = _flow_error(err, "Sber smart home check")
             self._csafront_tokens = (
                 None if error == "invalid_auth" else (await store.load() or self._csafront_tokens)
             )
             return error
+        self._abort_if_auth_reset()
         self._csafront_tokens = await store.load() or self._csafront_tokens
         return None
 
@@ -535,6 +578,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _csafront_finalize(self) -> FlowResult:
         """Создать/обновить config entry с проверенными CsafrontTokens."""
+        self._abort_if_auth_reset()
         assert self._csafront_tokens is not None
         tokens = self._csafront_tokens
         phone = self._csafront_phone or ""
@@ -562,6 +606,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Проверить облако и создать/обновить запись после входа через Сбер ID."""
+        self._abort_if_auth_reset()
         pending_auth_flows.pop(self.flow_id, None)
         if self._client is not None:
             self._sberid_tokens = self._client.sberid_tokens
@@ -588,6 +633,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors={"base": error},
             )
 
+        self._abort_if_auth_reset()
         data: dict[str, Any] = {
             CONF_AUTH_METHOD: AUTH_METHOD_SBERID,
             CONF_TOKEN: self._sberid_tokens.to_dict(),
@@ -639,6 +685,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         store = InMemoryTokenStore()
         http = await self._async_create_http()
         try:
+            self._abort_if_auth_reset()
             auth = AuthManager(
                 http=http,
                 store=store,
@@ -647,12 +694,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             await _async_probe_gateway(http, auth)
         except Exception as err:
+            self._abort_if_auth_reset()
             error = _flow_error(err, "Sber smart home check")
             if error == "invalid_auth":
                 self._sberid_tokens = None
             return error
         finally:
             await http.aclose()
+        self._abort_if_auth_reset()
         self._companion_tokens = await store.load()
         return None
 
@@ -662,6 +711,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         refresh_token Сбера одноразовый: без этого в запись попал бы уже
         использованный токен.
         """
+        self._abort_if_auth_reset()
         self._sberid_tokens = tokens
 
     @staticmethod
@@ -686,8 +736,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # --- Reauth Flow ---
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
-        """Handle reauthentication — диспатч на тот же flow что использовался изначально."""
-        # Csafront entries: предзаполним phone для удобства.
+        """Start reauthentication bound to the entry's current generation."""
+        self._auth_generation = entry_data.get(CONF_AUTH_GENERATION, 0)
+        self._abort_if_auth_reset()
         method = entry_data.get(CONF_AUTH_METHOD)
         if method == AUTH_METHOD_CSAFRONT:
             csaf = entry_data.get(CONF_CSAFRONT_TOKENS) or {}
@@ -724,11 +775,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_external_step_done(next_step_id="finish")
 
 
-async def _async_close_clients(client: SberAPI | None, http: httpx.AsyncClient | None) -> None:
-    """Закрыть httpx-клиенты flow, оставшиеся после его удаления."""
+async def _async_close_clients(client: SberAPI | None, *clients: httpx.AsyncClient) -> None:
+    """Close all clients owned by a removed login flow."""
     if client is not None:
         await client.aclose()
-    if http is not None:
+    for http in clients:
         await http.aclose()
 
 
@@ -754,28 +805,25 @@ def _normalize_phone(raw: str) -> str | None:
 
 
 class SberHomeOptionsFlow(OptionsFlowWithReload):
-    """Handle options for SberHome.
+    """Connection settings and explicit credential reset.
 
-    `automatic_reload` выключен намеренно. Базовый класс сам перезагружает entry
-    после сохранения, но HA запрещает это делать интеграциям с update-listener'ом
-    («It's not allowed to use this class if the integration uses config entry
-    update listeners»), а листенер у нас есть — `__init__.py`, `add_update_listener`.
-    Перезагрузку обеспечивает он же: options меняются, листенер срабатывает.
+    The integration's update listener owns options reloads.
+    Reset never changes options or reloads a session with erased credentials.
     """
 
     automatic_reload = False
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Manage the options."""
+        """Offer settings and a separately confirmed authentication reset."""
+        return self.async_show_menu(step_id="init", menu_options=["settings", "reset_auth"])
+
+    async def async_step_settings(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Manage connection settings while preserving device selections."""
         if user_input is not None:
-            # Сохраняем поверх существующих options, а не вместо них. Форма знает
-            # только про scan_interval, а в options живёт ещё и выбор устройств.
-            # `async_create_entry(data=user_input)` заменял бы словарь целиком, и
-            # сохранение интервала опроса стирало бы выбор пользователя.
             return self.async_create_entry(data={**self.config_entry.options, **user_input})
 
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=self.add_suggested_values_to_schema(
                 vol.Schema(
                     {
@@ -797,4 +845,44 @@ class SberHomeOptionsFlow(OptionsFlowWithReload):
                 ),
                 self.config_entry.options,
             ),
+        )
+
+    async def async_step_reset_auth(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Stop this entry, discard credentials and start a fresh reauth flow."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            entry = self.config_entry
+            async with entry.setup_lock:
+                unique_id = entry.unique_id
+                if unique_id is None:
+                    if entry.data.get(CONF_AUTH_METHOD) == AUTH_METHOD_CSAFRONT:
+                        phone = _normalize_phone(
+                            (entry.data.get(CONF_CSAFRONT_TOKENS) or {}).get("phone") or ""
+                        )
+                        unique_id = f"{CSAFRONT_UNIQUE_ID_PREFIX}{phone}" if phone else None
+                    else:
+                        unique_id = ConfigFlow._extract_sub(entry.data.get(CONF_TOKEN) or {})
+                if not unique_id:
+                    errors["base"] = "missing_account"
+                elif await entry.async_unload(self.hass):
+                    if entry.unique_id is None:
+                        self.hass.config_entries.async_update_entry(entry, unique_id=unique_id)
+                    for flow in list(
+                        entry.async_get_active_flows(
+                            self.hass,
+                            {config_entries.SOURCE_REAUTH, config_entries.SOURCE_RECONFIGURE},
+                        )
+                    ):
+                        self.hass.config_entries.flow.async_abort(flow["flow_id"])
+                    async_clear_auth_data(self.hass, entry)
+                else:
+                    errors["base"] = "cannot_unload"
+            if not errors:
+                entry.async_start_reauth(self.hass)
+                return self.async_abort(reason="reauth_started")
+
+        return self.async_show_form(
+            step_id="reset_auth",
+            data_schema=vol.Schema({}),
+            errors=errors,
         )

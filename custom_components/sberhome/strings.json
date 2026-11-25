@@ -60,7 +60,8 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "wrong_account": "Signed in with a different Sber account than the original config entry. Sign in again with the correct account.",
-      "no_url_available": "No accessible Home Assistant URL is configured. Set an external or internal URL in Settings → System → Network and try again."
+      "no_url_available": "No accessible Home Assistant URL is configured. Set an external or internal URL in Settings → System → Network and try again.",
+      "auth_reset": "This sign-in session was reset. Open the new reauthentication notification."
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
@@ -82,6 +83,13 @@
     "step": {
       "init": {
         "title": "SberHome Settings",
+        "menu_options": {
+          "settings": "Connection settings",
+          "reset_auth": "Reset authorization and sign in again"
+        }
+      },
+      "settings": {
+        "title": "SberHome Settings",
         "data": {
           "scan_interval": "Scan interval (seconds)",
           "devtools_buffer_size": "DevTools buffer size",
@@ -92,7 +100,18 @@
           "devtools_buffer_size": "How many entries each DevTools log in the panel keeps: messages, state changes, commands, validation issues (10 to 5000).",
           "command_timeout": "How long to wait for a device to report the commanded state before the panel marks the command unconfirmed (1 to 120 seconds)."
         }
+      },
+      "reset_auth": {
+        "title": "Reset authorization and sign in again",
+        "description": "All locally saved Sber ID, SMS, smart home API and speaker settings tokens will be deleted. The integration will stop until you sign in again to the same account using the same method. Devices, entities and settings will be preserved. Submit to reset; close this dialog to cancel."
       }
+    },
+    "error": {
+      "cannot_unload": "Could not stop the integration. Credentials have not been deleted. Restart Home Assistant and try again.",
+      "missing_account": "The original account cannot be identified. Credentials have not been deleted; resetting this legacy entry could connect its devices to a different account."
+    },
+    "abort": {
+      "reauth_started": "Credentials cleared. Open the SberHome reauthentication notification to sign in again."
     }
   },
   "services": {

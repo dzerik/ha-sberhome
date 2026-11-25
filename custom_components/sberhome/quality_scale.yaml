@@ -247,7 +247,8 @@ rules:
   reconfiguration-flow:
     status: todo
     comment: async_step_reconfigure нет — сменить способ входа (Сбер ID или SMS)
-      можно только удалив и заново добавив запись.
+      можно только удалив и заново добавив запись. Ручной сброс в options flow
+      очищает credentials и запускает reauth прежнего аккаунта тем же способом.
   repair-issues:
     status: done
     comment: conflicting_integration, update_failing, background_poll_disabled,
